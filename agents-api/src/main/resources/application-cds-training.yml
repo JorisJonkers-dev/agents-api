@@ -1,0 +1,7 @@
+# Profile activated only by the AppCDS training stage in the Dockerfile.
+# See auth-api/src/main/resources/application-cds-training.yml for the
+# full rationale — disable Flyway so the training run can refresh the
+# Spring context without a real Postgres in the build environment.
+spring:
+  flyway:
+    enabled: false

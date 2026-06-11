@@ -1,0 +1,29 @@
+# Profile activated by the CRaC training stage in CI. Drives synthetic local
+# traffic against the running JVM to JIT-compile the request pipeline before
+# `Core.checkpointRestore()` dumps the JVM. See auth-api's
+# application-crac-train.yml for the broader rationale; agents-api's
+# warmup endpoint list differs because it serves a conversation/message API
+# rather than OAuth2.
+#
+# Merging only this profile is a no-op in production because
+# `crac.train.enabled` defaults to false and is only flipped on by the
+# `crac-train` profile in the CI training stage.
+crac:
+  train:
+    enabled: true
+    iterations: 200
+    checkpoint-after-warmup: true
+    endpoints:
+      - /api/actuator/health
+      - /api/actuator/health/readiness
+      - /api/v1/health
+      # Auth-required — returns 401 but exercises the Spring Security filter
+      # chain + Jackson error rendering, which is the bulk of the read path.
+      - /api/v1/conversations
+
+spring:
+  cloud:
+    vault:
+      enabled: false
+      database:
+        enabled: false
