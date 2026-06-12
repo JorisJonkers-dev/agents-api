@@ -23,9 +23,10 @@ the live springdoc output, and the generated TypeScript drift apart.
   - `contract:generate` — regenerate types from the committed spec.
   - `contract:check` — regenerate to `/tmp` and `diff -u` against
     the committed copy; non-zero exit on drift.
-- `.github/workflows/contract-validate.yml` — runs both gates on
-  every PR that touches agents-api, agents-ui, vue-common,
-  published commons modules, or shared build config.
+- `.github/workflows/ci.yml` — the `openapi-contract` job ("OpenAPI
+  Contract") runs both gates (the Gradle export + `git diff --exit-code`
+  and the UI `contract:check`) and gates merges through the
+  `Pipeline Complete` aggregator.
 
 ## Regenerate after an API change
 
@@ -41,8 +42,8 @@ same PR.
 
 ## What CI failures look like
 
-- **`openapi.json` drift.** The Gradle export task in
-  `contract-validate.yml` overwrites the committed file with the live
+- **`openapi.json` drift.** The Gradle export step in the
+  `openapi-contract` job (`ci.yml`) overwrites the committed file with the live
   springdoc output, then `git diff --exit-code` flags the change.
   Resolve by running `./gradlew :services:agents-api:exportOpenApiSpec`
   locally and committing the result.
