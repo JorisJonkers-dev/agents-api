@@ -3,12 +3,18 @@ package com.jorisjonkers.personalstack.agents.infrastructure.web
 import com.jorisjonkers.personalstack.agents.application.command.SendUserInputCommand
 import com.jorisjonkers.personalstack.agents.application.command.StartAgentSessionCommand
 import com.jorisjonkers.personalstack.agents.application.command.StopAgentSessionCommand
+import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
 import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQueryService
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RestartAgentSessionHttpRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RestartAgentSessionResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.SendUserInputRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StageInputRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StagedInputResponse
@@ -42,6 +48,7 @@ class AgentSessionController(
     private val sessions: WorkspaceAgentSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val gateway: AgentGatewayClient,
+    private val restartAgentSession: RestartAgentSessionService,
 ) {
     @PostMapping
     fun start(
@@ -73,6 +80,42 @@ class AgentSessionController(
             ),
         )
         return ResponseEntity.accepted().build()
+    }
+
+    @PostMapping("/{sessionId}/restart")
+    fun restart(
+        @PathVariable workspaceId: UUID,
+        @PathVariable sessionId: UUID,
+        @RequestBody(required = false) req: RestartAgentSessionHttpRequest?,
+    ): ResponseEntity<RestartAgentSessionResponse> {
+        val result =
+            restartAgentSession.restart(
+                RestartAgentSessionInput(
+                    workspaceId = WorkspaceId(workspaceId),
+                    sessionId = WorkspaceAgentSessionId(sessionId),
+                    expectedGeneration = req?.expectedGeneration,
+                ),
+            )
+        return when (result) {
+            is RunnerSessionBindingResult.Bound ->
+                ResponseEntity
+                    .status(HttpStatus.ACCEPTED)
+                    .body(RestartAgentSessionResponse.of(result.session))
+
+            is RunnerSessionBindingResult.Conflict ->
+                result.current
+                    ?.let { ResponseEntity.status(HttpStatus.CONFLICT).body(RestartAgentSessionResponse.of(it)) }
+                    ?: ResponseEntity.status(HttpStatus.CONFLICT).build<RestartAgentSessionResponse>()
+
+            is RunnerSessionBindingResult.Unavailable ->
+                throw AgentRunnerUnavailableException(
+                    workspaceId = result.workspaceId,
+                    runnerStatus = result.runnerStatus,
+                    retryAfterSeconds =
+                        result.retryAfterSeconds
+                            ?: AgentRunnerUnavailableException.DEFAULT_RETRY_AFTER_SECONDS,
+                )
+        }
     }
 
     @PostMapping("/{sessionId}/staged-inputs")

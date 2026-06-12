@@ -1,7 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -122,7 +124,7 @@ class IdleScaleDownSchedulerTest {
     fun `sweep skips a workspace with RUNNING sessions inside the agent idle threshold`() {
         val ws = workspace(updatedAt = now.minusSeconds(7_200))
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
-        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(runningSession())
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(runningSession(ws.id))
 
         scheduler.sweep()
 
@@ -133,18 +135,69 @@ class IdleScaleDownSchedulerTest {
     fun `sweep scales down a workspace with RUNNING sessions once agent idle threshold expires`() {
         val ws = workspace(updatedAt = now.minusSeconds(14_401))
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
-        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(runningSession())
+        val session = runningSession(ws.id)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
         every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                now = now,
+            )
+        } returns true
 
         scheduler.sweep()
 
         verify { orchestrator.scaleDown(ws) }
     }
 
-    private fun runningSession() =
-        mockk<WorkspaceAgentSession> {
-            every { status } returns WorkspaceAgentSessionStatus.RUNNING
+    @Test
+    fun `sweep clears current gateway bindings without deleting durable sessions`() {
+        val ws = workspace(updatedAt = now.minusSeconds(14_401))
+        val session =
+            runningSession(ws.id)
+                .copy(
+                    gatewayAgentId = "gateway-agent-1",
+                    epoch = 4,
+                    generation = 9,
+                    gatewayBoundAt = now.minusSeconds(300),
+                )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = 9,
+                now = now,
+            )
+        } returns true
+
+        scheduler.sweep()
+
+        verify {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = 9,
+                now = now,
+            )
         }
+        verify(exactly = 0) { agentSessions.delete(any()) }
+    }
+
+    private fun runningSession(workspaceId: WorkspaceId) =
+        WorkspaceAgentSession(
+            id = WorkspaceAgentSessionId.random(),
+            workspaceId = workspaceId,
+            kind = WorkspaceAgentKind.CLAUDE,
+            gatewayAgentId = "gateway-agent",
+            status = WorkspaceAgentSessionStatus.RUNNING,
+            createdAt = now.minusSeconds(7_200),
+            updatedAt = now.minusSeconds(7_200),
+            epoch = 2,
+            generation = 5,
+            gatewayBoundAt = now.minusSeconds(3_600),
+        )
 
     private fun workspace(
         updatedAt: Instant,

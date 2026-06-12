@@ -2,17 +2,28 @@ package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import org.springframework.web.socket.BinaryMessage
 import org.springframework.web.socket.CloseStatus
+import org.springframework.web.socket.PongMessage
 import org.springframework.web.socket.TextMessage
+import org.springframework.web.socket.WebSocketMessage
 import org.springframework.web.socket.WebSocketSession
 import org.springframework.web.socket.client.standard.StandardWebSocketClient
-import org.springframework.web.socket.handler.TextWebSocketHandler
+import org.springframework.web.socket.handler.AbstractWebSocketHandler
+import org.springframework.web.util.UriComponentsBuilder
 import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -40,7 +51,8 @@ class SessionAttachHandler(
     private val workspaces: WorkspaceRepository,
     private val activity: WorkspaceActivityTracker,
     private val connected: ConnectedClientTracker,
-) : TextWebSocketHandler() {
+    private val binding: RunnerSessionBindingService,
+) : AbstractWebSocketHandler() {
     private val log = LoggerFactory.getLogger(SessionAttachHandler::class.java)
 
     private data class Bridge(
@@ -58,24 +70,48 @@ class SessionAttachHandler(
         val upstreamUri: URI,
     )
 
+    private data class BrowserCursor(
+        val epoch: Long?,
+        val offset: Long?,
+    )
+
     /**
      * Resolves the client WS into the upstream URI plus the
      * workspace id we need to mark "active". A null on any leg of
      * the resolution means we close the client WS with a labelled
      * status; the chain reads cleaner with explicit guards than
      * with a flattened let/Result alternative, so detekt's bounded-
-     * return rule is suppressed with intent.
+     * branch and return rules are suppressed with intent.
+     *
+     * Explicit attach guards preserve the close reason for each failure.
      */
-    @Suppress("ReturnCount")
+    @Suppress("CyclomaticComplexMethod", "LongMethod", "ReturnCount")
     private fun resolveAttach(clientSession: WebSocketSession): ResolvedAttach? {
         val sessionId =
             sessionIdOf(clientSession)
-                ?: return closeAndReturn(clientSession, "missing sessionId", CloseStatus.BAD_DATA)
-        val agentSession =
+                ?: return closeAndReturn(clientSession, "malformed sessionId", CloseStatus.BAD_DATA)
+        var agentSession =
             sessions.findById(sessionId)
                 ?: return closeAndReturn(clientSession, "unknown session", CloseStatus.BAD_DATA)
+        var reboundWorkspace: Workspace? = null
+        if (agentSession.status == WorkspaceAgentSessionStatus.RUNNING && agentSession.gatewayAgentId == null) {
+            when (val result = binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))) {
+                is RunnerSessionBindingResult.Bound -> {
+                    agentSession = result.session
+                    reboundWorkspace = result.workspace
+                }
+
+                is RunnerSessionBindingResult.Conflict ->
+                    return closeAndReturn(clientSession, "session binding changed", CloseStatus.SERVICE_RESTARTED)
+                is RunnerSessionBindingResult.Unavailable ->
+                    return closeAndReturn(clientSession, "runner provisioning", CloseStatus.SERVICE_RESTARTED)
+            }
+        }
+        if (agentSession.status == WorkspaceAgentSessionStatus.STARTING) {
+            return closeAndReturn(clientSession, "runner provisioning", CloseStatus.SERVICE_RESTARTED)
+        }
         val workspace =
-            workspaces.findById(agentSession.workspaceId)
+            reboundWorkspace ?: workspaces.findById(agentSession.workspaceId)
                 ?: return closeAndReturn(clientSession, "workspace gone", CloseStatus.SERVER_ERROR)
         val gatewayAgentId =
             agentSession.gatewayAgentId
@@ -87,7 +123,8 @@ class SessionAttachHandler(
         val gatewayBase =
             workspace.gatewayEndpoint
                 ?: return closeAndReturn(clientSession, "workspace has no gateway endpoint", CloseStatus.SERVER_ERROR)
-        val upstreamUri = URI.create(gatewayBase.replaceFirst("http", "ws") + "/ws/agents/$gatewayAgentId/attach")
+        val cursor = browserCursorOf(clientSession)
+        val upstreamUri = upstreamUri(gatewayBase, gatewayAgentId, cursor)
         return ResolvedAttach(sessionId, workspace.id, upstreamUri)
     }
 
@@ -102,11 +139,24 @@ class SessionAttachHandler(
 
     override fun afterConnectionEstablished(clientSession: WebSocketSession) {
         val resolved = resolveAttach(clientSession) ?: return
-        val upstreamHandler = UpstreamHandler(clientSession, resolved.workspaceId, activity)
+        val upstreamHandler =
+            UpstreamHandler(
+                client = clientSession,
+                sessionId = resolved.sessionId,
+                workspaceId = resolved.workspaceId,
+                sessions = sessions,
+                activity = activity,
+                binding = binding,
+            )
         val upstream =
-            client
-                .execute(upstreamHandler, resolved.upstreamUri.toString())
-                .get(UPSTREAM_HANDSHAKE_SECONDS, TimeUnit.SECONDS)
+            runCatching {
+                client
+                    .execute(upstreamHandler, resolved.upstreamUri.toString())
+                    .get(UPSTREAM_HANDSHAKE_SECONDS, TimeUnit.SECONDS)
+            }.getOrElse {
+                clientSession.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach unavailable"))
+                return
+            }
         bridges[clientSession.id] = Bridge(resolved.sessionId, resolved.workspaceId, upstream)
         connected.attach(resolved.workspaceId)
         activity.touch(resolved.workspaceId)
@@ -121,6 +171,21 @@ class SessionAttachHandler(
     override fun handleTextMessage(
         clientSession: WebSocketSession,
         message: TextMessage,
+    ) = relayToUpstream(clientSession, message)
+
+    override fun handleBinaryMessage(
+        session: WebSocketSession,
+        message: BinaryMessage,
+    ) = relayToUpstream(session, message)
+
+    override fun handlePongMessage(
+        session: WebSocketSession,
+        message: PongMessage,
+    ) = relayToUpstream(session, message)
+
+    private fun relayToUpstream(
+        clientSession: WebSocketSession,
+        message: WebSocketMessage<*>,
     ) {
         val bridge = bridges[clientSession.id] ?: return
         if (bridge.upstream.isOpen) {
@@ -142,9 +207,58 @@ class SessionAttachHandler(
 
     private fun sessionIdOf(session: WebSocketSession): WorkspaceAgentSessionId? {
         val match =
-            Regex("/api/v1/ws/sessions/([0-9a-f-]{36})/attach").find(session.uri?.path ?: return null)
+            Regex("/api/v1/ws/sessions/([^/]+)/attach").find(session.uri?.path ?: return null)
                 ?: return null
         return runCatching { WorkspaceAgentSessionId(UUID.fromString(match.groupValues[1])) }.getOrNull()
+    }
+
+    private fun browserCursorOf(session: WebSocketSession): BrowserCursor {
+        val query = queryOf(session)
+        return BrowserCursor(
+            epoch = nonNegativeLong(query["epoch"]),
+            offset = nonNegativeLong(query["offset"]),
+        )
+    }
+
+    private fun queryOf(session: WebSocketSession): Map<String, String> =
+        session.uri
+            ?.rawQuery
+            ?.split('&')
+            ?.filter { it.isNotBlank() }
+            ?.mapNotNull { part ->
+                val pieces = part.split('=', limit = 2)
+                val key = decodeQuery(pieces[0])?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val value = if (pieces.size == 2) decodeQuery(pieces[1]) ?: return@mapNotNull null else ""
+                key to value
+            }?.toMap()
+            ?: emptyMap()
+
+    private fun decodeQuery(value: String): String? =
+        runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8) }.getOrNull()
+
+    private fun nonNegativeLong(value: String?): Long? = value?.toLongOrNull()?.takeIf { it >= 0 }
+
+    private fun upstreamUri(
+        gatewayBase: String,
+        gatewayAgentId: String,
+        cursor: BrowserCursor,
+    ): URI {
+        val base = URI.create(gatewayBase)
+        val scheme =
+            when (base.scheme) {
+                "http" -> "ws"
+                "https" -> "wss"
+                else -> base.scheme
+            }
+        val builder =
+            UriComponentsBuilder
+                .fromUri(base)
+                .scheme(scheme)
+                .replaceQuery(null)
+                .pathSegment("ws", "agents", gatewayAgentId, "attach")
+        cursor.epoch?.let { builder.queryParam("epoch", it) }
+        cursor.offset?.let { builder.queryParam("offset", it) }
+        return builder.build().toUri()
     }
 
     companion object {
@@ -158,13 +272,28 @@ class SessionAttachHandler(
      */
     private class UpstreamHandler(
         private val client: WebSocketSession,
+        private val sessionId: WorkspaceAgentSessionId,
         private val workspaceId: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId,
+        private val sessions: WorkspaceAgentSessionRepository,
         private val activity: WorkspaceActivityTracker,
-    ) : TextWebSocketHandler() {
+        private val binding: RunnerSessionBindingService,
+    ) : AbstractWebSocketHandler() {
         override fun handleTextMessage(
             session: WebSocketSession,
             message: TextMessage,
-        ) {
+        ) = relayToClient(message)
+
+        override fun handleBinaryMessage(
+            session: WebSocketSession,
+            message: BinaryMessage,
+        ) = relayToClient(message)
+
+        override fun handlePongMessage(
+            session: WebSocketSession,
+            message: PongMessage,
+        ) = relayToClient(message)
+
+        private fun relayToClient(message: WebSocketMessage<*>) {
             if (client.isOpen) {
                 synchronized(client) { client.sendMessage(message) }
             }
@@ -177,6 +306,16 @@ class SessionAttachHandler(
             session: WebSocketSession,
             status: CloseStatus,
         ) {
+            if (status.code == CloseStatus.BAD_DATA.code && status.reason == "unknown agent") {
+                runCatching {
+                    sessions.findById(sessionId)?.let {
+                        sessions.clearGatewayBindingIfGeneration(sessionId, it.generation)
+                    }
+                    binding.ensureBound(
+                        EnsureRunnerSessionBoundInput(sessionId = sessionId, workspaceId = workspaceId),
+                    )
+                }
+            }
             if (client.isOpen) {
                 client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach disconnected"))
             }

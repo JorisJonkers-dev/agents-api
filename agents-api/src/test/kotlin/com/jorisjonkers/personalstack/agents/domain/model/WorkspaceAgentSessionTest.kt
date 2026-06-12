@@ -8,9 +8,12 @@ class WorkspaceAgentSessionTest {
     @Test
     fun `bindGatewayAgent flips status and writes gateway id`() {
         val s = base()
-        val bound = s.bindGatewayAgent("abc12345")
+        val now = Instant.parse("2026-06-12T09:00:00Z")
+        val bound = s.bindGatewayAgent("abc12345", cliSessionId = "native-1", now = now)
         assertThat(bound.gatewayAgentId).isEqualTo("abc12345")
+        assertThat(bound.cliSessionId).isEqualTo("native-1")
         assertThat(bound.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(bound.gatewayBoundAt).isEqualTo(now)
     }
 
     @Test
@@ -18,6 +21,36 @@ class WorkspaceAgentSessionTest {
         val s = base().bindGatewayAgent("abc")
         assertThat(s.markStopped().status).isEqualTo(WorkspaceAgentSessionStatus.STOPPED)
         assertThat(s.markFailed().status).isEqualTo(WorkspaceAgentSessionStatus.FAILED)
+    }
+
+    @Test
+    fun `beginGeneration bumps epoch and generation while clearing current binding`() {
+        val s =
+            base()
+                .copy(epoch = 2, generation = 4)
+                .bindGatewayAgent("abc", cliSessionId = "native-1", now = Instant.parse("2026-06-12T09:00:00Z"))
+
+        val next = s.beginGeneration(now = Instant.parse("2026-06-12T09:01:00Z"))
+
+        assertThat(next.stableSessionId).isEqualTo(s.id.value.toString())
+        assertThat(next.epoch).isEqualTo(3)
+        assertThat(next.generation).isEqualTo(5)
+        assertThat(next.gatewayAgentId).isNull()
+        assertThat(next.gatewayBoundAt).isNull()
+        assertThat(next.status).isEqualTo(WorkspaceAgentSessionStatus.STARTING)
+    }
+
+    @Test
+    fun `retention and cleanup lifecycle fields are explicit`() {
+        val retainedUntil = Instant.parse("2026-06-13T09:00:00Z")
+        val cleanupRequestedAt = Instant.parse("2026-06-14T09:00:00Z")
+
+        val stopped = base().bindGatewayAgent("abc").markStopped(retainedUntil = retainedUntil)
+        val cleanup = stopped.markCleanupRequested(now = cleanupRequestedAt)
+
+        assertThat(stopped.gatewayAgentId).isNull()
+        assertThat(stopped.retainedUntil).isEqualTo(retainedUntil)
+        assertThat(cleanup.cleanupRequestedAt).isEqualTo(cleanupRequestedAt)
     }
 
     private fun base() =

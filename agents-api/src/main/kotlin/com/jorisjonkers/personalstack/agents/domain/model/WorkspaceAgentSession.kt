@@ -30,21 +30,71 @@ data class WorkspaceAgentSession(
     val updatedAt: Instant,
     val cliSessionId: String? = null,
     val runMode: String = "INTERACTIVE",
+    val epoch: Long = 1,
+    val generation: Long = 0,
+    val gatewayBoundAt: Instant? = null,
+    val retainedUntil: Instant? = null,
+    val cleanupRequestedAt: Instant? = null,
 ) {
+    val stableSessionId: String get() = id.value.toString()
+
     fun bindGatewayAgent(
         gatewayAgentId: String,
         cliSessionId: String? = null,
+        now: Instant = Instant.now(),
     ): WorkspaceAgentSession =
         copy(
             gatewayAgentId = gatewayAgentId,
             cliSessionId = cliSessionId,
             status = WorkspaceAgentSessionStatus.RUNNING,
-            updatedAt = Instant.now(),
+            gatewayBoundAt = now,
+            retainedUntil = null,
+            cleanupRequestedAt = null,
+            updatedAt = now,
         )
 
-    fun markStopped(): WorkspaceAgentSession =
-        copy(status = WorkspaceAgentSessionStatus.STOPPED, updatedAt = Instant.now())
+    fun beginGeneration(
+        nextEpoch: Long = epoch + 1,
+        now: Instant = Instant.now(),
+    ): WorkspaceAgentSession =
+        copy(
+            gatewayAgentId = null,
+            status = WorkspaceAgentSessionStatus.STARTING,
+            epoch = nextEpoch,
+            generation = generation + 1,
+            gatewayBoundAt = null,
+            retainedUntil = null,
+            cleanupRequestedAt = null,
+            updatedAt = now,
+        )
 
-    fun markFailed(): WorkspaceAgentSession =
-        copy(status = WorkspaceAgentSessionStatus.FAILED, updatedAt = Instant.now())
+    fun clearGatewayBinding(now: Instant = Instant.now()): WorkspaceAgentSession =
+        copy(gatewayAgentId = null, gatewayBoundAt = null, updatedAt = now)
+
+    fun markStopped(
+        retainedUntil: Instant? = this.retainedUntil,
+        now: Instant = Instant.now(),
+    ): WorkspaceAgentSession =
+        copy(
+            gatewayAgentId = null,
+            status = WorkspaceAgentSessionStatus.STOPPED,
+            gatewayBoundAt = null,
+            retainedUntil = retainedUntil,
+            updatedAt = now,
+        )
+
+    fun markFailed(
+        retainedUntil: Instant? = this.retainedUntil,
+        now: Instant = Instant.now(),
+    ): WorkspaceAgentSession =
+        copy(
+            gatewayAgentId = null,
+            status = WorkspaceAgentSessionStatus.FAILED,
+            gatewayBoundAt = null,
+            retainedUntil = retainedUntil,
+            updatedAt = now,
+        )
+
+    fun markCleanupRequested(now: Instant = Instant.now()): WorkspaceAgentSession =
+        copy(cleanupRequestedAt = now, updatedAt = now)
 }

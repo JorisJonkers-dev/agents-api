@@ -1,12 +1,16 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
+import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 
 @Component
 class StopAgentSessionCommandHandler(
@@ -14,7 +18,11 @@ class StopAgentSessionCommandHandler(
     private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
     private val autoCapture: LessonAutoCapture,
+    private val runtime: AgentRuntimeProperties,
+    private val clock: Clock = Clock.systemUTC(),
 ) : CommandHandler<StopAgentSessionCommand> {
+    private val log = LoggerFactory.getLogger(StopAgentSessionCommandHandler::class.java)
+
     @Transactional
     override fun handle(command: StopAgentSessionCommand) {
         val session = sessions.findById(command.sessionId) ?: return
@@ -24,8 +32,19 @@ class StopAgentSessionCommandHandler(
         val gatewayId = session.gatewayAgentId
         if (gatewayId != null) {
             runCatching { gateway.stopAgent(workspace, gatewayId) }
+                .onFailure {
+                    log.warn("gateway stop of session {} agent {} failed: {}", session.id, gatewayId, it.message)
+                }
         }
-        sessions.save(session.markStopped())
+        val now = clock.instant()
+        sessions.markLifecycleIfGeneration(
+            id = session.id,
+            expectedGeneration = session.generation,
+            status = WorkspaceAgentSessionStatus.STOPPED,
+            retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+            clearGatewayBinding = true,
+            now = now,
+        )
         // The stop command is a definitive "this session is done"
         // signal — flush a final auto-capture pass against the
         // full transcript on the way out.

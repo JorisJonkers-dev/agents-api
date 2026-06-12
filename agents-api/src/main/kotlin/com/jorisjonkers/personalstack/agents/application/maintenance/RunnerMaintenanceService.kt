@@ -4,6 +4,7 @@ import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityT
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
+import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -28,6 +29,7 @@ import java.time.Clock
 @Component
 class RunnerMaintenanceService(
     private val workspaces: WorkspaceRepository,
+    private val agentSessions: WorkspaceAgentSessionRepository,
     private val orchestrator: AgentRunnerOrchestrator,
     private val tracker: WorkspaceActivityTracker,
     private val clock: Clock = Clock.systemUTC(),
@@ -81,8 +83,23 @@ class RunnerMaintenanceService(
                 updatedAt = clock.instant(),
             ),
         )
+        clearGatewayBindings(workspace)
         tracker.forget(workspace.id)
         log.info("maintenance: workspace {} scaled to zero (was {})", workspace.id, workspace.status)
         return workspace.id.value.toString()
+    }
+
+    private fun clearGatewayBindings(workspace: Workspace) {
+        val now = clock.instant()
+        agentSessions
+            .findAllByWorkspaceId(workspace.id)
+            .filter { it.gatewayAgentId != null || it.gatewayBoundAt != null }
+            .forEach {
+                agentSessions.clearGatewayBindingIfGeneration(
+                    id = it.id,
+                    expectedGeneration = it.generation,
+                    now = now,
+                )
+            }
     }
 }

@@ -2,6 +2,10 @@ package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -9,6 +13,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionI
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.TurnRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
@@ -38,6 +43,7 @@ class SessionAttachHandlerTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val turns = mockk<TurnRepository>(relaxed = true)
     private val activity = mockk<WorkspaceActivityTracker>(relaxed = true)
+    private val binding = mockk<RunnerSessionBindingService>()
 
     private lateinit var handler: SessionAttachHandler
     private lateinit var upstream: WebSocketSession
@@ -57,7 +63,7 @@ class SessionAttachHandlerTest {
             anyConstructed<StandardWebSocketClient>().execute(any(), any<String>())
         } returns CompletableFuture.completedFuture(upstream)
 
-        handler = SessionAttachHandler(sessions, workspaces, activity, ConnectedClientTracker())
+        handler = SessionAttachHandler(sessions, workspaces, activity, ConnectedClientTracker(), binding)
 
         every { sessions.findById(sessionId) } returns agentSession()
         every { workspaces.findById(workspaceId) } returns workspace()
@@ -170,6 +176,74 @@ class SessionAttachHandlerTest {
     }
 
     @Test
+    fun `valid reconnect cursor query is forwarded to upstream attach uri`() {
+        val uriSlot = slot<String>()
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(any(), capture(uriSlot))
+        } returns CompletableFuture.completedFuture(upstream)
+
+        handler.afterConnectionEstablished(clientSession("?epoch=7&offset=12"))
+
+        assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/abc12345/attach?epoch=7&offset=12")
+    }
+
+    @Test
+    fun `invalid reconnect cursor query is omitted instead of closing bad data`() {
+        val uriSlot = slot<String>()
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(any(), capture(uriSlot))
+        } returns CompletableFuture.completedFuture(upstream)
+
+        handler.afterConnectionEstablished(clientSession("?epoch=-1&offset=nope"))
+
+        assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/abc12345/attach")
+    }
+
+    @Test
+    fun `running session without gateway binding is rebound before upstream attach`() {
+        val rebound = agentSession(gatewayAgentId = "fresh")
+        every { sessions.findById(sessionId) } returns agentSession(gatewayAgentId = null)
+        every {
+            binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))
+        } returns bound(rebound)
+        val uriSlot = slot<String>()
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(any(), capture(uriSlot))
+        } returns CompletableFuture.completedFuture(upstream)
+
+        handler.afterConnectionEstablished(clientSession())
+
+        assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/fresh/attach")
+    }
+
+    @Test
+    fun `unknown upstream agent clears stale binding and asks binder to rebind`() {
+        val client = clientSession()
+        every { client.close(any()) } just Runs
+        every { sessions.clearGatewayBindingIfGeneration(sessionId, 0, any()) } returns true
+        every {
+            binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId, workspaceId = workspaceId))
+        } returns bound(agentSession(gatewayAgentId = "fresh"))
+        val handlerSlot = slot<org.springframework.web.socket.WebSocketHandler>()
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(capture(handlerSlot), any<String>())
+        } returns CompletableFuture.completedFuture(upstream)
+
+        handler.afterConnectionEstablished(client)
+        handlerSlot.captured.afterConnectionClosed(upstream, CloseStatus.BAD_DATA.withReason("unknown agent"))
+
+        verify { sessions.clearGatewayBindingIfGeneration(sessionId, 0, any()) }
+        verify {
+            binding.ensureBound(
+                EnsureRunnerSessionBoundInput(sessionId = sessionId, workspaceId = workspaceId),
+            )
+        }
+        val closed = slot<CloseStatus>()
+        verify { client.close(capture(closed)) }
+        assertThat(closed.captured.reason).isEqualTo("runner attach disconnected")
+    }
+
+    @Test
     fun `client input after upstream closed closes browser socket instead of dropping keystrokes`() {
         val client = clientSession()
         every { client.close(any()) } just Runs
@@ -183,22 +257,38 @@ class SessionAttachHandlerTest {
         assertThat(closed.captured.reason).isEqualTo("runner attach disconnected")
     }
 
-    private fun clientSession(): WebSocketSession {
+    private fun clientSession(query: String = ""): WebSocketSession {
         val client = mockk<WebSocketSession>(relaxed = true)
         every { client.id } returns UUID.randomUUID().toString()
-        every { client.uri } returns attachUri()
+        every { client.uri } returns attachUri(query)
         every { client.isOpen } returns true
         return client
     }
 
-    private fun attachUri(): URI = URI.create("ws://api/api/v1/ws/sessions/${sessionId.value}/attach")
+    private fun attachUri(query: String = ""): URI =
+        URI.create("ws://api/api/v1/ws/sessions/${sessionId.value}/attach$query")
 
-    private fun agentSession() =
+    private fun bound(session: WorkspaceAgentSession) =
+        RunnerSessionBindingResult.Bound(
+            workspace = workspace(),
+            session = session,
+            gatewayAgent =
+                AgentGatewayClient.GatewayAgent(
+                    id = session.gatewayAgentId ?: "fresh",
+                    kind = session.kind,
+                    cwd = "/workspace",
+                    stableSessionId = session.stableSessionId,
+                    epoch = session.epoch,
+                ),
+            provisioning = RunnerProvisioningResult.AlreadyReady,
+        )
+
+    private fun agentSession(gatewayAgentId: String? = "abc12345") =
         WorkspaceAgentSession(
             id = sessionId,
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
-            gatewayAgentId = "abc12345",
+            gatewayAgentId = gatewayAgentId,
             status = WorkspaceAgentSessionStatus.RUNNING,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),

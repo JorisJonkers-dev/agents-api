@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
+import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -13,33 +14,62 @@ import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRe
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
-import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 
 class StopAgentSessionCommandHandlerTest {
+    private val now = Instant.parse("2026-06-12T09:00:00Z")
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val autoCapture = mockk<LessonAutoCapture>(relaxed = true)
-    private val handler = StopAgentSessionCommandHandler(workspaces, sessions, gateway, autoCapture)
+    private val runtime = runtimeProperties()
+    private val handler =
+        StopAgentSessionCommandHandler(
+            workspaces = workspaces,
+            sessions = sessions,
+            gateway = gateway,
+            autoCapture = autoCapture,
+            runtime = runtime,
+            clock = Clock.fixed(now, ZoneOffset.UTC),
+        )
 
     @Test
-    fun `handle stops gateway agent and persists stopped state`() {
+    fun `handle stops gateway agent and persists stopped state with retention`() {
         val ws = workspace()
         val session = session(ws.id, gatewayAgentId = "abc12345")
         every { sessions.findById(session.id) } returns session
         every { workspaces.findById(ws.id) } returns ws
-        val saved = slot<WorkspaceAgentSession>()
-        every { sessions.save(capture(saved)) } answers { saved.captured }
+        every {
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.STOPPED,
+                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                clearGatewayBinding = true,
+                now = now,
+            )
+        } returns true
 
         handler.handle(StopAgentSessionCommand(session.id))
 
         verify { gateway.stopAgent(ws, "abc12345") }
+        verify {
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.STOPPED,
+                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                clearGatewayBinding = true,
+                now = now,
+            )
+        }
         verify { autoCapture.capture(session.id) }
-        assertThat(saved.captured.status).isEqualTo(WorkspaceAgentSessionStatus.STOPPED)
+        verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
+        verify(exactly = 0) { sessions.delete(any()) }
     }
 
     @Test
@@ -75,5 +105,18 @@ class StopAgentSessionCommandHandlerTest {
         status = WorkspaceAgentSessionStatus.RUNNING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
+        epoch = 3,
+        generation = 7,
     )
+
+    private fun runtimeProperties() =
+        AgentRuntimeProperties(
+            namespace = "agents-system",
+            image = "ghcr.io/example/agent-runner:latest",
+            serviceAccount = "agent-runner",
+            claudeCredentialsPvc = "claude-credentials",
+            codexCredentialsPvc = "codex-credentials",
+            githubDeployKeySecret = "agents-github-deploy-key",
+            durableSessionRetentionSeconds = 86_400,
+        )
 }

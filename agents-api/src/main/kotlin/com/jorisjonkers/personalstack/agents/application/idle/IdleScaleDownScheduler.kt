@@ -83,7 +83,22 @@ class IdleScaleDownScheduler(
                 updatedAt = clock.instant(),
             ),
         )
+        clearGatewayBindings(workspace)
         tracker.forget(workspace.id)
         log.info("workspace {} idle-scaled to zero (last seen {})", workspace.id, effectiveLastSeen(workspace))
+    }
+
+    private fun clearGatewayBindings(workspace: Workspace) {
+        val now = clock.instant()
+        agentSessions
+            .findAllByWorkspaceId(workspace.id)
+            .filter { it.gatewayAgentId != null || it.gatewayBoundAt != null }
+            .forEach {
+                agentSessions.clearGatewayBindingIfGeneration(
+                    id = it.id,
+                    expectedGeneration = it.generation,
+                    now = now,
+                )
+            }
     }
 }

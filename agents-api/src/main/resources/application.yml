@@ -147,6 +147,9 @@ agent-runtime:
   # `idle-sweep-period-ms` intervals.
   idle-after-seconds: ${AGENT_RUNTIME_IDLE_AFTER_SECONDS:1800}
   idle-sweep-period-ms: ${AGENT_RUNTIME_IDLE_SWEEP_PERIOD_MS:300000}
+  durable-session-retention-seconds: ${AGENT_RUNTIME_DURABLE_SESSION_RETENTION_SECONDS:604800}
+  durable-session-cleanup-sweep-period-ms: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_SWEEP_PERIOD_MS:300000}
+  durable-session-cleanup-batch-size: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_BATCH_SIZE:25}
   # Standing agent-gateway used for the workspace-independent
   # `/git/verify` deploy-key probe at attach/create time. Empty =>
   # the probe is skipped and the stored read/write degrade to null.

@@ -92,6 +92,8 @@ data class AgentRuntimeProperties(
     // starting with the `gh` wrapper degrading to a no-op.
     val githubAppBearerSecret: String = "github-app",
     val githubAppBearerSecretKey: String = "token-bearer",
+    val durableSessionRetentionSeconds: Long = 604_800,
+    val durableSessionCleanupBatchSize: Int = 25,
 ) {
     init {
         require(defaultMcpProfile in VALID_MCP_PROFILES) {
@@ -104,6 +106,12 @@ data class AgentRuntimeProperties(
         }
         require(dockerSocketSupplementalGroups.all { it > 0L }) {
             "agent-runtime.docker-socket-supplemental-groups must contain positive numeric gids"
+        }
+        require(durableSessionRetentionSeconds > 0L) {
+            "agent-runtime.durable-session-retention-seconds must be positive"
+        }
+        require(durableSessionCleanupBatchSize > 0) {
+            "agent-runtime.durable-session-cleanup-batch-size must be positive"
         }
     }
 

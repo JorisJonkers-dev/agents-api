@@ -2,9 +2,14 @@ package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
+import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -20,15 +25,21 @@ class RunnerMaintenanceServiceTest {
     private val now = Instant.parse("2026-05-19T12:00:00Z")
     private val clock = Clock.fixed(now, ZoneOffset.UTC)
     private val workspaces = mockk<WorkspaceRepository>()
+    private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
     private val service =
         RunnerMaintenanceService(
             workspaces = workspaces,
+            agentSessions = agentSessions,
             orchestrator = orchestrator,
             tracker = tracker,
             clock = clock,
         )
+
+    init {
+        every { agentSessions.findAllByWorkspaceId(any()) } returns emptyList()
+    }
 
     @Test
     fun `gracefulScaleDownAll scales down READY workspaces and returns their ids`() {
@@ -95,6 +106,45 @@ class RunnerMaintenanceServiceTest {
         service.gracefulScaleDownAll()
 
         assertThat(tracker.lastSeen(ws.id)).isNull()
+    }
+
+    @Test
+    fun `gracefulScaleDownAll clears current gateway bindings without deleting sessions`() {
+        val ws = workspace(WorkspaceStatus.READY)
+        val session =
+            WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CODEX,
+                gatewayAgentId = "gateway-agent",
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                createdAt = now.minusSeconds(3600),
+                updatedAt = now.minusSeconds(60),
+                epoch = 6,
+                generation = 12,
+                gatewayBoundAt = now.minusSeconds(60),
+            )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { workspaces.save(any()) } answers { firstArg() }
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                now = now,
+            )
+        } returns true
+
+        service.gracefulScaleDownAll()
+
+        verify {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = 12,
+                now = now,
+            )
+        }
+        verify(exactly = 0) { agentSessions.delete(any()) }
     }
 
     private fun workspace(status: WorkspaceStatus) =

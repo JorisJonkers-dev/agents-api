@@ -212,6 +212,27 @@ data class StartAgentSessionRequest(
     val kind: WorkspaceAgentKind,
 )
 
+data class RestartAgentSessionHttpRequest(
+    val expectedGeneration: Long? = null,
+)
+
+data class RestartAgentSessionResponse(
+    val sessionId: UUID,
+    val epoch: Long,
+    val generation: Long,
+    val status: String,
+) {
+    companion object {
+        fun of(s: WorkspaceAgentSession) =
+            RestartAgentSessionResponse(
+                sessionId = s.id.value,
+                epoch = s.epoch,
+                generation = s.generation,
+                status = s.status.name,
+            )
+    }
+}
+
 data class WorkspaceAgentSessionResponse(
     val id: UUID,
     val workspaceId: UUID,

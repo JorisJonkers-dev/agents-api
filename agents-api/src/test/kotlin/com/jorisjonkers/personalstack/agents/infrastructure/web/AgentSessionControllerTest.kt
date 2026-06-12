@@ -1,6 +1,10 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQueryService
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -30,10 +34,12 @@ class AgentSessionControllerTest {
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
     private val gateway = mockk<AgentGatewayClient>()
+    private val restartAgentSession = mockk<RestartAgentSessionService>()
     private val mockMvc: MockMvc =
         MockMvcBuilders
-            .standaloneSetup(AgentSessionController(commandBus, turnHistory, sessions, workspaces, gateway))
-            .build()
+            .standaloneSetup(
+                AgentSessionController(commandBus, turnHistory, sessions, workspaces, gateway, restartAgentSession),
+            ).build()
 
     private val workspaceId = WorkspaceId.random()
     private val sessionId = WorkspaceAgentSessionId.random()
@@ -63,6 +69,44 @@ class AgentSessionControllerTest {
             .andExpect(jsonPath("$.name").value("source.txt"))
 
         verify { gateway.stageInput(workspace, "abc12345", "large document", "source.txt") }
+    }
+
+    @Test
+    fun `POST restart returns accepted durable session metadata`() {
+        val workspace = workspace()
+        val restarted = agentSession().copy(epoch = 3, generation = 7)
+        every {
+            restartAgentSession.restart(
+                RestartAgentSessionInput(
+                    workspaceId = workspaceId,
+                    sessionId = sessionId,
+                    expectedGeneration = 6,
+                ),
+            )
+        } returns
+            RunnerSessionBindingResult.Bound(
+                workspace = workspace,
+                session = restarted,
+                gatewayAgent =
+                    AgentGatewayClient.GatewayAgent(
+                        id = "fresh",
+                        kind = WorkspaceAgentKind.CLAUDE,
+                        cwd = "/workspace",
+                        epoch = 3,
+                    ),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/restart")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"expectedGeneration":6}"""),
+            ).andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.sessionId").value(sessionId.value.toString()))
+            .andExpect(jsonPath("$.epoch").value(3))
+            .andExpect(jsonPath("$.generation").value(7))
+            .andExpect(jsonPath("$.status").value("RUNNING"))
     }
 
     private fun agentSession() =

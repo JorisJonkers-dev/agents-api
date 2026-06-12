@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.domain.port
 
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 
 /**
  * Driven port: the HTTP/WS facade in front of an agent-gateway
@@ -16,6 +17,14 @@ interface AgentGatewayClient {
         val kind: WorkspaceAgentKind,
         val cwd: String,
         val cliSessionId: String? = null,
+        val stableSessionId: String? = null,
+        val epoch: Long = 1,
+        val continuation: ContinuationMetadata? = null,
+    )
+
+    data class ContinuationMetadata(
+        val reason: String? = null,
+        val previousEpoch: Long? = null,
     )
 
     /**
@@ -51,11 +60,19 @@ interface AgentGatewayClient {
         workspace: Workspace,
         kind: WorkspaceAgentKind,
         workspacePath: String? = null,
+        stableSessionId: WorkspaceAgentSessionId? = null,
+        epoch: Long? = null,
+        continuation: ContinuationMetadata? = null,
     ): GatewayAgent
 
     fun stopAgent(
         workspace: Workspace,
         gatewayAgentId: String,
+    )
+
+    fun cleanupStableSession(
+        workspace: Workspace,
+        stableSessionId: WorkspaceAgentSessionId,
     )
 
     fun sendInput(
@@ -108,6 +125,9 @@ interface AgentGatewayClient {
         prompt: String,
         cliSessionId: String? = null,
         timeoutSeconds: Long? = null,
+        stableSessionId: WorkspaceAgentSessionId? = null,
+        epoch: Long? = null,
+        continuation: ContinuationMetadata? = null,
     ): HeadlessJob
 
     fun pollHeadlessJob(

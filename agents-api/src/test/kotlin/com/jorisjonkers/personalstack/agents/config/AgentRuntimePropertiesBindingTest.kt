@@ -123,6 +123,33 @@ class AgentRuntimePropertiesBindingTest {
         assertThat(props.dockerSocketSupplementalGroups).containsExactly(44L, 45L)
     }
 
+    @Test
+    fun `durable session retention and cleanup batch bind from runtime properties`() {
+        val props =
+            bind(
+                base +
+                    mapOf(
+                        "agent-runtime.durable-session-retention-seconds" to "3600",
+                        "agent-runtime.durable-session-cleanup-batch-size" to "7",
+                    ),
+            )
+
+        assertThat(props.durableSessionRetentionSeconds).isEqualTo(3600)
+        assertThat(props.durableSessionCleanupBatchSize).isEqualTo(7)
+    }
+
+    @Test
+    fun `durable session retention rejects non-positive values`() {
+        assertThatThrownBy {
+            bind(
+                base +
+                    mapOf("agent-runtime.durable-session-retention-seconds" to "0"),
+            )
+        }.rootCause()
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("agent-runtime.durable-session-retention-seconds")
+    }
+
     private fun bind(properties: Map<String, String>): AgentRuntimeProperties {
         val source = MapConfigurationPropertySource(properties)
         return Binder(source)

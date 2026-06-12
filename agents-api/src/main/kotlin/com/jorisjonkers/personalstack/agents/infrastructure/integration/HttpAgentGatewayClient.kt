@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.infrastructure.integration
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatusCode
@@ -14,7 +15,10 @@ import org.springframework.web.client.RestClient
  * one HTTP call; the gateway is the sole authority over what those
  * verbs actually mean, so this client deliberately holds no logic of
  * its own beyond URI building and response mapping.
+ *
+ * One method per gateway endpoint keeps route parity visible in this adapter.
  */
+@Suppress("TooManyFunctions")
 @Component
 class HttpAgentGatewayClient(
     private val restClient: RestClient,
@@ -27,11 +31,22 @@ class HttpAgentGatewayClient(
         val kind: WorkspaceAgentKind,
         val cwd: String,
         val cliSessionId: String? = null,
+        val stableSessionId: String? = null,
+        val epoch: Long = 1,
+        val continuation: ContinuationBody? = null,
     )
 
     private data class SpawnBody(
         val kind: WorkspaceAgentKind,
         val workspacePath: String? = null,
+        val stableSessionId: String? = null,
+        val epoch: Long? = null,
+        val continuation: ContinuationBody? = null,
+    )
+
+    private data class ContinuationBody(
+        val reason: String? = null,
+        val previousEpoch: Long? = null,
     )
 
     private data class SendBody(
@@ -86,13 +101,23 @@ class HttpAgentGatewayClient(
         workspace: Workspace,
         kind: WorkspaceAgentKind,
         workspacePath: String?,
+        stableSessionId: WorkspaceAgentSessionId?,
+        epoch: Long?,
+        continuation: AgentGatewayClient.ContinuationMetadata?,
     ): AgentGatewayClient.GatewayAgent {
         val dto =
             restClient
                 .post()
                 .uri("${endpoint(workspace)}/agents")
-                .body(SpawnBody(kind, workspacePath))
-                .retrieve()
+                .body(
+                    SpawnBody(
+                        kind = kind,
+                        workspacePath = workspacePath,
+                        stableSessionId = stableSessionId?.value?.toString(),
+                        epoch = epoch,
+                        continuation = continuation?.toBody(),
+                    ),
+                ).retrieve()
                 .body(GatewayAgentDto::class.java)
                 ?: error("empty response from gateway")
         return AgentGatewayClient.GatewayAgent(
@@ -100,6 +125,9 @@ class HttpAgentGatewayClient(
             kind = dto.kind,
             cwd = dto.cwd,
             cliSessionId = dto.cliSessionId,
+            stableSessionId = dto.stableSessionId,
+            epoch = dto.epoch,
+            continuation = dto.continuation?.toDomain(),
         )
     }
 
@@ -112,6 +140,18 @@ class HttpAgentGatewayClient(
             .uri("${endpoint(workspace)}/agents/$gatewayAgentId")
             .retrieve()
             // idempotent — ignore 404 from a gateway agent we've already stopped
+            .onStatus(HttpStatusCode::is4xxClientError) { _, _ -> }
+            .toBodilessEntity()
+    }
+
+    override fun cleanupStableSession(
+        workspace: Workspace,
+        stableSessionId: WorkspaceAgentSessionId,
+    ) {
+        restClient
+            .delete()
+            .uri("${endpoint(workspace)}/agents/stable-sessions/${stableSessionId.value}")
+            .retrieve()
             .onStatus(HttpStatusCode::is4xxClientError) { _, _ -> }
             .toBodilessEntity()
     }
@@ -233,6 +273,9 @@ class HttpAgentGatewayClient(
         val kind: WorkspaceAgentKind,
         val prompt: String,
         val cliSessionId: String? = null,
+        val stableSessionId: String? = null,
+        val epoch: Long? = null,
+        val continuation: ContinuationBody? = null,
         val timeoutSeconds: Long? = null,
     )
 
@@ -249,13 +292,25 @@ class HttpAgentGatewayClient(
         prompt: String,
         cliSessionId: String?,
         timeoutSeconds: Long?,
+        stableSessionId: WorkspaceAgentSessionId?,
+        epoch: Long?,
+        continuation: AgentGatewayClient.ContinuationMetadata?,
     ): AgentGatewayClient.HeadlessJob {
         val dto =
             restClient
                 .post()
                 .uri("${endpoint(workspace)}/agents/headless")
-                .body(HeadlessRequestBody(kind, prompt, cliSessionId, timeoutSeconds))
-                .retrieve()
+                .body(
+                    HeadlessRequestBody(
+                        kind = kind,
+                        prompt = prompt,
+                        cliSessionId = cliSessionId,
+                        stableSessionId = stableSessionId?.value?.toString(),
+                        epoch = epoch,
+                        continuation = continuation?.toBody(),
+                        timeoutSeconds = timeoutSeconds,
+                    ),
+                ).retrieve()
                 .body(HeadlessJobDto::class.java)
                 ?: error("empty response from gateway /agents/headless")
         return dto.toDomain()
@@ -285,4 +340,10 @@ class HttpAgentGatewayClient(
             exitCode = exitCode,
             output = output,
         )
+
+    private fun AgentGatewayClient.ContinuationMetadata.toBody(): ContinuationBody =
+        ContinuationBody(reason = reason, previousEpoch = previousEpoch)
+
+    private fun ContinuationBody.toDomain(): AgentGatewayClient.ContinuationMetadata =
+        AgentGatewayClient.ContinuationMetadata(reason = reason, previousEpoch = previousEpoch)
 }
