@@ -1,7 +1,18 @@
+@file:Suppress("TooManyFunctions", "LargeClass")
+
 package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.observability.AgentKindLabel
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.AttachAttemptTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.RunModeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
@@ -10,6 +21,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
@@ -26,6 +38,7 @@ import org.springframework.web.util.UriComponentsBuilder
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -56,12 +69,13 @@ class SessionAttachHandler(
     private val connected: ConnectedClientTracker,
     private val binding: RunnerSessionBindingService,
     private val sessionStatus: SessionStatusPublisher,
+    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : AbstractWebSocketHandler() {
     private val log = LoggerFactory.getLogger(SessionAttachHandler::class.java)
 
     private data class Bridge(
         val sessionId: WorkspaceAgentSessionId,
-        val workspaceId: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId,
+        val workspaceId: WorkspaceId,
         val upstream: WebSocketSession,
     )
 
@@ -70,8 +84,9 @@ class SessionAttachHandler(
 
     private data class ResolvedAttach(
         val sessionId: WorkspaceAgentSessionId,
-        val workspaceId: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId,
+        val workspaceId: WorkspaceId,
         val upstreamUri: URI,
+        val kind: AgentKindLabel,
     )
 
     private data class BrowserCursor(
@@ -93,10 +108,21 @@ class SessionAttachHandler(
     private fun resolveAttach(clientSession: WebSocketSession): ResolvedAttach? {
         val sessionId =
             sessionIdOf(clientSession)
-                ?: return closeAndReturn(clientSession, "malformed sessionId", CloseStatus.BAD_DATA)
+                ?: return closeAndReturn(
+                    clientSession,
+                    "malformed sessionId",
+                    CloseStatus.BAD_DATA,
+                    FailureReasonLabel.INVALID_REQUEST,
+                )
         var agentSession =
             sessions.findById(sessionId)
-                ?: return closeAndReturn(clientSession, "unknown session", CloseStatus.BAD_DATA)
+                ?: return closeAndReturn(
+                    clientSession,
+                    "unknown session",
+                    CloseStatus.BAD_DATA,
+                    FailureReasonLabel.NOT_FOUND,
+                )
+        val kind = AgentKindLabel.fromRaw(agentSession.kind.name)
         var reboundWorkspace: Workspace? = null
         if (agentSession.status == WorkspaceAgentSessionStatus.RUNNING && agentSession.gatewayAgentId == null) {
             when (val result = binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))) {
@@ -106,17 +132,41 @@ class SessionAttachHandler(
                 }
 
                 is RunnerSessionBindingResult.Conflict ->
-                    return closeAndReturn(clientSession, "session binding changed", CloseStatus.SERVICE_RESTARTED)
+                    return closeAndReturn(
+                        clientSession,
+                        "session binding changed",
+                        CloseStatus.SERVICE_RESTARTED,
+                        FailureReasonLabel.OTHER,
+                        kind,
+                    )
                 is RunnerSessionBindingResult.Unavailable ->
-                    return closeAndReturn(clientSession, "runner provisioning", CloseStatus.SERVICE_RESTARTED)
+                    return closeAndReturn(
+                        clientSession,
+                        "runner provisioning",
+                        CloseStatus.SERVICE_RESTARTED,
+                        FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+                        kind,
+                    )
             }
         }
         if (agentSession.status == WorkspaceAgentSessionStatus.STARTING) {
-            return closeAndReturn(clientSession, "runner provisioning", CloseStatus.SERVICE_RESTARTED)
+            return closeAndReturn(
+                clientSession,
+                "runner provisioning",
+                CloseStatus.SERVICE_RESTARTED,
+                FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+                kind,
+            )
         }
         val workspace =
             reboundWorkspace ?: workspaces.findById(agentSession.workspaceId)
-                ?: return closeAndReturn(clientSession, "workspace gone", CloseStatus.SERVER_ERROR)
+                ?: return closeAndReturn(
+                    clientSession,
+                    "workspace gone",
+                    CloseStatus.SERVER_ERROR,
+                    FailureReasonLabel.NOT_FOUND,
+                    kind,
+                )
         if (
             agentSession.pendingSetupId != null ||
             agentSession.pendingSetupVersion != null ||
@@ -124,7 +174,13 @@ class SessionAttachHandler(
             workspace.currentRunnerSetupId != agentSession.currentSetupId ||
             workspace.currentRunnerSetupVersion != agentSession.currentSetupVersion
         ) {
-            return closeAndReturn(clientSession, "runner setup transition", CloseStatus.SERVICE_RESTARTED)
+            return closeAndReturn(
+                clientSession,
+                "runner setup transition",
+                CloseStatus.SERVICE_RESTARTED,
+                FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+                kind,
+            )
         }
         val gatewayAgentId =
             agentSession.gatewayAgentId
@@ -132,20 +188,31 @@ class SessionAttachHandler(
                     clientSession,
                     "session not bound to a gateway agent",
                     CloseStatus.SERVER_ERROR,
+                    FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+                    kind,
                 )
         val gatewayBase =
             workspace.gatewayEndpoint
-                ?: return closeAndReturn(clientSession, "workspace has no gateway endpoint", CloseStatus.SERVER_ERROR)
+                ?: return closeAndReturn(
+                    clientSession,
+                    "workspace has no gateway endpoint",
+                    CloseStatus.SERVER_ERROR,
+                    FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+                    kind,
+                )
         val cursor = browserCursorOf(clientSession)
         val upstreamUri = upstreamUri(gatewayBase, gatewayAgentId, cursor)
-        return ResolvedAttach(sessionId, workspace.id, upstreamUri)
+        return ResolvedAttach(sessionId, workspace.id, upstreamUri, kind)
     }
 
     private fun closeAndReturn(
         session: WebSocketSession,
         reason: String,
         status: CloseStatus,
+        failureReason: FailureReasonLabel,
+        kind: AgentKindLabel = AgentKindLabel.OTHER,
     ): ResolvedAttach? {
+        recordAttach(kind, OutcomeLabel.FAILURE, failureReason)
         session.close(status.withReason(reason))
         return null
     }
@@ -162,6 +229,7 @@ class SessionAttachHandler(
                 activity = activity,
                 binding = binding,
                 sessionStatus = sessionStatus,
+                telemetry = telemetry,
             )
         val upstream =
             runCatching {
@@ -169,9 +237,11 @@ class SessionAttachHandler(
                     .execute(upstreamHandler, resolved.upstreamUri.toString())
                     .get(UPSTREAM_HANDSHAKE_SECONDS, TimeUnit.SECONDS)
             }.getOrElse {
+                recordAttach(resolved.kind, OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
                 clientSession.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach unavailable"))
                 return
             }
+        recordAttach(resolved.kind, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
         bridges[clientSession.id] = Bridge(resolved.sessionId, resolved.workspaceId, upstream)
         connected.attach(resolved.workspaceId)
         activity.touch(resolved.workspaceId)
@@ -204,8 +274,19 @@ class SessionAttachHandler(
     ) {
         val bridge = bridges[clientSession.id] ?: return
         if (bridge.upstream.isOpen) {
-            synchronized(bridge.upstream) { bridge.upstream.sendMessage(message) }
+            runCatching {
+                synchronized(bridge.upstream) { bridge.upstream.sendMessage(message) }
+            }.onFailure {
+                recordAttachOperation(OutcomeLabel.FAILURE, FailureReasonLabel.IO_ERROR)
+                closeBridge(
+                    clientSession,
+                    bridge.upstream,
+                    CloseStatus.SERVICE_RESTARTED.withReason("runner attach error"),
+                )
+                return
+            }
         } else {
+            recordAttachOperation(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
             clientSession.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach disconnected"))
         }
         sessions.findById(bridge.sessionId)?.workspaceId?.let { activity.touch(it) }
@@ -218,6 +299,20 @@ class SessionAttachHandler(
         val bridge = bridges.remove(clientSession.id) ?: return
         connected.detach(bridge.workspaceId)
         runCatching { bridge.upstream.close(status) }
+        recordAttachOperation(outcomeOf(status), failureReasonOf(status))
+    }
+
+    private fun closeBridge(
+        client: WebSocketSession,
+        upstream: WebSocketSession,
+        status: CloseStatus,
+    ) {
+        runCatching {
+            if (client.isOpen) client.close(status)
+        }
+        runCatching {
+            if (upstream.isOpen) upstream.close(status)
+        }
     }
 
     private fun sessionIdOf(session: WebSocketSession): WorkspaceAgentSessionId? {
@@ -285,6 +380,54 @@ class SessionAttachHandler(
     companion object {
         private const val UPSTREAM_HANDSHAKE_SECONDS = 5L
         private val NON_NEGATIVE_INTEGER = Regex("""\d+""")
+
+        private fun outcomeOf(status: CloseStatus): OutcomeLabel =
+            when (status.code) {
+                CloseStatus.NORMAL.code -> OutcomeLabel.SUCCESS
+                CloseStatus.GOING_AWAY.code -> OutcomeLabel.CANCELLED
+                else -> OutcomeLabel.FAILURE
+            }
+
+        private fun failureReasonOf(status: CloseStatus): FailureReasonLabel =
+            when (status.code) {
+                CloseStatus.NORMAL.code -> FailureReasonLabel.NONE
+                CloseStatus.GOING_AWAY.code -> FailureReasonLabel.CANCELLED
+                CloseStatus.BAD_DATA.code -> FailureReasonLabel.INVALID_REQUEST
+                CloseStatus.SERVICE_RESTARTED.code -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
+                else -> FailureReasonLabel.OTHER
+            }
+    }
+
+    private fun recordAttach(
+        kind: AgentKindLabel,
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        val event =
+            AttachAttemptTelemetry(
+                kind = kind,
+                runMode = RunModeLabel.INTERACTIVE,
+                outcome = outcome,
+                reason = reason,
+            )
+        telemetry.recordAttachAttempt(event)
+        if (outcome == OutcomeLabel.FAILURE) telemetry.recordAttachFailure(event)
+        recordAttachOperation(outcome, reason)
+    }
+
+    private fun recordAttachOperation(
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = OperationLabel.ATTACH_SESSION,
+                mode = ModeLabel.INTERACTIVE,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.ZERO,
+            ),
+        )
     }
 
     /**
@@ -295,30 +438,41 @@ class SessionAttachHandler(
     private class UpstreamHandler(
         private val client: WebSocketSession,
         private val sessionId: WorkspaceAgentSessionId,
-        private val workspaceId: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId,
+        private val workspaceId: WorkspaceId,
         private val sessions: WorkspaceAgentSessionRepository,
         private val activity: WorkspaceActivityTracker,
         private val binding: RunnerSessionBindingService,
         private val sessionStatus: SessionStatusPublisher,
+        private val telemetry: AgentsApiTelemetry,
     ) : AbstractWebSocketHandler() {
         override fun handleTextMessage(
             session: WebSocketSession,
             message: TextMessage,
-        ) = relayToClient(message)
+        ) = relayToClient(session, message)
 
         override fun handleBinaryMessage(
             session: WebSocketSession,
             message: BinaryMessage,
-        ) = relayToClient(message)
+        ) = relayToClient(session, message)
 
         override fun handlePongMessage(
             session: WebSocketSession,
             message: PongMessage,
-        ) = relayToClient(message)
+        ) = relayToClient(session, message)
 
-        private fun relayToClient(message: WebSocketMessage<*>) {
+        private fun relayToClient(
+            upstream: WebSocketSession,
+            message: WebSocketMessage<*>,
+        ) {
             if (client.isOpen) {
-                synchronized(client) { client.sendMessage(message) }
+                runCatching {
+                    synchronized(client) { client.sendMessage(message) }
+                }.onFailure {
+                    recordAttachOperation(OutcomeLabel.FAILURE, FailureReasonLabel.IO_ERROR)
+                    runCatching { upstream.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach error")) }
+                    runCatching { client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach error")) }
+                    return
+                }
             }
             // Touch on upstream output: AI streaming → keeps idle timer alive
             // while the agent is working, even with no user keystrokes.
@@ -341,18 +495,44 @@ class SessionAttachHandler(
                     )
                 }
             }
-            if (client.isOpen) {
-                client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach disconnected"))
+            runCatching {
+                if (client.isOpen) {
+                    client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach disconnected"))
+                }
             }
+            recordAttachOperation(outcomeOf(status), failureReasonOf(status))
         }
 
         override fun handleTransportError(
             session: WebSocketSession,
             exception: Throwable,
         ) {
-            if (client.isOpen) {
-                client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach error"))
+            runCatching {
+                if (client.isOpen) {
+                    client.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach error"))
+                }
             }
+            runCatching {
+                if (session.isOpen) {
+                    session.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach error"))
+                }
+            }
+            recordAttachOperation(OutcomeLabel.FAILURE, FailureReasonLabel.IO_ERROR)
+        }
+
+        private fun recordAttachOperation(
+            outcome: OutcomeLabel,
+            reason: FailureReasonLabel,
+        ) {
+            telemetry.recordOperation(
+                OperationTelemetry(
+                    operation = OperationLabel.ATTACH_SESSION,
+                    mode = ModeLabel.INTERACTIVE,
+                    outcome = outcome,
+                    reason = reason,
+                    duration = Duration.ZERO,
+                ),
+            )
         }
     }
 }

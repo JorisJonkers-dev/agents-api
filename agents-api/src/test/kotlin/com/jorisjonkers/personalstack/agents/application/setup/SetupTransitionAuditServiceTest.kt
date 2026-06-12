@@ -1,5 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.setup
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationIssue
@@ -26,10 +30,12 @@ import java.time.Instant
 
 class SetupTransitionAuditServiceTest {
     private val events = mockk<SetupRestartEventRepository>()
-    private val service = SetupTransitionAuditService(events)
+    private val telemetry = RecordingAgentsApiTelemetry()
+    private val service = SetupTransitionAuditService(events, telemetry)
 
     @Test
     fun `persists rejected validation transition after workspace and session are known`() {
+        telemetry.operations.clear()
         val now = Instant.parse("2026-06-12T00:00:00Z")
         val workspace = workspace()
         val session = session(workspace)
@@ -69,10 +75,18 @@ class SetupTransitionAuditServiceTest {
         assertThat(saved.captured.reason).isEqualTo(SetupTransitionAuditService.REASON_VALIDATION_REJECTED)
         assertThat(saved.captured.message).contains("SECRET_MISSING")
         assertThat(saved.captured.completedAt).isEqualTo(now)
+        assertThat(telemetry.operations)
+            .anySatisfy {
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.FAILURE)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.INVALID_REQUEST)
+            }
+        assertThat(telemetry.operations.map { it.reason.label })
+            .doesNotContain("Secret agents/kb-secret is missing")
     }
 
     @Test
     fun `does not persist valid validation outcomes`() {
+        telemetry.operations.clear()
         val result =
             AgentSetupValidationResult(
                 target = AgentSetupRef(AgentSetupId("target"), AgentSetupVersion(2)),
@@ -90,6 +104,11 @@ class SetupTransitionAuditServiceTest {
 
         assertThat(event).isNull()
         verify(exactly = 0) { events.save(any()) }
+        assertThat(telemetry.operations)
+            .anySatisfy {
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.SKIPPED)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.NONE)
+            }
     }
 
     private fun workspace(): Workspace {
@@ -123,5 +142,13 @@ class SetupTransitionAuditServiceTest {
             currentSetupId = AgentSetupId("session-current"),
             currentSetupVersion = AgentSetupVersion(3),
         )
+    }
+
+    private class RecordingAgentsApiTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
     }
 }

@@ -1,5 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
@@ -28,6 +32,14 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 class DurableSessionCleanupServiceTest {
+    private class RecordingTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+    }
+
     private val now = Instant.parse("2026-06-12T09:00:00Z")
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
@@ -35,6 +47,7 @@ class DurableSessionCleanupServiceTest {
     private val binding = mockk<RunnerSessionBindingService>()
     private val runtime = runtimeProperties()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val telemetry = RecordingTelemetry()
     private val service =
         DurableSessionCleanupService(
             workspaces = workspaces,
@@ -44,6 +57,7 @@ class DurableSessionCleanupServiceTest {
             runtime = runtime,
             sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
+            telemetry = telemetry,
         )
 
     @Test
@@ -82,6 +96,8 @@ class DurableSessionCleanupServiceTest {
         verify { gateway.cleanupStableSession(workspace, pending.id) }
         verify { sessions.delete(pending.id) }
         verify { sessionStatus.publishRemove(pending.id) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
+        assertBoundedTelemetryLabels(workspace.id.value.toString(), pending.id.value.toString())
     }
 
     @Test
@@ -99,6 +115,8 @@ class DurableSessionCleanupServiceTest {
         assertThat(result.cleaned).isEqualTo(0)
         assertThat(result.failed).isEqualTo(1)
         verify(exactly = 0) { sessions.delete(any()) }
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.IO_ERROR)
+        assertBoundedTelemetryLabels("gateway unavailable", workspace.id.value.toString(), pending.id.value.toString())
     }
 
     @Test
@@ -142,6 +160,7 @@ class DurableSessionCleanupServiceTest {
         verify { binding.prepareRunner(PrepareRunnerInput(workspace.id, WorkspaceAgentKind.CLAUDE)) }
         verify { gateway.cleanupStableSession(prepared, pending.id) }
         verify { sessions.delete(pending.id) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
     }
 
     @Test
@@ -162,6 +181,9 @@ class DurableSessionCleanupServiceTest {
         assertThat(result.failed).isEqualTo(1)
         verify(exactly = 0) { workspaces.findById(any()) }
         verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.CANCELLED)
+        assertBoundedTelemetryLabels("gpu", pending.id.value.toString())
     }
 
     @Test
@@ -183,6 +205,9 @@ class DurableSessionCleanupServiceTest {
         assertThat(result.failed).isEqualTo(1)
         verify(exactly = 0) { binding.prepareRunner(any()) }
         verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.CANCELLED)
+        assertBoundedTelemetryLabels("gpu", workspace.id.value.toString(), pending.id.value.toString())
     }
 
     @Test
@@ -200,6 +225,54 @@ class DurableSessionCleanupServiceTest {
         assertThat(result.cleaned).isEqualTo(0)
         assertThat(result.failed).isEqualTo(1)
         verify(exactly = 0) { sessionStatus.publishRemove(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.NOT_FOUND)
+        assertBoundedTelemetryLabels(workspace.id.value.toString(), pending.id.value.toString())
+    }
+
+    @Test
+    fun `sweep records bounded not found when pending cleanup workspace is gone`() {
+        val pending = session(cleanupRequestedAt = now.minusSeconds(60))
+        every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
+        every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
+        every { workspaces.findById(pending.workspaceId) } returns null
+
+        val result = service.sweep()
+
+        assertThat(result.cleaned).isEqualTo(0)
+        assertThat(result.failed).isEqualTo(1)
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.NOT_FOUND)
+        assertBoundedTelemetryLabels(pending.workspaceId.value.toString(), pending.id.value.toString())
+    }
+
+    @Test
+    fun `sweep records bounded not sealed skip when cleanup row is not marked requested`() {
+        val pending = session(cleanupRequestedAt = null)
+        every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
+        every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
+
+        val result = service.sweep()
+
+        assertThat(result.cleaned).isEqualTo(0)
+        assertThat(result.failed).isEqualTo(1)
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.INVALID_REQUEST)
+        assertBoundedTelemetryLabels(pending.workspaceId.value.toString(), pending.id.value.toString())
+    }
+
+    private fun assertBoundedTelemetryLabels(vararg forbidden: String) {
+        val labels =
+            telemetry.operations.flatMap {
+                listOf(it.operation.label, it.mode.label, it.outcome.label, it.reason.label)
+            }
+        forbidden
+            .filter { it.isNotBlank() }
+            .forEach { raw ->
+                assertThat(labels).allSatisfy { label ->
+                    assertThat(label).doesNotContain(raw)
+                }
+            }
     }
 
     private fun workspace(

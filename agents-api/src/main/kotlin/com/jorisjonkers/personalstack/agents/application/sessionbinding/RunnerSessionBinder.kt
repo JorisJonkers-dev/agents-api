@@ -1,6 +1,16 @@
+@file:Suppress("LongMethod", "TooGenericExceptionCaught")
+
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.application.exception.AgentSetupValidationException
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.RunnerReprovisionTelemetry
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
@@ -22,6 +32,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.ResourceAccessException
+import java.io.IOException
+import java.time.Duration
 import java.time.Instant
 
 @Component
@@ -36,11 +48,18 @@ class RunnerSessionBinder(
     private val tx: RunnerSessionBindingTransactions,
     private val sessionStatus: SessionStatusPublisher,
     private val backoffInitialMs: Long = BACKOFF_INITIAL_MS,
+    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : RunnerSessionBindingService {
     private val log = LoggerFactory.getLogger(RunnerSessionBinder::class.java)
 
     @Suppress("LongMethod")
-    override fun start(request: StartRunnerSessionBindingInput): RunnerSessionBindingResult {
+    override fun start(request: StartRunnerSessionBindingInput): RunnerSessionBindingResult =
+        observeBindingOperation(OperationLabel.START_SESSION, ModeLabel.fromRaw(request.runMode)) {
+            startInternal(request)
+        }
+
+    @Suppress("LongMethod")
+    private fun startInternal(request: StartRunnerSessionBindingInput): RunnerSessionBindingResult {
         val workspace =
             workspaces.findById(request.workspaceId)
                 ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
@@ -74,7 +93,12 @@ class RunnerSessionBinder(
         return spawnAndBind(ready.workspace, session, continuation = null, provisioning = ready.provisioning)
     }
 
-    override fun prepareRunner(request: PrepareRunnerInput): RunnerPreparationResult {
+    override fun prepareRunner(request: PrepareRunnerInput): RunnerPreparationResult =
+        observePreparationOperation {
+            prepareRunnerInternal(request)
+        }
+
+    private fun prepareRunnerInternal(request: PrepareRunnerInput): RunnerPreparationResult {
         val workspace =
             workspaces.findById(request.workspaceId)
                 ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
@@ -99,7 +123,13 @@ class RunnerSessionBinder(
     }
 
     @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
-    override fun restart(request: RestartRunnerSessionBindingInput): RunnerSessionBindingResult {
+    override fun restart(request: RestartRunnerSessionBindingInput): RunnerSessionBindingResult =
+        observeBindingOperation(OperationLabel.REPROVISION_RUNNER, ModeLabel.INTERACTIVE) {
+            restartInternal(request)
+        }
+
+    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
+    private fun restartInternal(request: RestartRunnerSessionBindingInput): RunnerSessionBindingResult {
         val session =
             sessions.findById(request.sessionId)
                 ?: return RunnerSessionBindingResult.Conflict(current = null)
@@ -170,7 +200,13 @@ class RunnerSessionBinder(
     }
 
     @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
-    override fun ensureBound(request: EnsureRunnerSessionBoundInput): RunnerSessionBindingResult {
+    override fun ensureBound(request: EnsureRunnerSessionBoundInput): RunnerSessionBindingResult =
+        observeBindingOperation(OperationLabel.ATTACH_SESSION, ModeLabel.INTERACTIVE) {
+            ensureBoundInternal(request)
+        }
+
+    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
+    private fun ensureBoundInternal(request: EnsureRunnerSessionBoundInput): RunnerSessionBindingResult {
         val session =
             sessions.findById(request.sessionId)
                 ?: return RunnerSessionBindingResult.Conflict(current = null)
@@ -254,17 +290,27 @@ class RunnerSessionBinder(
         promotePendingSetup: Boolean = false,
     ): RunnerSessionBindingResult {
         val gatewayAgent =
-            runCatching { spawnAgentWithRetry(workspace, session, continuation) }
-                .getOrElse { ex ->
-                    tx.markFailed(session)
-                    throw ex
+            runCatching {
+                observeStageOperation(OperationLabel.START_SESSION, ModeLabel.INTERACTIVE) {
+                    spawnAgentWithRetry(workspace, session, continuation)
                 }
+            }.getOrElse { ex ->
+                tx.markFailed(session)
+                throw ex
+            }
         val bound =
-            runCatching { tx.bind(session, gatewayAgent, promotePendingSetup) }
-                .getOrElse {
-                    runCatching { gateway.stopAgent(workspace, gatewayAgent.id) }
-                    return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
+            runCatching {
+                observeStageOperation(
+                    operation = OperationLabel.ATTACH_SESSION,
+                    mode = ModeLabel.INTERACTIVE,
+                    outcome = { if (it) OutcomeLabel.SUCCESS to FailureReasonLabel.NONE else bindingConflict() },
+                ) {
+                    tx.bind(session, gatewayAgent, promotePendingSetup)
                 }
+            }.getOrElse {
+                runCatching { gateway.stopAgent(workspace, gatewayAgent.id) }
+                return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
+            }
         if (!bound) {
             runCatching { gateway.stopAgent(workspace, gatewayAgent.id) }
             return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
@@ -284,6 +330,15 @@ class RunnerSessionBinder(
 
     @Suppress("ThrowsCount")
     private fun prepareRunner(
+        workspace: Workspace,
+        target: RunnerSetupTarget,
+    ): RunnerReady =
+        observeStageOperation(OperationLabel.REPROVISION_RUNNER, ModeLabel.DURABLE) {
+            prepareRunnerInternal(workspace, target)
+        }
+
+    @Suppress("ThrowsCount")
+    private fun prepareRunnerInternal(
         workspace: Workspace,
         target: RunnerSetupTarget,
     ): RunnerReady {
@@ -409,35 +464,69 @@ class RunnerSessionBinder(
         target: RunnerSetupTarget,
         runnerGeneration: Long,
     ): RunnerReady {
-        val handle =
-            runCatching {
-                orchestrator.scaleDown(workspace)
-                orchestrator.provision(workspace, target.spec, runnerGeneration)
-            }.getOrElse { ex ->
-                throw AgentRunnerUnavailableException(
-                    workspaceId = workspace.id,
-                    runnerStatus = "ReprovisionFailed",
-                    cause = ex,
-                )
-            }
-        val repointed =
-            workspace.withPodInfo(
-                podName = handle.podName,
-                pvcName = handle.pvcName,
-                gatewayEndpoint = handle.gatewayEndpoint,
-            )
-        val saved = workspaces.save(repointed)
-        log.info("re-provisioned runner for workspace {} as pod {}", workspace.id.value, handle.podName)
-        gateRunnerReadinessWithRetry(saved, target, runnerGeneration)
-        return RunnerReady(
-            workspace = saved,
-            provisioning =
-                RunnerProvisioningResult.Provisioned(
+        val startedAt = System.nanoTime()
+        try {
+            val handle =
+                runCatching {
+                    orchestrator.scaleDown(workspace)
+                    orchestrator.provision(workspace, target.spec, runnerGeneration)
+                }.getOrElse { ex ->
+                    throw AgentRunnerUnavailableException(
+                        workspaceId = workspace.id,
+                        runnerStatus = "ReprovisionFailed",
+                        cause = ex,
+                    )
+                }
+            val repointed =
+                workspace.withPodInfo(
                     podName = handle.podName,
                     pvcName = handle.pvcName,
                     gatewayEndpoint = handle.gatewayEndpoint,
+                )
+            val saved = workspaces.save(repointed)
+            log.info("re-provisioned runner for workspace {} as pod {}", workspace.id.value, handle.podName)
+            gateRunnerReadinessWithRetry(saved, target, runnerGeneration)
+            val ready =
+                RunnerReady(
+                    workspace = saved,
+                    provisioning =
+                        RunnerProvisioningResult.Provisioned(
+                            podName = handle.podName,
+                            pvcName = handle.pvcName,
+                            gatewayEndpoint = handle.gatewayEndpoint,
+                        ),
+                )
+            telemetry.recordRunnerReprovision(
+                RunnerReprovisionTelemetry(
+                    outcome = OutcomeLabel.SUCCESS,
+                    reason = FailureReasonLabel.NONE,
                 ),
-        )
+            )
+            recordOperation(
+                operation = OperationLabel.REPROVISION_RUNNER,
+                mode = ModeLabel.DURABLE,
+                outcome = OutcomeLabel.SUCCESS,
+                reason = FailureReasonLabel.NONE,
+                startedAt = startedAt,
+            )
+            return ready
+        } catch (ex: Exception) {
+            val reason = reasonClass(ex)
+            telemetry.recordRunnerReprovision(
+                RunnerReprovisionTelemetry(
+                    outcome = OutcomeLabel.FAILURE,
+                    reason = reason,
+                ),
+            )
+            recordOperation(
+                operation = OperationLabel.REPROVISION_RUNNER,
+                mode = ModeLabel.DURABLE,
+                outcome = OutcomeLabel.FAILURE,
+                reason = reason,
+                startedAt = startedAt,
+            )
+            throw ex
+        }
     }
 
     private fun gateRunnerReadinessWithRetry(
@@ -495,6 +584,106 @@ class RunnerSessionBinder(
             cause = lastFailure,
         )
     }
+
+    private fun observeBindingOperation(
+        operation: OperationLabel,
+        mode: ModeLabel,
+        block: () -> RunnerSessionBindingResult,
+    ): RunnerSessionBindingResult {
+        val startedAt = System.nanoTime()
+        try {
+            val result = block()
+            val (outcome, reason) =
+                when (result) {
+                    is RunnerSessionBindingResult.Bound -> OutcomeLabel.SUCCESS to FailureReasonLabel.NONE
+                    is RunnerSessionBindingResult.Conflict -> bindingConflict()
+                    is RunnerSessionBindingResult.Unavailable ->
+                        OutcomeLabel.FAILURE to FailureReasonLabel.UPSTREAM_UNAVAILABLE
+                }
+            recordOperation(operation, mode, outcome, reason, startedAt)
+            return result
+        } catch (ex: Exception) {
+            recordOperation(operation, mode, OutcomeLabel.FAILURE, reasonClass(ex), startedAt)
+            throw ex
+        }
+    }
+
+    private fun observePreparationOperation(block: () -> RunnerPreparationResult): RunnerPreparationResult {
+        val startedAt = System.nanoTime()
+        try {
+            val result = block()
+            val (outcome, reason) =
+                when (result) {
+                    is RunnerPreparationResult.Ready -> OutcomeLabel.SUCCESS to FailureReasonLabel.NONE
+                    is RunnerPreparationResult.Unavailable -> setupConflict()
+                }
+            recordOperation(OperationLabel.REPROVISION_RUNNER, ModeLabel.DURABLE, outcome, reason, startedAt)
+            return result
+        } catch (ex: Exception) {
+            recordOperation(
+                operation = OperationLabel.REPROVISION_RUNNER,
+                mode = ModeLabel.DURABLE,
+                outcome = OutcomeLabel.FAILURE,
+                reason = reasonClass(ex),
+                startedAt = startedAt,
+            )
+            throw ex
+        }
+    }
+
+    private fun <T> observeStageOperation(
+        operation: OperationLabel,
+        mode: ModeLabel,
+        outcome: (T) -> Pair<OutcomeLabel, FailureReasonLabel> = { OutcomeLabel.SUCCESS to FailureReasonLabel.NONE },
+        block: () -> T,
+    ): T {
+        val startedAt = System.nanoTime()
+        try {
+            val result = block()
+            val (resultOutcome, reason) = outcome(result)
+            recordOperation(operation, mode, resultOutcome, reason, startedAt)
+            return result
+        } catch (ex: Exception) {
+            recordOperation(operation, mode, OutcomeLabel.FAILURE, reasonClass(ex), startedAt)
+            throw ex
+        }
+    }
+
+    private fun recordOperation(
+        operation: OperationLabel,
+        mode: ModeLabel,
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+        startedAt: Long,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = operation,
+                mode = mode,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.ofNanos((System.nanoTime() - startedAt).coerceAtLeast(0)),
+            ),
+        )
+    }
+
+    private fun setupConflict(): Pair<OutcomeLabel, FailureReasonLabel> =
+        OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
+
+    private fun bindingConflict(): Pair<OutcomeLabel, FailureReasonLabel> =
+        OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
+
+    private fun reasonClass(ex: Throwable): FailureReasonLabel =
+        when (ex) {
+            is AgentSetupValidationException,
+            is IllegalArgumentException,
+            -> FailureReasonLabel.INVALID_REQUEST
+
+            is RunnerSetupOperationConflict -> FailureReasonLabel.CAPACITY
+            is AgentRunnerUnavailableException -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
+            is IOException -> FailureReasonLabel.IO_ERROR
+            else -> FailureReasonLabel.UNKNOWN
+        }
 
     companion object {
         const val MAX_SPAWN_ATTEMPTS: Int = 3

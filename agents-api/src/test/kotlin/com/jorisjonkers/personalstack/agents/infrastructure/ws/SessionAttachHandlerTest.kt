@@ -2,6 +2,11 @@ package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.AttachAttemptTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
@@ -42,6 +47,24 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 class SessionAttachHandlerTest {
+    private class RecordingTelemetry : AgentsApiTelemetry {
+        val attachAttempts = mutableListOf<AttachAttemptTelemetry>()
+        val attachFailures = mutableListOf<AttachAttemptTelemetry>()
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordAttachAttempt(event: AttachAttemptTelemetry) {
+            attachAttempts += event
+        }
+
+        override fun recordAttachFailure(event: AttachAttemptTelemetry) {
+            attachFailures += event
+        }
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+    }
+
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
     private val turns = mockk<TurnRepository>(relaxed = true)
@@ -54,6 +77,7 @@ class SessionAttachHandlerTest {
 
     private val sessionId = WorkspaceAgentSessionId.random()
     private val workspaceId = WorkspaceId.random()
+    private lateinit var telemetry: RecordingTelemetry
 
     @BeforeEach
     fun setUp() {
@@ -67,7 +91,17 @@ class SessionAttachHandlerTest {
             anyConstructed<StandardWebSocketClient>().execute(any(), any<String>())
         } returns CompletableFuture.completedFuture(upstream)
 
-        handler = SessionAttachHandler(sessions, workspaces, activity, ConnectedClientTracker(), binding, sessionStatus)
+        telemetry = RecordingTelemetry()
+        handler =
+            SessionAttachHandler(
+                sessions,
+                workspaces,
+                activity,
+                ConnectedClientTracker(),
+                binding,
+                sessionStatus,
+                telemetry,
+            )
 
         every { sessions.findById(sessionId) } returns agentSession()
         every { workspaces.findById(workspaceId) } returns workspace()
@@ -160,23 +194,29 @@ class SessionAttachHandlerTest {
         val closed = slot<CloseStatus>()
         verify { client.close(capture(closed)) }
         assertThat(closed.captured.reason).isEqualTo("runner attach disconnected")
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.CANCELLED)
+        assertBoundedTelemetryLabels()
     }
 
     @Test
     fun `upstream transport error closes browser socket so it can reconnect`() {
         val client = clientSession()
         every { client.close(any()) } just Runs
+        every { upstream.close(any()) } just Runs
         val handlerSlot = slot<org.springframework.web.socket.WebSocketHandler>()
         every {
             anyConstructed<StandardWebSocketClient>().execute(capture(handlerSlot), any<String>())
         } returns CompletableFuture.completedFuture(upstream)
 
         handler.afterConnectionEstablished(client)
-        handlerSlot.captured.handleTransportError(upstream, RuntimeException("boom"))
+        handlerSlot.captured.handleTransportError(upstream, RuntimeException("boom $workspaceId $sessionId"))
 
         val closed = slot<CloseStatus>()
         verify { client.close(capture(closed)) }
+        verify { upstream.close(match { it.reason == "runner attach error" }) }
         assertThat(closed.captured.reason).isEqualTo("runner attach error")
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.IO_ERROR)
+        assertBoundedTelemetryLabels("boom", workspaceId.value.toString(), sessionId.value.toString())
     }
 
     @Test
@@ -248,6 +288,8 @@ class SessionAttachHandlerTest {
         val closed = slot<CloseStatus>()
         verify { client.close(capture(closed)) }
         assertThat(closed.captured.reason).isEqualTo("runner setup transition")
+        assertThat(telemetry.attachFailures.single().reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        assertBoundedTelemetryLabels(workspaceId.value.toString(), sessionId.value.toString(), "gpu")
         verify(exactly = 0) { anyConstructed<StandardWebSocketClient>().execute(any(), any<String>()) }
     }
 
@@ -277,6 +319,8 @@ class SessionAttachHandlerTest {
         val closed = slot<CloseStatus>()
         verify { client.close(capture(closed)) }
         assertThat(closed.captured.reason).isEqualTo("runner attach disconnected")
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.INVALID_REQUEST)
+        assertBoundedTelemetryLabels("unknown agent", workspaceId.value.toString(), sessionId.value.toString())
     }
 
     @Test
@@ -291,6 +335,69 @@ class SessionAttachHandlerTest {
         val closed = slot<CloseStatus>()
         verify { client.close(capture(closed)) }
         assertThat(closed.captured.reason).isEqualTo("runner attach disconnected")
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        assertBoundedTelemetryLabels("runner attach disconnected")
+    }
+
+    @Test
+    fun `upstream handshake failure records bounded reason and does not leak exception labels`() {
+        val client = clientSession()
+        every { client.close(any()) } just Runs
+        val rawMessage = "dial failed for $workspaceId $sessionId"
+        val failed = CompletableFuture<WebSocketSession>()
+        failed.completeExceptionally(RuntimeException(rawMessage))
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(any(), any<String>())
+        } returns failed
+
+        handler.afterConnectionEstablished(client)
+
+        val closed = slot<CloseStatus>()
+        verify { client.close(capture(closed)) }
+        assertThat(closed.captured.reason).isEqualTo("runner attach unavailable")
+        assertThat(telemetry.attachFailures.single().reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        assertBoundedTelemetryLabels(rawMessage, workspaceId.value.toString(), sessionId.value.toString())
+    }
+
+    @Test
+    fun `client relay transport error records bounded reason and closes started resources`() {
+        val client = clientSession()
+        every { client.close(any()) } just Runs
+        every { upstream.close(any()) } just Runs
+        every { upstream.sendMessage(any()) } throws RuntimeException("write failed for $sessionId")
+
+        handler.afterConnectionEstablished(client)
+        handler.handleMessage(client, TextMessage("""{"input":"x","enter":false}"""))
+
+        verify { client.close(match { it.reason == "runner attach error" }) }
+        verify { upstream.close(match { it.reason == "runner attach error" }) }
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.IO_ERROR)
+        assertBoundedTelemetryLabels("write failed", sessionId.value.toString(), workspaceId.value.toString())
+    }
+
+    private fun assertBoundedTelemetryLabels(vararg forbidden: String) {
+        val labels =
+            telemetry.attachAttempts.flatMap {
+                listOf(it.kind.label, it.runMode.label, it.outcome.label, it.reason.label)
+            } +
+                telemetry.attachFailures.flatMap {
+                    listOf(it.kind.label, it.runMode.label, it.outcome.label, it.reason.label)
+                } +
+                telemetry.operations.flatMap {
+                    listOf(it.operation.label, it.mode.label, it.outcome.label, it.reason.label)
+                }
+        forbidden
+            .filter { it.isNotBlank() }
+            .forEach { raw ->
+                assertThat(labels).allSatisfy { label ->
+                    assertThat(label).doesNotContain(raw)
+                }
+            }
+        assertThat(labels).allSatisfy { label -> assertThat(label).doesNotContain(sessionId.value.toString()) }
+        assertThat(labels).allSatisfy { label -> assertThat(label).doesNotContain(workspaceId.value.toString()) }
+        assertThat(telemetry.attachAttempts.map { it.outcome }).allSatisfy {
+            assertThat(it).isIn(*OutcomeLabel.values())
+        }
     }
 
     private fun clientSession(query: String = ""): WebSocketSession {

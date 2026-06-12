@@ -1,5 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
@@ -16,12 +20,21 @@ import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 
 class StopAgentSessionCommandHandlerTest {
+    private class RecordingTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+    }
+
     private val now = Instant.parse("2026-06-12T09:00:00Z")
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
@@ -29,6 +42,7 @@ class StopAgentSessionCommandHandlerTest {
     private val autoCapture = mockk<LessonAutoCapture>(relaxed = true)
     private val runtime = runtimeProperties()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val telemetry = RecordingTelemetry()
     private val handler =
         StopAgentSessionCommandHandler(
             workspaces = workspaces,
@@ -38,6 +52,7 @@ class StopAgentSessionCommandHandlerTest {
             runtime = runtime,
             sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
+            telemetry = telemetry,
         )
 
     @Test
@@ -79,6 +94,8 @@ class StopAgentSessionCommandHandlerTest {
         }
         verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
         verify(exactly = 0) { sessions.delete(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
+        assertBoundedTelemetryLabels(ws.id.value.toString(), session.id.value.toString(), "abc12345")
     }
 
     @Test
@@ -87,6 +104,48 @@ class StopAgentSessionCommandHandlerTest {
         every { sessions.findById(id) } returns null
         handler.handle(StopAgentSessionCommand(id))
         verify(exactly = 0) { gateway.stopAgent(any(), any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.NOT_FOUND)
+        assertBoundedTelemetryLabels(id.value.toString())
+    }
+
+    @Test
+    fun `handle records bounded failure when gateway stop throws`() {
+        val ws = workspace()
+        val session = session(ws.id, gatewayAgentId = "abc12345")
+        every { sessions.findById(session.id) } returns session
+        every { workspaces.findById(ws.id) } returns ws
+        every { gateway.stopAgent(ws, "abc12345") } throws RuntimeException("stop failed for ${session.id}")
+        every {
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.STOPPED,
+                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                clearGatewayBinding = true,
+                now = now,
+            )
+        } returns true
+
+        handler.handle(StopAgentSessionCommand(session.id))
+
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.FAILURE, OutcomeLabel.SUCCESS)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        assertBoundedTelemetryLabels("stop failed", ws.id.value.toString(), session.id.value.toString(), "abc12345")
+    }
+
+    private fun assertBoundedTelemetryLabels(vararg forbidden: String) {
+        val labels =
+            telemetry.operations.flatMap {
+                listOf(it.operation.label, it.mode.label, it.outcome.label, it.reason.label)
+            }
+        forbidden
+            .filter { it.isNotBlank() }
+            .forEach { raw ->
+                assertThat(labels).allSatisfy { label ->
+                    assertThat(label).doesNotContain(raw)
+                }
+            }
     }
 
     private fun workspace() =

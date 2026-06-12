@@ -1,5 +1,13 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
+import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.application.exception.AgentSetupValidationException
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.RunnerReprovisionTelemetry
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
@@ -8,6 +16,8 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationIssue
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationIssueCode
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationResult
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
@@ -28,6 +38,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.web.client.ResourceAccessException
 import java.time.Instant
 
@@ -39,6 +50,7 @@ class RunnerSessionBindingServiceTest {
     private val setupSelection = mockk<AgentSetupSelectionService>()
     private val setupValidation = mockk<AgentSetupValidationService>()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val telemetry = RecordingAgentsApiTelemetry()
     private val setup = setupEntry()
     private val setupSpec = RunnerSetupProvisioningSpec.from(setup.definition)
     private val binder =
@@ -51,6 +63,7 @@ class RunnerSessionBindingServiceTest {
             setupValidation = setupValidation,
             tx = RunnerSessionBindingTransactions(workspaces, sessions, sessionStatus),
             sessionStatus = sessionStatus,
+            telemetry = telemetry,
             backoffInitialMs = 0,
         )
 
@@ -240,6 +253,8 @@ class RunnerSessionBindingServiceTest {
 
     @Test
     fun `restart force provisions fresh runner and spawns with continuation metadata`() {
+        telemetry.operations.clear()
+        telemetry.reprovisions.clear()
         val ws = workspace()
         val session =
             session(ws.id, gatewayAgentId = "old-agent")
@@ -333,6 +348,113 @@ class RunnerSessionBindingServiceTest {
         verify(exactly = 1) { orchestrator.scaleDown(any()) }
         verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
         verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 3, any()) }
+        assertThat(telemetry.reprovisions)
+            .anySatisfy {
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.SUCCESS)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.NONE)
+            }
+        assertThat(telemetry.operations)
+            .anySatisfy {
+                assertThat(it.operation).isEqualTo(OperationLabel.REPROVISION_RUNNER)
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.SUCCESS)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.NONE)
+            }
+    }
+
+    @Test
+    fun `spawn transport failure records bounded reason without raw exception message`() {
+        telemetry.operations.clear()
+        telemetry.reprovisions.clear()
+        val ws = workspace()
+        val sessionId = WorkspaceAgentSessionId.random()
+        val created = slot<WorkspaceAgentSession>()
+        every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
+        every { gateway.isReady(ws) } returns true
+        every { sessions.save(capture(created)) } answers { created.captured }
+        every {
+            gateway.spawnAgent(
+                workspace = ws,
+                kind = WorkspaceAgentKind.CLAUDE,
+                workspacePath = null,
+                stableSessionId = sessionId,
+                epoch = 1,
+                continuation = null,
+            )
+        } throws ResourceAccessException("Connection refused at http://runner.internal/private")
+        every {
+            sessions.markLifecycleIfGeneration(
+                id = sessionId,
+                expectedGeneration = 1,
+                status = WorkspaceAgentSessionStatus.FAILED,
+                retainedUntil = null,
+                clearGatewayBinding = true,
+                now = any(),
+            )
+        } returns true
+
+        assertThrows<AgentRunnerUnavailableException> {
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+        }
+
+        assertThat(telemetry.operations)
+            .anySatisfy {
+                assertThat(it.operation).isEqualTo(OperationLabel.START_SESSION)
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.FAILURE)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+            }
+        assertThat(telemetry.operations.map { it.reason.label })
+            .doesNotContain("Connection refused at http://runner.internal/private")
+    }
+
+    @Test
+    fun `validation rejection records bounded reason without raw validation message`() {
+        telemetry.operations.clear()
+        telemetry.reprovisions.clear()
+        val ws = workspace()
+        val sessionId = WorkspaceAgentSessionId.random()
+        val rawMessage = "Secret agents/prod-token is missing"
+        every { workspaces.findById(ws.id) } returns ws
+        every { setupValidation.requireValid(any()) } throws
+            AgentSetupValidationException(
+                AgentSetupValidationResult(
+                    target = AgentSetupRef(setup.definition.id, setup.definition.version),
+                    valid = false,
+                    issues =
+                        listOf(
+                            AgentSetupValidationIssue(
+                                code = AgentSetupValidationIssueCode.SECRET_MISSING,
+                                message = rawMessage,
+                            ),
+                        ),
+                ),
+            )
+
+        assertThrows<AgentSetupValidationException> {
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    setupId = setup.definition.id,
+                    setupVersion = setup.definition.version,
+                ),
+            )
+        }
+
+        assertThat(telemetry.operations)
+            .anySatisfy {
+                assertThat(it.operation).isEqualTo(OperationLabel.START_SESSION)
+                assertThat(it.outcome).isEqualTo(OutcomeLabel.FAILURE)
+                assertThat(it.reason).isEqualTo(FailureReasonLabel.INVALID_REQUEST)
+            }
+        assertThat(telemetry.operations.map { it.reason.label }).doesNotContain(rawMessage)
     }
 
     @Test
@@ -449,4 +571,17 @@ class RunnerSessionBindingServiceTest {
             target = AgentSetupRef(setup.definition.id, setup.definition.version),
             valid = true,
         )
+
+    private class RecordingAgentsApiTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+        val reprovisions = mutableListOf<RunnerReprovisionTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+
+        override fun recordRunnerReprovision(event: RunnerReprovisionTelemetry) {
+            reprovisions += event
+        }
+    }
 }

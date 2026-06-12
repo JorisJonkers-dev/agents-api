@@ -68,9 +68,13 @@ management:
       # in production and details expose descriptor data only — never
       # credentials.
       show-details: always
+      probes:
+        enabled: true
       group:
         liveness:
-          include: ping
+          include: livenessState,ping
+        readiness:
+          include: readinessState
   metrics:
     tags:
       # Common Micrometer tag — see auth-api/application.yml for the

@@ -1,5 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -41,6 +47,7 @@ class IdleScaleDownScheduler(
     private val connected: ConnectedClientTracker,
     private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
+    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
     @param:Value("\${agent-runtime.idle-after-seconds:1800}")
     private val idleAfterSeconds: Long,
     @param:Value("\${agent-runtime.agent-idle-after-seconds:14400}")
@@ -53,7 +60,16 @@ class IdleScaleDownScheduler(
         val candidates =
             workspaces
                 .findAllByStatusNot(WorkspaceStatus.DESTROYED)
-                .filter { it.status == WorkspaceStatus.READY && isEligibleForScaleDown(it) }
+                .filter { workspace ->
+                    if (workspace.status != WorkspaceStatus.READY) {
+                        recordScaleDown(OutcomeLabel.SKIPPED, FailureReasonLabel.INVALID_REQUEST)
+                        false
+                    } else {
+                        val eligible = isEligibleForScaleDown(workspace)
+                        if (!eligible) recordScaleDown(OutcomeLabel.SKIPPED, FailureReasonLabel.NONE)
+                        eligible
+                    }
+                }
         candidates.forEach { scaleDown(it) }
         if (candidates.isNotEmpty()) log.info("idle-sweep scaled down {} workspace(s)", candidates.size)
     }
@@ -74,21 +90,24 @@ class IdleScaleDownScheduler(
     private fun effectiveLastSeen(workspace: Workspace): Instant = tracker.lastSeen(workspace.id) ?: workspace.updatedAt
 
     private fun scaleDown(workspace: Workspace) {
-        runCatching { orchestrator.scaleDown(workspace) }
-            .onFailure {
-                log.warn("scale-down of {} failed: {}", workspace.id, it.message)
-                return
-            }
-        workspaces.save(
-            workspace.copy(
-                status = WorkspaceStatus.IDLE,
-                podName = null,
-                gatewayEndpoint = null,
-                updatedAt = clock.instant(),
-            ),
-        )
-        clearGatewayBindings(workspace)
-        tracker.forget(workspace.id)
+        runCatching {
+            orchestrator.scaleDown(workspace)
+            workspaces.save(
+                workspace.copy(
+                    status = WorkspaceStatus.IDLE,
+                    podName = null,
+                    gatewayEndpoint = null,
+                    updatedAt = clock.instant(),
+                ),
+            )
+            clearGatewayBindings(workspace)
+            tracker.forget(workspace.id)
+        }.onFailure {
+            log.warn("scale-down of {} failed: {}", workspace.id, it.message)
+            recordScaleDown(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+            return
+        }
+        recordScaleDown(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
         log.info("workspace {} idle-scaled to zero (last seen {})", workspace.id, effectiveLastSeen(workspace))
     }
 
@@ -112,4 +131,19 @@ class IdleScaleDownScheduler(
         runnerSetupOperation != RunnerSetupOperation.IDLE ||
             pendingRunnerSetupId != null ||
             pendingRunnerSetupVersion != null
+
+    private fun recordScaleDown(
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = OperationLabel.REPROVISION_RUNNER,
+                mode = ModeLabel.OTHER,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.ZERO,
+            ),
+        )
+    }
 }

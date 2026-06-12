@@ -1,5 +1,12 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
@@ -28,12 +35,14 @@ class StartHeadlessJobCommandHandlerTest {
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val binding = mockk<RunnerSessionBindingService>()
-    private val handler = StartHeadlessJobCommandHandler(sessions, gateway, binding)
+    private val telemetry = RecordingTelemetry()
+    private val handler = StartHeadlessJobCommandHandler(sessions, gateway, binding, telemetry)
 
     @Test
     fun `handle launches headless job and persists session when runner is ready`() {
-        val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
+        val ws = workspace(WorkspaceId.parse("11111111-1111-4111-8111-111111111111"))
+        val sessionId = WorkspaceAgentSessionId.parse("22222222-2222-4222-8222-222222222222")
+        val prompt = "write tests for /workspace/private with job hls-secret"
         every { binding.prepareRunner(PrepareRunnerInput(ws.id, WorkspaceAgentKind.CLAUDE)) } returns
             RunnerPreparationResult.Ready(
                 workspace = ws,
@@ -42,7 +51,7 @@ class StartHeadlessJobCommandHandlerTest {
                 provisioning = RunnerProvisioningResult.AlreadyReady,
             )
         every {
-            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "write tests", null, null, sessionId, 1, null)
+            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, prompt, null, null, sessionId, 1, null)
         } returns
             AgentGatewayClient.HeadlessJob(
                 id = "hls-abc123",
@@ -58,7 +67,7 @@ class StartHeadlessJobCommandHandlerTest {
                 sessionId = sessionId,
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CLAUDE,
-                prompt = "write tests",
+                prompt = prompt,
             ),
         )
 
@@ -67,12 +76,149 @@ class StartHeadlessJobCommandHandlerTest {
         assertThat(saved.captured.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
         assertThat(saved.captured.currentSetupId).isEqualTo(AgentSetupId("gpu"))
         assertThat(saved.captured.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
+        telemetry.operations.single().let { event ->
+            assertThat(event.operation).isEqualTo(OperationLabel.START_SESSION)
+            assertThat(event.mode).isEqualTo(ModeLabel.HEADLESS)
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.SUCCESS)
+            assertThat(event.reason).isEqualTo(FailureReasonLabel.NONE)
+            assertThat(event.labels()).doesNotContain(
+                prompt,
+                ws.id.value.toString(),
+                ws.gatewayEndpoint.orEmpty(),
+                "hls-abc123",
+                "/workspace/private",
+            )
+        }
         verify(exactly = 1) { binding.prepareRunner(any()) }
     }
 
     @Test
+    fun `handle records bounded unavailable reason when runner is unavailable`() {
+        val workspaceId = WorkspaceId.parse("33333333-3333-4333-8333-333333333333")
+        every { binding.prepareRunner(PrepareRunnerInput(workspaceId, WorkspaceAgentKind.CODEX)) } returns
+            RunnerPreparationResult.Unavailable(
+                workspaceId = workspaceId,
+                runnerStatus = "Pod agent-runner-abcdef01 waiting for /workspace/private",
+                retryAfterSeconds = 7,
+            )
+
+        val ex =
+            assertThrows<AgentRunnerUnavailableException> {
+                handler.handle(
+                    StartHeadlessJobCommand(
+                        sessionId = WorkspaceAgentSessionId.parse("44444444-4444-4444-8444-444444444444"),
+                        workspaceId = workspaceId,
+                        kind = WorkspaceAgentKind.CODEX,
+                        prompt = "do not label this prompt",
+                    ),
+                )
+            }
+
+        assertThat(ex.runnerStatus).contains("agent-runner-abcdef01")
+        telemetry.operations.single().let { event ->
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
+            assertThat(event.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+            assertThat(event.labels()).doesNotContain(
+                workspaceId.value.toString(),
+                "agent-runner-abcdef01",
+                "/workspace/private",
+                ex.message.orEmpty(),
+                "do not label this prompt",
+            )
+        }
+    }
+
+    @Test
+    fun `handle records bounded launch failure reason without exception details`() {
+        val ws = workspace(WorkspaceId.parse("55555555-5555-4555-8555-555555555555"))
+        val sessionId = WorkspaceAgentSessionId.parse("66666666-6666-4666-8666-666666666666")
+        val exceptionMessage = "gateway refused prompt=secret path=/workspace/private/raw-output.txt"
+        every { binding.prepareRunner(PrepareRunnerInput(ws.id, WorkspaceAgentKind.CLAUDE)) } returns
+            RunnerPreparationResult.Ready(
+                workspace = ws,
+                setupId = AgentSetupId.default(),
+                setupVersion = AgentSetupVersion.initial(),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
+        every {
+            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "secret prompt", null, 30, sessionId, 1, null)
+        } throws RuntimeException(exceptionMessage)
+
+        assertThrows<AgentRunnerUnavailableException> {
+            handler.handle(
+                StartHeadlessJobCommand(
+                    sessionId = sessionId,
+                    workspaceId = ws.id,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = "secret prompt",
+                    timeoutSeconds = 30,
+                ),
+            )
+        }
+
+        telemetry.operations.single().let { event ->
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
+            assertThat(event.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+            assertThat(event.labels()).doesNotContain(
+                exceptionMessage,
+                "secret prompt",
+                sessionId.value.toString(),
+                "/workspace/private/raw-output.txt",
+            )
+        }
+    }
+
+    @Test
+    fun `handle records bounded persistence failure reason after launch succeeds`() {
+        val ws = workspace(WorkspaceId.parse("77777777-7777-4777-8777-777777777777"))
+        val sessionId = WorkspaceAgentSessionId.parse("88888888-8888-4888-8888-888888888888")
+        val exceptionMessage = "cannot persist session $sessionId for output file /workspace/private/result.txt"
+        every { binding.prepareRunner(PrepareRunnerInput(ws.id, WorkspaceAgentKind.CLAUDE)) } returns
+            RunnerPreparationResult.Ready(
+                workspace = ws,
+                setupId = AgentSetupId.default(),
+                setupVersion = AgentSetupVersion.initial(),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
+        every {
+            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "persist me", null, null, sessionId, 1, null)
+        } returns
+            AgentGatewayClient.HeadlessJob(
+                id = "hls-persist-raw",
+                status = AgentGatewayClient.HeadlessStatus.RUNNING,
+                exitCode = null,
+                output = null,
+            )
+        every { sessions.save(any()) } throws RuntimeException(exceptionMessage)
+
+        val ex =
+            assertThrows<RuntimeException> {
+                handler.handle(
+                    StartHeadlessJobCommand(
+                        sessionId = sessionId,
+                        workspaceId = ws.id,
+                        kind = WorkspaceAgentKind.CLAUDE,
+                        prompt = "persist me",
+                    ),
+                )
+            }
+
+        assertThat(ex.message).isEqualTo(exceptionMessage)
+        telemetry.operations.single().let { event ->
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
+            assertThat(event.reason).isEqualTo(FailureReasonLabel.OTHER)
+            assertThat(event.labels()).doesNotContain(
+                exceptionMessage,
+                sessionId.value.toString(),
+                "hls-persist-raw",
+                "/workspace/private/result.txt",
+            )
+        }
+    }
+
+    @Test
     fun `handle raises NoSuchElementException when workspace does not exist`() {
-        val missingId = WorkspaceId.random()
+        val missingId = WorkspaceId.parse("99999999-9999-4999-8999-999999999999")
         every { binding.prepareRunner(PrepareRunnerInput(missingId, WorkspaceAgentKind.CLAUDE)) } throws
             NoSuchElementException("workspace not found: ${missingId.value}")
 
@@ -80,7 +226,7 @@ class StartHeadlessJobCommandHandlerTest {
             assertThrows<NoSuchElementException> {
                 handler.handle(
                     StartHeadlessJobCommand(
-                        sessionId = WorkspaceAgentSessionId.random(),
+                        sessionId = WorkspaceAgentSessionId.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
                         workspaceId = missingId,
                         kind = WorkspaceAgentKind.CLAUDE,
                         prompt = "hello",
@@ -88,11 +234,16 @@ class StartHeadlessJobCommandHandlerTest {
                 )
             }
         assertThat(ex.message).contains(missingId.value.toString())
+        telemetry.operations.single().let { event ->
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
+            assertThat(event.reason).isEqualTo(FailureReasonLabel.NOT_FOUND)
+            assertThat(event.labels()).doesNotContain(missingId.value.toString(), ex.message.orEmpty())
+        }
     }
 
-    private fun workspace() =
+    private fun workspace(id: WorkspaceId = WorkspaceId.parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")) =
         Workspace(
-            id = WorkspaceId.random(),
+            id = id,
             name = "demo",
             repoUrl = null,
             branch = null,
@@ -102,5 +253,21 @@ class StartHeadlessJobCommandHandlerTest {
             status = WorkspaceStatus.READY,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
+        )
+
+    private class RecordingTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+    }
+
+    private fun OperationTelemetry.labels(): Set<String> =
+        setOf(
+            operation.label,
+            mode.label,
+            outcome.label,
+            reason.label,
         )
 }

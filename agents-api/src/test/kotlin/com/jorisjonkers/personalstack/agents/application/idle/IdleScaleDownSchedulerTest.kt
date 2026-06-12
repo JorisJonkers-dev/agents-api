@@ -1,5 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
@@ -24,6 +28,14 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 class IdleScaleDownSchedulerTest {
+    private class RecordingTelemetry : AgentsApiTelemetry {
+        val operations = mutableListOf<OperationTelemetry>()
+
+        override fun recordOperation(event: OperationTelemetry) {
+            operations += event
+        }
+    }
+
     private class FixedClock(
         var now: Instant,
     ) : Clock() {
@@ -42,6 +54,7 @@ class IdleScaleDownSchedulerTest {
     private val tracker = WorkspaceActivityTracker(clock)
     private val connected = ConnectedClientTracker()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val telemetry = RecordingTelemetry()
     private val scheduler =
         IdleScaleDownScheduler(
             workspaces = workspaces,
@@ -51,6 +64,7 @@ class IdleScaleDownSchedulerTest {
             connected = connected,
             sessionStatus = sessionStatus,
             clock = clock,
+            telemetry = telemetry,
             idleAfterSeconds = 1_800,
             agentIdleAfterSeconds = 14_400,
         )
@@ -74,6 +88,8 @@ class IdleScaleDownSchedulerTest {
         assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.IDLE)
         assertThat(saved.captured.podName).isNull()
         assertThat(saved.captured.gatewayEndpoint).isNull()
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
+        assertBoundedTelemetryLabels(ws.id.value.toString())
     }
 
     @Test
@@ -88,6 +104,8 @@ class IdleScaleDownSchedulerTest {
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
         verify(exactly = 0) { orchestrator.destroy(any()) }
         verify(exactly = 0) { workspaces.save(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertBoundedTelemetryLabels(ws.id.value.toString())
     }
 
     @Test
@@ -99,6 +117,7 @@ class IdleScaleDownSchedulerTest {
 
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
         verify(exactly = 0) { orchestrator.destroy(any()) }
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.INVALID_REQUEST)
     }
 
     @Test
@@ -114,6 +133,8 @@ class IdleScaleDownSchedulerTest {
         scheduler.sweep()
 
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
+        assertBoundedTelemetryLabels(ws.id.value.toString(), "gpu")
     }
 
     @Test
@@ -186,6 +207,35 @@ class IdleScaleDownSchedulerTest {
         scheduler.sweep()
 
         verify { orchestrator.scaleDown(ws) }
+    }
+
+    @Test
+    fun `sweep records bounded failure when scale-down throws`() {
+        val ws = workspace(updatedAt = now.minusSeconds(7_200))
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        noRunningSessions(ws)
+        every { orchestrator.scaleDown(ws) } throws RuntimeException("scale failed for ${ws.id}")
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { workspaces.save(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.FAILURE)
+        assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        assertBoundedTelemetryLabels("scale failed", ws.id.value.toString())
+    }
+
+    private fun assertBoundedTelemetryLabels(vararg forbidden: String) {
+        val labels =
+            telemetry.operations.flatMap {
+                listOf(it.operation.label, it.mode.label, it.outcome.label, it.reason.label)
+            }
+        forbidden
+            .filter { it.isNotBlank() }
+            .forEach { raw ->
+                assertThat(labels).allSatisfy { label ->
+                    assertThat(label).doesNotContain(raw)
+                }
+            }
     }
 
     @Test

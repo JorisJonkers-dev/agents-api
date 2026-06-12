@@ -1,6 +1,12 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
@@ -12,6 +18,7 @@ import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -26,15 +33,23 @@ class StartHeadlessJobCommandHandler(
     private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
     private val binding: RunnerSessionBindingService,
+    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StartHeadlessJobCommand> {
     private val log = LoggerFactory.getLogger(StartHeadlessJobCommandHandler::class.java)
 
     @Transactional
     override fun handle(command: StartHeadlessJobCommand) {
-        val runner = prepareRunner(command)
-        val job = launchJob(runner, command)
-        persistSession(command, runner, job)
-        log.info("headless job {} launched for workspace {}", job.id, runner.workspace.id.value)
+        val startedAt = Instant.now()
+        runCatching {
+            val runner = prepareRunner(command)
+            val job = launchJob(runner, command)
+            persistSession(command, runner, job)
+            log.info("headless job {} launched for workspace {}", job.id, runner.workspace.id.value)
+        }.onSuccess {
+            recordCommandOperation(startedAt, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+        }.onFailure { ex ->
+            recordCommandOperation(startedAt, OutcomeLabel.FAILURE, commandFailureReason(ex))
+        }.getOrThrow()
     }
 
     private fun prepareRunner(command: StartHeadlessJobCommand): RunnerPreparationResult.Ready {
@@ -109,4 +124,27 @@ class StartHeadlessJobCommandHandler(
     companion object {
         const val HEADLESS_RUN_MODE = "HEADLESS"
     }
+
+    private fun recordCommandOperation(
+        startedAt: Instant,
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = OperationLabel.START_SESSION,
+                mode = ModeLabel.HEADLESS,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.between(startedAt, Instant.now()),
+            ),
+        )
+    }
+
+    private fun commandFailureReason(ex: Throwable): FailureReasonLabel =
+        when (ex) {
+            is AgentRunnerUnavailableException -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
+            is NoSuchElementException -> FailureReasonLabel.NOT_FOUND
+            else -> FailureReasonLabel.fromRaw(ex.message)
+        }
 }

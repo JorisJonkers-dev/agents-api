@@ -1,5 +1,13 @@
+@file:Suppress("LongMethod")
+
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
+import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
+import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
+import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
@@ -15,6 +23,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.time.Clock
+import java.time.Duration
 
 @Component
 class DurableSessionCleanupService(
@@ -25,6 +34,7 @@ class DurableSessionCleanupService(
     private val runtime: AgentRuntimeProperties,
     private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
+    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) {
     private val log = LoggerFactory.getLogger(DurableSessionCleanupService::class.java)
 
@@ -75,11 +85,19 @@ class DurableSessionCleanupService(
 
     @Suppress("ReturnCount")
     private fun cleanupPendingSession(session: WorkspaceAgentSession): Boolean {
-        if (session.pendingSetupId != null || session.pendingSetupVersion != null) return false
+        if (session.cleanupRequestedAt == null) {
+            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.INVALID_REQUEST)
+            return false
+        }
+        if (session.pendingSetupId != null || session.pendingSetupVersion != null) {
+            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
+            return false
+        }
         val workspace =
             workspaces.findById(session.workspaceId)
                 ?: run {
                     log.warn("cleanup pending session {} has missing workspace {}", session.id, session.workspaceId)
+                    recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
                     return false
                 }
         val mountedWorkspace = ensureRunnerMounted(workspace, session) ?: return false
@@ -95,31 +113,46 @@ class DurableSessionCleanupService(
                                 it.message,
                             )
                         }
+                } else {
+                    recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
                 }
             }
         }.onFailure {
             log.warn("durable cleanup of session {} failed: {}", session.id, it.message)
+            recordCleanup(OutcomeLabel.FAILURE, FailureReasonLabel.IO_ERROR)
+        }.onSuccess { deleted ->
+            if (deleted) recordCleanup(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
         }.getOrDefault(false)
     }
 
+    @Suppress("ReturnCount")
     private fun ensureRunnerMounted(
         workspace: Workspace,
         session: WorkspaceAgentSession,
     ): Workspace? {
-        if (workspace.hasRunnerSetupGuard()) return null
+        if (workspace.hasRunnerSetupGuard()) {
+            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
+            return null
+        }
         if (runCatching { gateway.isReady(workspace) }.getOrDefault(false)) return workspace
-        return when (
-            val prepared =
+        val prepared =
+            runCatching {
                 binding.prepareRunner(
                     PrepareRunnerInput(
                         workspaceId = workspace.id,
                         kind = session.kind,
                     ),
                 )
-        ) {
+            }.getOrElse {
+                log.warn("durable cleanup runner preparation failed for {}: {}", workspace.id, it.message)
+                recordCleanup(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+                return null
+            }
+        return when (prepared) {
             is RunnerPreparationResult.Ready -> prepared.workspace
             is RunnerPreparationResult.Unavailable -> {
                 log.warn("durable cleanup could not provision runner for {}: {}", workspace.id, prepared.runnerStatus)
+                recordCleanup(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
                 null
             }
         }
@@ -129,4 +162,19 @@ class DurableSessionCleanupService(
         runnerSetupOperation != RunnerSetupOperation.IDLE ||
             pendingRunnerSetupId != null ||
             pendingRunnerSetupVersion != null
+
+    private fun recordCleanup(
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = OperationLabel.OTHER,
+                mode = ModeLabel.DURABLE,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.ZERO,
+            ),
+        )
+    }
 }
