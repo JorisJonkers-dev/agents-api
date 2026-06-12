@@ -189,9 +189,8 @@ class JooqWorkspaceAgentSessionRepository(
             .fetch()
             .map { it.toSession() }
 
-    override fun delete(id: WorkspaceAgentSessionId) {
-        dsl.deleteFrom(WAS).where(ID.eq(id.value)).execute()
-    }
+    override fun delete(id: WorkspaceAgentSessionId): Boolean =
+        dsl.deleteFrom(WAS).where(ID.eq(id.value)).execute() == 1
 
     private fun Record.toSession(): WorkspaceAgentSession =
         WorkspaceAgentSession(

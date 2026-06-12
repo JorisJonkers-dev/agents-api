@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
@@ -21,6 +22,7 @@ class RunnerSessionBinder(
     private val gateway: AgentGatewayClient,
     private val orchestrator: AgentRunnerOrchestrator,
     private val tx: RunnerSessionBindingTransactions,
+    private val sessionStatus: SessionStatusPublisher,
     private val backoffInitialMs: Long = BACKOFF_INITIAL_MS,
 ) : RunnerSessionBindingService {
     private val log = LoggerFactory.getLogger(RunnerSessionBinder::class.java)
@@ -43,7 +45,8 @@ class RunnerSessionBinder(
                 epoch = 1,
                 generation = 1,
             )
-        sessions.save(session)
+        val saved = sessions.save(session)
+        sessionStatus.publishStatus(saved)
         return spawnAndBind(ready.workspace, session, continuation = null, provisioning = ready.provisioning)
     }
 
@@ -288,37 +291,52 @@ class RunnerSessionBinder(
 @Component
 class RunnerSessionBindingTransactions(
     private val sessions: WorkspaceAgentSessionRepository,
+    private val sessionStatus: SessionStatusPublisher,
 ) {
     @Transactional
     fun beginGeneration(
         current: WorkspaceAgentSession,
         next: WorkspaceAgentSession,
-    ): Boolean =
-        sessions.beginGeneration(
-            id = current.id,
-            expectedGeneration = current.generation,
-            nextEpoch = next.epoch,
-        )
+    ): Boolean {
+        val changed =
+            sessions.beginGeneration(
+                id = current.id,
+                expectedGeneration = current.generation,
+                nextEpoch = next.epoch,
+            )
+        if (changed) sessionStatus.publishStatus(next)
+        return changed
+    }
 
     @Transactional
     fun bind(
         session: WorkspaceAgentSession,
         gatewayAgent: AgentGatewayClient.GatewayAgent,
-    ): Boolean =
-        sessions.bindIfGeneration(
-            id = session.id,
-            expectedGeneration = session.generation,
-            gatewayAgentId = gatewayAgent.id,
-            cliSessionId = gatewayAgent.cliSessionId,
-        )
+    ): Boolean {
+        val changed =
+            sessions.bindIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                gatewayAgentId = gatewayAgent.id,
+                cliSessionId = gatewayAgent.cliSessionId,
+            )
+        if (changed) {
+            sessionStatus.publishStatus(session.bindGatewayAgent(gatewayAgent.id, gatewayAgent.cliSessionId))
+        }
+        return changed
+    }
 
     @Transactional
-    fun markFailed(session: WorkspaceAgentSession): Boolean =
-        sessions.markLifecycleIfGeneration(
-            id = session.id,
-            expectedGeneration = session.generation,
-            status = WorkspaceAgentSessionStatus.FAILED,
-            retainedUntil = session.retainedUntil,
-            clearGatewayBinding = true,
-        )
+    fun markFailed(session: WorkspaceAgentSession): Boolean {
+        val changed =
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.FAILED,
+                retainedUntil = session.retainedUntil,
+                clearGatewayBinding = true,
+            )
+        if (changed) sessionStatus.publishStatus(session.markFailed())
+        return changed
+    }
 }

@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
@@ -27,6 +28,7 @@ class StopAgentSessionCommandHandlerTest {
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val autoCapture = mockk<LessonAutoCapture>(relaxed = true)
     private val runtime = runtimeProperties()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val handler =
         StopAgentSessionCommandHandler(
             workspaces = workspaces,
@@ -34,6 +36,7 @@ class StopAgentSessionCommandHandlerTest {
             gateway = gateway,
             autoCapture = autoCapture,
             runtime = runtime,
+            sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
         )
 
@@ -68,6 +71,12 @@ class StopAgentSessionCommandHandlerTest {
             )
         }
         verify { autoCapture.capture(session.id) }
+        verify {
+            sessionStatus.publishStatus(
+                match { it.id == session.id && it.status == WorkspaceAgentSessionStatus.STOPPED },
+                idle = false,
+            )
+        }
         verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
         verify(exactly = 0) { sessions.delete(any()) }
     }

@@ -150,7 +150,7 @@ class HttpAgentGatewayClient(
     ) {
         restClient
             .delete()
-            .uri("${endpoint(workspace)}/agents/stable-sessions/${stableSessionId.value}")
+            .uri("${endpoint(workspace)}/agents/transcripts/${stableSessionId.value}")
             .retrieve()
             .onStatus(HttpStatusCode::is4xxClientError) { _, _ -> }
             .toBodilessEntity()

@@ -7,6 +7,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
@@ -238,7 +239,11 @@ data class WorkspaceAgentSessionResponse(
     val workspaceId: UUID,
     val kind: WorkspaceAgentKind,
     val gatewayAgentId: String?,
+    val epoch: Long,
+    val generation: Long,
+    val gatewayBoundAt: Instant?,
     val status: String,
+    val idle: Boolean,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -249,7 +254,11 @@ data class WorkspaceAgentSessionResponse(
                 workspaceId = s.workspaceId.value,
                 kind = s.kind,
                 gatewayAgentId = s.gatewayAgentId,
+                epoch = s.epoch,
+                generation = s.generation,
+                gatewayBoundAt = s.gatewayBoundAt,
                 status = s.status.name,
+                idle = s.status == WorkspaceAgentSessionStatus.RUNNING && s.gatewayAgentId == null,
                 createdAt = s.createdAt,
                 updatedAt = s.updatedAt,
             )

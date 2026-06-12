@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -37,6 +38,7 @@ class IdleScaleDownScheduler(
     private val orchestrator: AgentRunnerOrchestrator,
     private val tracker: WorkspaceActivityTracker,
     private val connected: ConnectedClientTracker,
+    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
     @param:Value("\${agent-runtime.idle-after-seconds:1800}")
     private val idleAfterSeconds: Long,
@@ -94,11 +96,13 @@ class IdleScaleDownScheduler(
             .findAllByWorkspaceId(workspace.id)
             .filter { it.gatewayAgentId != null || it.gatewayBoundAt != null }
             .forEach {
-                agentSessions.clearGatewayBindingIfGeneration(
-                    id = it.id,
-                    expectedGeneration = it.generation,
-                    now = now,
-                )
+                val cleared =
+                    agentSessions.clearGatewayBindingIfGeneration(
+                        id = it.id,
+                        expectedGeneration = it.generation,
+                        now = now,
+                    )
+                if (cleared) sessionStatus.publishStatus(it.clearGatewayBinding(now), idle = true)
             }
     }
 }

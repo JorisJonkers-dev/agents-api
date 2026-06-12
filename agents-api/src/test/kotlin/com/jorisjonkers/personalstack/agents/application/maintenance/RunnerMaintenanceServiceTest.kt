@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -28,12 +29,14 @@ class RunnerMaintenanceServiceTest {
     private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val service =
         RunnerMaintenanceService(
             workspaces = workspaces,
             agentSessions = agentSessions,
             orchestrator = orchestrator,
             tracker = tracker,
+            sessionStatus = sessionStatus,
             clock = clock,
         )
 
@@ -142,6 +145,12 @@ class RunnerMaintenanceServiceTest {
                 id = session.id,
                 expectedGeneration = 12,
                 now = now,
+            )
+        }
+        verify {
+            sessionStatus.publishStatus(
+                match { it.id == session.id && it.gatewayAgentId == null },
+                idle = true,
             )
         }
         verify(exactly = 0) { agentSessions.delete(any()) }

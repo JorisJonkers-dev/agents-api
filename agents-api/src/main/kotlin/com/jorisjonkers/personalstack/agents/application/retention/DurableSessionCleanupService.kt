@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -20,6 +21,7 @@ class DurableSessionCleanupService(
     private val gateway: AgentGatewayClient,
     private val orchestrator: AgentRunnerOrchestrator,
     private val runtime: AgentRuntimeProperties,
+    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val log = LoggerFactory.getLogger(DurableSessionCleanupService::class.java)
@@ -79,10 +81,21 @@ class DurableSessionCleanupService(
         val mountedWorkspace = ensureRunnerMounted(workspace) ?: return false
         return runCatching {
             gateway.cleanupStableSession(mountedWorkspace, session.id)
-            sessions.delete(session.id)
+            sessions.delete(session.id).also { deleted ->
+                if (deleted) {
+                    runCatching { sessionStatus.publishRemove(session.id) }
+                        .onFailure {
+                            log.warn(
+                                "session-status remove publish for {} failed: {}",
+                                session.id,
+                                it.message,
+                            )
+                        }
+                }
+            }
         }.onFailure {
             log.warn("durable cleanup of session {} failed: {}", session.id, it.message)
-        }.isSuccess
+        }.getOrDefault(false)
     }
 
     private fun ensureRunnerMounted(workspace: Workspace): Workspace? {

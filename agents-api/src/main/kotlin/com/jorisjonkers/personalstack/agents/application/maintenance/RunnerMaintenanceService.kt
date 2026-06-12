@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
@@ -32,6 +33,7 @@ class RunnerMaintenanceService(
     private val agentSessions: WorkspaceAgentSessionRepository,
     private val orchestrator: AgentRunnerOrchestrator,
     private val tracker: WorkspaceActivityTracker,
+    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val log = LoggerFactory.getLogger(RunnerMaintenanceService::class.java)
@@ -95,11 +97,13 @@ class RunnerMaintenanceService(
             .findAllByWorkspaceId(workspace.id)
             .filter { it.gatewayAgentId != null || it.gatewayBoundAt != null }
             .forEach {
-                agentSessions.clearGatewayBindingIfGeneration(
-                    id = it.id,
-                    expectedGeneration = it.generation,
-                    now = now,
-                )
+                val cleared =
+                    agentSessions.clearGatewayBindingIfGeneration(
+                        id = it.id,
+                        expectedGeneration = it.generation,
+                        now = now,
+                    )
+                if (cleared) sessionStatus.publishStatus(it.clearGatewayBinding(now), idle = true)
             }
     }
 }

@@ -99,7 +99,7 @@ class HttpAgentGatewayClientTest {
         val sessionId = WorkspaceAgentSessionId.random()
 
         server
-            .expect(requestTo("http://runner:8090/agents/stable-sessions/${sessionId.value}"))
+            .expect(requestTo("http://runner:8090/agents/transcripts/${sessionId.value}"))
             .andExpect(method(HttpMethod.DELETE))
             .andRespond(withSuccess())
 

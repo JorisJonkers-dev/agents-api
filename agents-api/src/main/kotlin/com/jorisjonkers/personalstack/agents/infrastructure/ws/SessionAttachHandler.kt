@@ -5,6 +5,7 @@ import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityT
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
@@ -24,6 +25,7 @@ import org.springframework.web.util.UriComponentsBuilder
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -52,6 +54,7 @@ class SessionAttachHandler(
     private val activity: WorkspaceActivityTracker,
     private val connected: ConnectedClientTracker,
     private val binding: RunnerSessionBindingService,
+    private val sessionStatus: SessionStatusPublisher,
 ) : AbstractWebSocketHandler() {
     private val log = LoggerFactory.getLogger(SessionAttachHandler::class.java)
 
@@ -71,8 +74,8 @@ class SessionAttachHandler(
     )
 
     private data class BrowserCursor(
-        val epoch: Long?,
-        val offset: Long?,
+        val epoch: String?,
+        val offset: String?,
     )
 
     /**
@@ -137,6 +140,7 @@ class SessionAttachHandler(
         return null
     }
 
+    @Suppress("LongMethod") // attach handshake and bridge registration must stay ordered
     override fun afterConnectionEstablished(clientSession: WebSocketSession) {
         val resolved = resolveAttach(clientSession) ?: return
         val upstreamHandler =
@@ -147,6 +151,7 @@ class SessionAttachHandler(
                 sessions = sessions,
                 activity = activity,
                 binding = binding,
+                sessionStatus = sessionStatus,
             )
         val upstream =
             runCatching {
@@ -215,8 +220,8 @@ class SessionAttachHandler(
     private fun browserCursorOf(session: WebSocketSession): BrowserCursor {
         val query = queryOf(session)
         return BrowserCursor(
-            epoch = nonNegativeLong(query["epoch"]),
-            offset = nonNegativeLong(query["offset"]),
+            epoch = nonNegativeInteger(query["epoch"]),
+            offset = nonNegativeInteger(query["offset"]),
         )
     }
 
@@ -236,7 +241,8 @@ class SessionAttachHandler(
     private fun decodeQuery(value: String): String? =
         runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8) }.getOrNull()
 
-    private fun nonNegativeLong(value: String?): Long? = value?.toLongOrNull()?.takeIf { it >= 0 }
+    private fun nonNegativeInteger(value: String?): String? =
+        value?.takeIf { it.matches(NON_NEGATIVE_INTEGER) && it.toLongOrNull() != null }
 
     private fun upstreamUri(
         gatewayBase: String,
@@ -263,6 +269,7 @@ class SessionAttachHandler(
 
     companion object {
         private const val UPSTREAM_HANDSHAKE_SECONDS = 5L
+        private val NON_NEGATIVE_INTEGER = Regex("""\d+""")
     }
 
     /**
@@ -277,6 +284,7 @@ class SessionAttachHandler(
         private val sessions: WorkspaceAgentSessionRepository,
         private val activity: WorkspaceActivityTracker,
         private val binding: RunnerSessionBindingService,
+        private val sessionStatus: SessionStatusPublisher,
     ) : AbstractWebSocketHandler() {
         override fun handleTextMessage(
             session: WebSocketSession,
@@ -309,7 +317,9 @@ class SessionAttachHandler(
             if (status.code == CloseStatus.BAD_DATA.code && status.reason == "unknown agent") {
                 runCatching {
                     sessions.findById(sessionId)?.let {
-                        sessions.clearGatewayBindingIfGeneration(sessionId, it.generation)
+                        val now = Instant.now()
+                        val cleared = sessions.clearGatewayBindingIfGeneration(sessionId, it.generation, now)
+                        if (cleared) sessionStatus.publishStatus(it.clearGatewayBinding(now))
                     }
                     binding.ensureBound(
                         EnsureRunnerSessionBoundInput(sessionId = sessionId, workspaceId = workspaceId),

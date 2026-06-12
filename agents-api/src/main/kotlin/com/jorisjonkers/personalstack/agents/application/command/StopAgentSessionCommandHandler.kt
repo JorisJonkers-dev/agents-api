@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -19,6 +20,7 @@ class StopAgentSessionCommandHandler(
     private val gateway: AgentGatewayClient,
     private val autoCapture: LessonAutoCapture,
     private val runtime: AgentRuntimeProperties,
+    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
 ) : CommandHandler<StopAgentSessionCommand> {
     private val log = LoggerFactory.getLogger(StopAgentSessionCommandHandler::class.java)
@@ -37,14 +39,17 @@ class StopAgentSessionCommandHandler(
                 }
         }
         val now = clock.instant()
-        sessions.markLifecycleIfGeneration(
-            id = session.id,
-            expectedGeneration = session.generation,
-            status = WorkspaceAgentSessionStatus.STOPPED,
-            retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
-            clearGatewayBinding = true,
-            now = now,
-        )
+        val retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds)
+        val stopped =
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.STOPPED,
+                retainedUntil = retainedUntil,
+                clearGatewayBinding = true,
+                now = now,
+            )
+        if (stopped) sessionStatus.publishStatus(session.markStopped(retainedUntil = retainedUntil, now = now))
         // The stop command is a definitive "this session is done"
         // signal — flush a final auto-capture pass against the
         // full transcript on the way out.

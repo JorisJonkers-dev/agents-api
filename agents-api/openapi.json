@@ -180,12 +180,32 @@
           }
         },
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "202" : {
+            "description" : "Accepted",
             "content" : {
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/RestartAgentSessionResponse"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Conflict",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RestartAgentSessionResponse"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "Service Unavailable",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
                 }
               }
             }
@@ -1396,6 +1416,80 @@
         },
         "required" : [ "epoch", "generation", "sessionId", "status" ]
       },
+      "FieldError" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "rejectedValue" : {
+            "type" : "null"
+          }
+        },
+        "required" : [ "field", "message" ]
+      },
+      "ProblemDetail" : {
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "format" : "uri"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "detail" : {
+            "type" : [ "string", "null" ]
+          },
+          "instance" : {
+            "type" : [ "string", "null" ],
+            "format" : "uri"
+          },
+          "errors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldError"
+            }
+          },
+          "traceId" : {
+            "type" : [ "string", "null" ]
+          },
+          "exception" : {
+            "type" : [ "string", "null" ]
+          },
+          "kubernetesCode" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          },
+          "kubernetesReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "constraint" : {
+            "type" : [ "string", "null" ]
+          },
+          "column" : {
+            "type" : [ "string", "null" ]
+          },
+          "referencedTable" : {
+            "type" : [ "string", "null" ]
+          },
+          "runnerStatus" : {
+            "type" : [ "string", "null" ]
+          },
+          "retryAfterSeconds" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          }
+        },
+        "required" : [ "errors", "status", "title", "type" ]
+      },
       "SendUserInputRequest" : {
         "type" : "object",
         "properties" : {
@@ -1871,8 +1965,23 @@
           "gatewayAgentId" : {
             "type" : [ "string", "null" ]
           },
+          "epoch" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "generation" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "gatewayBoundAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
           "status" : {
             "type" : "string"
+          },
+          "idle" : {
+            "type" : "boolean"
           },
           "createdAt" : {
             "type" : "string",
@@ -1883,7 +1992,7 @@
             "format" : "date-time"
           }
         },
-        "required" : [ "createdAt", "id", "kind", "status", "updatedAt", "workspaceId" ]
+        "required" : [ "createdAt", "epoch", "generation", "id", "idle", "kind", "status", "updatedAt", "workspaceId" ]
       },
       "WorkspaceDetailResponse" : {
         "type" : "object",

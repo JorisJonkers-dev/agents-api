@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -25,13 +26,15 @@ class RunnerSessionBindingServiceTest {
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val binder =
         RunnerSessionBinder(
             workspaces = workspaces,
             sessions = sessions,
             gateway = gateway,
             orchestrator = orchestrator,
-            tx = RunnerSessionBindingTransactions(sessions),
+            tx = RunnerSessionBindingTransactions(sessions, sessionStatus),
+            sessionStatus = sessionStatus,
             backoffInitialMs = 0,
         )
 
@@ -246,6 +249,25 @@ class RunnerSessionBindingServiceTest {
         verify(exactly = 1) { orchestrator.scaleDown(ws) }
         verify(exactly = 1) { orchestrator.provision(ws) }
         verify { gateway.spawnAgent(repointed, WorkspaceAgentKind.CLAUDE, null, session.id, 3, any()) }
+    }
+
+    @Test
+    fun `beginGeneration suppresses status publication when generation CAS fails`() {
+        val session = session(WorkspaceId.random(), gatewayAgentId = "old-agent").copy(epoch = 2, generation = 6)
+        val starting = session.beginGeneration(nextEpoch = 3)
+        every {
+            sessions.beginGeneration(
+                id = session.id,
+                expectedGeneration = 6,
+                nextEpoch = 3,
+                now = any(),
+            )
+        } returns false
+
+        val result = RunnerSessionBindingTransactions(sessions, sessionStatus).beginGeneration(session, starting)
+
+        assertThat(result).isFalse
+        verify(exactly = 0) { sessionStatus.publishStatus(any<WorkspaceAgentSession>(), any()) }
     }
 
     private fun gatewayAgent(

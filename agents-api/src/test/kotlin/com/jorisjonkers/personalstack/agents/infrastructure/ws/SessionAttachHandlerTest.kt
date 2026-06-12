@@ -6,6 +6,7 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRu
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -44,6 +45,7 @@ class SessionAttachHandlerTest {
     private val turns = mockk<TurnRepository>(relaxed = true)
     private val activity = mockk<WorkspaceActivityTracker>(relaxed = true)
     private val binding = mockk<RunnerSessionBindingService>()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
 
     private lateinit var handler: SessionAttachHandler
     private lateinit var upstream: WebSocketSession
@@ -63,7 +65,7 @@ class SessionAttachHandlerTest {
             anyConstructed<StandardWebSocketClient>().execute(any(), any<String>())
         } returns CompletableFuture.completedFuture(upstream)
 
-        handler = SessionAttachHandler(sessions, workspaces, activity, ConnectedClientTracker(), binding)
+        handler = SessionAttachHandler(sessions, workspaces, activity, ConnectedClientTracker(), binding, sessionStatus)
 
         every { sessions.findById(sessionId) } returns agentSession()
         every { workspaces.findById(workspaceId) } returns workspace()
@@ -188,6 +190,18 @@ class SessionAttachHandlerTest {
     }
 
     @Test
+    fun `epoch and offset query values are forwarded unchanged to upstream attach uri`() {
+        val uriSlot = slot<String>()
+        every {
+            anyConstructed<StandardWebSocketClient>().execute(any(), capture(uriSlot))
+        } returns CompletableFuture.completedFuture(upstream)
+
+        handler.afterConnectionEstablished(clientSession("?offset=00012&epoch=0007"))
+
+        assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/abc12345/attach?epoch=0007&offset=00012")
+    }
+
+    @Test
     fun `invalid reconnect cursor query is omitted instead of closing bad data`() {
         val uriSlot = slot<String>()
         every {
@@ -233,6 +247,7 @@ class SessionAttachHandlerTest {
         handlerSlot.captured.afterConnectionClosed(upstream, CloseStatus.BAD_DATA.withReason("unknown agent"))
 
         verify { sessions.clearGatewayBindingIfGeneration(sessionId, 0, any()) }
+        verify { sessionStatus.publishStatus(match { it.id == sessionId && it.gatewayAgentId == null }, false) }
         verify {
             binding.ensureBound(
                 EnsureRunnerSessionBoundInput(sessionId = sessionId, workspaceId = workspaceId),

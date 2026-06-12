@@ -21,6 +21,11 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StagedInputR
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartAgentSessionRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.TurnResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
+import com.jorisjonkers.personalstack.common.web.ProblemDetail
+import io.swagger.v3.oas.annotations.media.Content
+import io.swagger.v3.oas.annotations.media.Schema
+import io.swagger.v3.oas.annotations.responses.ApiResponse
+import io.swagger.v3.oas.annotations.responses.ApiResponses
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -83,6 +88,25 @@ class AgentSessionController(
     }
 
     @PostMapping("/{sessionId}/restart")
+    @ApiResponses(
+        value = [
+            ApiResponse(
+                responseCode = "202",
+                description = "Accepted",
+                content = [Content(schema = Schema(implementation = RestartAgentSessionResponse::class))],
+            ),
+            ApiResponse(
+                responseCode = "409",
+                description = "Conflict",
+                content = [Content(schema = Schema(implementation = RestartAgentSessionResponse::class))],
+            ),
+            ApiResponse(
+                responseCode = "503",
+                description = "Service Unavailable",
+                content = [Content(schema = Schema(implementation = ProblemDetail::class))],
+            ),
+        ],
+    )
     fun restart(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,

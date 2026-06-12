@@ -38,9 +38,23 @@ class AsyncConfig {
             initialize()
         }
 
+    @Bean(name = ["sessionStatusExecutor"])
+    fun sessionStatusExecutor(): Executor =
+        ThreadPoolTaskExecutor().apply {
+            corePoolSize = SESSION_STATUS_CORE_POOL_SIZE
+            maxPoolSize = SESSION_STATUS_MAX_POOL_SIZE
+            queueCapacity = SESSION_STATUS_QUEUE_CAPACITY
+            setThreadNamePrefix("session-status-")
+            setRejectedExecutionHandler(ThreadPoolExecutor.CallerRunsPolicy())
+            initialize()
+        }
+
     private companion object {
         private const val CHAT_STREAM_CORE_POOL_SIZE = 2
         private const val CHAT_STREAM_MAX_POOL_SIZE = 8
         private const val CHAT_STREAM_QUEUE_CAPACITY = 50
+        private const val SESSION_STATUS_CORE_POOL_SIZE = 1
+        private const val SESSION_STATUS_MAX_POOL_SIZE = 4
+        private const val SESSION_STATUS_QUEUE_CAPACITY = 250
     }
 }

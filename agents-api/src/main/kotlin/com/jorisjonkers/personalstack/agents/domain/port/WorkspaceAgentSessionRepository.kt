@@ -55,5 +55,5 @@ interface WorkspaceAgentSessionRepository {
 
     fun findCleanupRequested(limit: Int): List<WorkspaceAgentSession>
 
-    fun delete(id: WorkspaceAgentSessionId)
+    fun delete(id: WorkspaceAgentSessionId): Boolean
 }

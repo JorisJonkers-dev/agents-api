@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
@@ -29,6 +30,7 @@ class DurableSessionCleanupServiceTest {
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val runtime = runtimeProperties()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val service =
         DurableSessionCleanupService(
             workspaces = workspaces,
@@ -36,6 +38,7 @@ class DurableSessionCleanupServiceTest {
             gateway = gateway,
             orchestrator = orchestrator,
             runtime = runtime,
+            sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
         )
 
@@ -66,7 +69,7 @@ class DurableSessionCleanupServiceTest {
         every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
         every { workspaces.findById(workspace.id) } returns workspace
         every { gateway.isReady(workspace) } returns true
-        every { sessions.delete(pending.id) } returns Unit
+        every { sessions.delete(pending.id) } returns true
 
         val result = service.sweep()
 
@@ -74,6 +77,7 @@ class DurableSessionCleanupServiceTest {
         assertThat(result.failed).isEqualTo(0)
         verify { gateway.cleanupStableSession(workspace, pending.id) }
         verify { sessions.delete(pending.id) }
+        verify { sessionStatus.publishRemove(pending.id) }
     }
 
     @Test
@@ -117,7 +121,7 @@ class DurableSessionCleanupServiceTest {
             )
         every { workspaces.save(capture(saved)) } answers { saved.captured }
         every { gateway.isReady(match { it.gatewayEndpoint == "http://new:8090" }) } returns true
-        every { sessions.delete(pending.id) } returns Unit
+        every { sessions.delete(pending.id) } returns true
 
         val result = service.sweep()
 
@@ -130,6 +134,23 @@ class DurableSessionCleanupServiceTest {
         verify { orchestrator.provision(workspace) }
         verify { gateway.cleanupStableSession(saved.captured, pending.id) }
         verify { sessions.delete(pending.id) }
+    }
+
+    @Test
+    fun `sweep does not publish remove when row delete loses the race`() {
+        val workspace = workspace()
+        val pending = session(workspaceId = workspace.id, cleanupRequestedAt = now.minusSeconds(60))
+        every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
+        every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
+        every { workspaces.findById(workspace.id) } returns workspace
+        every { gateway.isReady(workspace) } returns true
+        every { sessions.delete(pending.id) } returns false
+
+        val result = service.sweep()
+
+        assertThat(result.cleaned).isEqualTo(0)
+        assertThat(result.failed).isEqualTo(1)
+        verify(exactly = 0) { sessionStatus.publishRemove(any()) }
     }
 
     private fun workspace(

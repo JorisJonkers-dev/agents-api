@@ -12,6 +12,7 @@ import com.jorisjonkers.personalstack.agents.application.query.ListWorkspacesQue
 import com.jorisjonkers.personalstack.agents.application.query.ProjectQueryService
 import com.jorisjonkers.personalstack.agents.application.query.RepositoryQueryService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusBroadcaster
 import com.jorisjonkers.personalstack.agents.application.setup.SetupGuideService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -32,6 +33,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.MessageControlle
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ProjectController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryAccessDeniedExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.SessionStatusController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.SetupGuideController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.WorkspaceController
 import com.jorisjonkers.personalstack.common.command.CommandBus
@@ -49,6 +51,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.context.annotation.Bean
 import org.springframework.test.context.ContextConfiguration
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import java.nio.file.Path
 import java.nio.file.Paths
 
@@ -69,6 +73,7 @@ import java.nio.file.Paths
         MessageController::class,
         ProjectController::class,
         RepositoryController::class,
+        SessionStatusController::class,
         SetupGuideController::class,
         WorkspaceController::class,
     ],
@@ -97,6 +102,7 @@ import java.nio.file.Paths
         MessageController::class,
         ProjectController::class,
         RepositoryController::class,
+        SessionStatusController::class,
         SetupGuideController::class,
         WorkspaceController::class,
     ],
@@ -108,6 +114,13 @@ class OpenApiSpecExportTest {
     @Test
     fun `export OpenAPI spec to repo root`() {
         OpenApiSliceExporter.writeJson(mockMvc, resolveOpenApiSpecPath(), "/api/v1/api-docs")
+    }
+
+    @Test
+    fun `session status events endpoint is hidden from OpenAPI`() {
+        mockMvc
+            .perform(get("/api/v1/api-docs"))
+            .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
     }
 
     private fun resolveOpenApiSpecPath(): Path {
@@ -173,6 +186,9 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun runnerMaintenanceService(): RunnerMaintenanceService = mockk(relaxed = true)
+
+        @Bean
+        fun sessionStatusBroadcaster(): SessionStatusBroadcaster = mockk(relaxed = true)
 
         @Bean
         fun setupGuideService(): SetupGuideService = mockk(relaxed = true)

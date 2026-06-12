@@ -15,10 +15,12 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceAgentSessionResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
@@ -29,6 +31,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import java.time.Instant
 
 class AgentSessionControllerTest {
+    private val now = Instant.parse("2026-06-12T12:00:00Z")
     private val commandBus = mockk<CommandBus>(relaxed = true)
     private val turnHistory = mockk<GetTurnHistoryQueryService>(relaxed = true)
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
@@ -109,6 +112,50 @@ class AgentSessionControllerTest {
             .andExpect(jsonPath("$.status").value("RUNNING"))
     }
 
+    @Test
+    fun `POST restart returns conflict with current durable session metadata`() {
+        val current = agentSession().copy(epoch = 3, generation = 7)
+        every {
+            restartAgentSession.restart(
+                RestartAgentSessionInput(
+                    workspaceId = workspaceId,
+                    sessionId = sessionId,
+                    expectedGeneration = 6,
+                ),
+            )
+        } returns RunnerSessionBindingResult.Conflict(current)
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/restart")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"expectedGeneration":6}"""),
+            ).andExpect(status().isConflict)
+            .andExpect(jsonPath("$.sessionId").value(sessionId.value.toString()))
+            .andExpect(jsonPath("$.epoch").value(3))
+            .andExpect(jsonPath("$.generation").value(7))
+            .andExpect(jsonPath("$.status").value("RUNNING"))
+    }
+
+    @Test
+    fun `workspace agent session response includes lifecycle metadata and derived idle`() {
+        val boundAt = Instant.parse("2026-06-12T12:00:05Z")
+        val running =
+            WorkspaceAgentSessionResponse.of(
+                agentSession().copy(epoch = 4, generation = 9, gatewayBoundAt = boundAt),
+            )
+        val idle =
+            WorkspaceAgentSessionResponse.of(
+                agentSession().copy(gatewayAgentId = null, gatewayBoundAt = null),
+            )
+
+        assertThat(running.epoch).isEqualTo(4)
+        assertThat(running.generation).isEqualTo(9)
+        assertThat(running.gatewayBoundAt).isEqualTo(boundAt)
+        assertThat(running.idle).isFalse()
+        assertThat(idle.idle).isTrue()
+    }
+
     private fun agentSession() =
         WorkspaceAgentSession(
             id = sessionId,
@@ -116,8 +163,11 @@ class AgentSessionControllerTest {
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = "abc12345",
             status = WorkspaceAgentSessionStatus.RUNNING,
-            createdAt = Instant.now(),
-            updatedAt = Instant.now(),
+            createdAt = now,
+            updatedAt = now,
+            epoch = 1,
+            generation = 0,
+            gatewayBoundAt = now,
         )
 
     private fun workspace() =
@@ -130,7 +180,7 @@ class AgentSessionControllerTest {
             pvcName = null,
             gatewayEndpoint = "http://gw:8090",
             status = WorkspaceStatus.READY,
-            createdAt = Instant.now(),
-            updatedAt = Instant.now(),
+            createdAt = now,
+            updatedAt = now,
         )
 }

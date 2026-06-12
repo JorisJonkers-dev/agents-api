@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
+import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -38,6 +39,7 @@ class IdleScaleDownSchedulerTest {
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
     private val connected = ConnectedClientTracker()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val scheduler =
         IdleScaleDownScheduler(
             workspaces = workspaces,
@@ -45,6 +47,7 @@ class IdleScaleDownSchedulerTest {
             orchestrator = orchestrator,
             tracker = tracker,
             connected = connected,
+            sessionStatus = sessionStatus,
             clock = clock,
             idleAfterSeconds = 1_800,
             agentIdleAfterSeconds = 14_400,
@@ -180,6 +183,12 @@ class IdleScaleDownSchedulerTest {
                 id = session.id,
                 expectedGeneration = 9,
                 now = now,
+            )
+        }
+        verify {
+            sessionStatus.publishStatus(
+                match { it.id == session.id && it.gatewayAgentId == null },
+                idle = true,
             )
         }
         verify(exactly = 0) { agentSessions.delete(any()) }
