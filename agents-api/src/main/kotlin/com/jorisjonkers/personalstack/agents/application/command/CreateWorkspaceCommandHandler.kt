@@ -2,8 +2,11 @@ package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.exception.RepositoryAccessDeniedException
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -55,6 +58,7 @@ class CreateWorkspaceCommandHandler(
      */
     private val repositories: ObjectProvider<RepositoryRepository>,
     private val verifyAccess: VerifyRepositoryAccess,
+    private val setupSelection: AgentSetupSelectionService,
 ) : CommandHandler<CreateWorkspaceCommand> {
     private val log = LoggerFactory.getLogger(CreateWorkspaceCommandHandler::class.java)
 
@@ -80,9 +84,10 @@ class CreateWorkspaceCommandHandler(
         if (command.kind == WorkspaceKind.REPO_BACKED && resolved.repoUrl != null) {
             verifyOrFail(resolved.repoUrl, resolved.branch, resolved.repositoryId)
         }
-        val workspace = persistInitial(command, resolved)
+        val setup = setupSelection.defaultSelectable()
+        val workspace = persistInitial(command, resolved, setup)
         seedRepositoryMembership(workspace, command)
-        val withPod = provisionAndUpdate(workspace)
+        val withPod = provisionAndUpdate(workspace, RunnerSetupProvisioningSpec.from(setup.definition))
         log.info("workspace {} provisioned as pod {}", workspace.id, withPod.podName)
     }
 
@@ -114,6 +119,7 @@ class CreateWorkspaceCommandHandler(
     private fun persistInitial(
         command: CreateWorkspaceCommand,
         resolved: ResolvedRepo,
+        setup: AgentSetupCatalogEntry,
     ): Workspace {
         val now = Instant.now()
         val workspace =
@@ -132,6 +138,8 @@ class CreateWorkspaceCommandHandler(
                 projectId = command.projectId,
                 kind = command.kind,
                 githubLinkId = resolved.legacyLinkId,
+                currentRunnerSetupId = setup.definition.id,
+                currentRunnerSetupVersion = setup.definition.version,
             )
         workspaces.save(workspace)
         return workspace
@@ -184,8 +192,11 @@ class CreateWorkspaceCommandHandler(
     ) = repos.findById(repositoryId)
         ?: throw NoSuchElementException("repository not found: repositoryId=${repositoryId.value}")
 
-    private fun provisionAndUpdate(workspace: Workspace): Workspace {
-        val handle = orchestrator.provision(workspace)
+    private fun provisionAndUpdate(
+        workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+    ): Workspace {
+        val handle = orchestrator.provision(workspace, setup, workspace.runnerSetupGeneration)
         val withPod =
             workspace.withPodInfo(
                 podName = handle.podName,

@@ -78,6 +78,7 @@ data class WorkspaceResponse(
     val projectId: UUID?,
     val repositoryId: UUID?,
     val githubLinkId: UUID?,
+    val runnerSetup: WorkspaceRunnerSetupResponse,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -95,6 +96,7 @@ data class WorkspaceResponse(
                 projectId = w.projectId?.value,
                 repositoryId = w.repositoryId?.value,
                 githubLinkId = w.githubLinkId?.value,
+                runnerSetup = WorkspaceRunnerSetupResponse.of(w),
                 createdAt = w.createdAt,
                 updatedAt = w.updatedAt,
             )
@@ -167,6 +169,7 @@ data class WorkspaceWithRepositoriesResponse(
     val repositoryId: UUID?,
     val githubLinkId: UUID?,
     val repositories: List<WorkspaceRepositoryResponse>,
+    val runnerSetup: WorkspaceRunnerSetupResponse,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -187,6 +190,7 @@ data class WorkspaceWithRepositoriesResponse(
             repositoryId = w.repositoryId?.value,
             githubLinkId = w.githubLinkId?.value,
             repositories = repositories.map(WorkspaceRepositoryResponse::of),
+            runnerSetup = WorkspaceRunnerSetupResponse.of(w),
             createdAt = w.createdAt,
             updatedAt = w.updatedAt,
         )
@@ -209,12 +213,43 @@ data class WorkspaceDetailResponse(
     }
 }
 
+data class WorkspaceRunnerSetupResponse(
+    val current: AgentSetupReferenceResponse,
+    val pending: AgentSetupReferenceResponse?,
+    val generation: Long,
+    val operation: String,
+    val operationStartedAt: Instant?,
+    val operationUpdatedAt: Instant?,
+) {
+    companion object {
+        fun of(w: Workspace): WorkspaceRunnerSetupResponse =
+            WorkspaceRunnerSetupResponse(
+                current = AgentSetupReferenceResponse.of(w.currentRunnerSetupId, w.currentRunnerSetupVersion),
+                pending =
+                    w.pendingRunnerSetupId?.let { id ->
+                        AgentSetupReferenceResponse.of(id, requireNotNull(w.pendingRunnerSetupVersion))
+                    },
+                generation = w.runnerSetupGeneration,
+                operation = w.runnerSetupOperation.name,
+                operationStartedAt = w.runnerSetupOperationStartedAt,
+                operationUpdatedAt = w.runnerSetupOperationUpdatedAt,
+            )
+    }
+}
+
 data class StartAgentSessionRequest(
     val kind: WorkspaceAgentKind,
 )
 
 data class RestartAgentSessionHttpRequest(
     val expectedGeneration: Long? = null,
+    val expectedEpoch: Long? = null,
+    val expectedSetupId: String? = null,
+    val expectedSetupVersion: Long? = null,
+    val expectedCurrentSetupId: String? = null,
+    val expectedCurrentSetupVersion: Long? = null,
+    val targetSetupId: String? = null,
+    val targetSetupVersion: Long? = null,
 )
 
 data class RestartAgentSessionResponse(
@@ -222,6 +257,8 @@ data class RestartAgentSessionResponse(
     val epoch: Long,
     val generation: Long,
     val status: String,
+    val currentSetup: AgentSetupReferenceResponse,
+    val pendingSetup: AgentSetupReferenceResponse?,
 ) {
     companion object {
         fun of(s: WorkspaceAgentSession) =
@@ -230,6 +267,11 @@ data class RestartAgentSessionResponse(
                 epoch = s.epoch,
                 generation = s.generation,
                 status = s.status.name,
+                currentSetup = AgentSetupReferenceResponse.of(s.currentSetupId, s.currentSetupVersion),
+                pendingSetup =
+                    s.pendingSetupId?.let { id ->
+                        AgentSetupReferenceResponse.of(id, requireNotNull(s.pendingSetupVersion))
+                    },
             )
     }
 }
@@ -244,6 +286,8 @@ data class WorkspaceAgentSessionResponse(
     val gatewayBoundAt: Instant?,
     val status: String,
     val idle: Boolean,
+    val currentSetup: AgentSetupReferenceResponse,
+    val pendingSetup: AgentSetupReferenceResponse?,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -259,6 +303,11 @@ data class WorkspaceAgentSessionResponse(
                 gatewayBoundAt = s.gatewayBoundAt,
                 status = s.status.name,
                 idle = s.status == WorkspaceAgentSessionStatus.RUNNING && s.gatewayAgentId == null,
+                currentSetup = AgentSetupReferenceResponse.of(s.currentSetupId, s.currentSetupVersion),
+                pendingSetup =
+                    s.pendingSetupId?.let { id ->
+                        AgentSetupReferenceResponse.of(id, requireNotNull(s.pendingSetupVersion))
+                    },
                 createdAt = s.createdAt,
                 updatedAt = s.updatedAt,
             )

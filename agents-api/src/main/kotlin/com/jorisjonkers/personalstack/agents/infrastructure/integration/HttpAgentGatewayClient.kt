@@ -47,6 +47,8 @@ class HttpAgentGatewayClient(
     private data class ContinuationBody(
         val reason: String? = null,
         val previousEpoch: Long? = null,
+        val fromSetupLabel: String? = null,
+        val toSetupLabel: String? = null,
     )
 
     private data class SendBody(
@@ -342,8 +344,18 @@ class HttpAgentGatewayClient(
         )
 
     private fun AgentGatewayClient.ContinuationMetadata.toBody(): ContinuationBody =
-        ContinuationBody(reason = reason, previousEpoch = previousEpoch)
+        ContinuationBody(
+            reason = reason,
+            previousEpoch = previousEpoch,
+            fromSetupLabel = fromSetupLabel,
+            toSetupLabel = toSetupLabel,
+        )
 
     private fun ContinuationBody.toDomain(): AgentGatewayClient.ContinuationMetadata =
-        AgentGatewayClient.ContinuationMetadata(reason = reason, previousEpoch = previousEpoch)
+        AgentGatewayClient.ContinuationMetadata(
+            reason = reason,
+            previousEpoch = previousEpoch,
+            fromSetupLabel = fromSetupLabel,
+            toSetupLabel = toSetupLabel,
+        )
 }

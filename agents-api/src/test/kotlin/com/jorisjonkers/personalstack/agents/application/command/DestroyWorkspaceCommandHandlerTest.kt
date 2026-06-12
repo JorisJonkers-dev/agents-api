@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -11,6 +13,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 
 class DestroyWorkspaceCommandHandlerTest {
@@ -37,6 +40,23 @@ class DestroyWorkspaceCommandHandlerTest {
         val id = WorkspaceId.random()
         every { workspaces.findById(id) } returns null
         handler.handle(DestroyWorkspaceCommand(id))
+        verify(exactly = 0) { orchestrator.destroy(any()) }
+    }
+
+    @Test
+    fun `handle rejects workspace with pending runner setup`() {
+        val id = WorkspaceId.random()
+        val ws =
+            workspace(id)
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+        every { workspaces.findById(id) } returns ws
+
+        assertThrows<IllegalArgumentException> {
+            handler.handle(DestroyWorkspaceCommand(id))
+        }
         verify(exactly = 0) { orchestrator.destroy(any()) }
     }
 

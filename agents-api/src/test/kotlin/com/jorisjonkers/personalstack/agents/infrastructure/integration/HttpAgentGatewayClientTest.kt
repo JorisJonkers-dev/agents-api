@@ -58,6 +58,8 @@ class HttpAgentGatewayClientTest {
             .andExpect(jsonPath("$.epoch").value(3))
             .andExpect(jsonPath("$.continuation.reason").value("restart"))
             .andExpect(jsonPath("$.continuation.previousEpoch").value(2))
+            .andExpect(jsonPath("$.continuation.fromSetupLabel").value("Default runner"))
+            .andExpect(jsonPath("$.continuation.toSetupLabel").value("GPU runner"))
             .andRespond(
                 withSuccess(
                     """
@@ -68,7 +70,12 @@ class HttpAgentGatewayClientTest {
                       "cliSessionId": "native-1",
                       "stableSessionId": "${sessionId.value}",
                       "epoch": 3,
-                      "continuation": { "reason": "restart", "previousEpoch": 2 }
+                      "continuation": {
+                        "reason": "restart",
+                        "previousEpoch": 2,
+                        "fromSetupLabel": "Default runner",
+                        "toSetupLabel": "GPU runner"
+                      }
                     }
                     """.trimIndent(),
                     MediaType.APPLICATION_JSON,
@@ -81,13 +88,66 @@ class HttpAgentGatewayClientTest {
                 kind = WorkspaceAgentKind.CLAUDE,
                 stableSessionId = sessionId,
                 epoch = 3,
-                continuation = AgentGatewayClient.ContinuationMetadata(reason = "restart", previousEpoch = 2),
+                continuation =
+                    AgentGatewayClient.ContinuationMetadata(
+                        reason = "restart",
+                        previousEpoch = 2,
+                        fromSetupLabel = "Default runner",
+                        toSetupLabel = "GPU runner",
+                    ),
             )
 
         assertThat(spawned.id).isEqualTo("abc12345")
         assertThat(spawned.stableSessionId).isEqualTo(sessionId.value.toString())
         assertThat(spawned.epoch).isEqualTo(3)
         assertThat(spawned.continuation?.reason).isEqualTo("restart")
+        assertThat(spawned.continuation?.fromSetupLabel).isEqualTo("Default runner")
+        assertThat(spawned.continuation?.toSetupLabel).isEqualTo("GPU runner")
+        server.verify()
+    }
+
+    @Test
+    fun `startHeadlessJob posts continuation setup labels`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = HttpAgentGatewayClient(builder.build(), props())
+        val sessionId = WorkspaceAgentSessionId.random()
+
+        server
+            .expect(requestTo("http://runner:8090/agents/headless"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(jsonPath("$.kind").value("CLAUDE"))
+            .andExpect(jsonPath("$.prompt").value("continue"))
+            .andExpect(jsonPath("$.stableSessionId").value(sessionId.value.toString()))
+            .andExpect(jsonPath("$.epoch").value(4))
+            .andExpect(jsonPath("$.continuation.reason").value("restart"))
+            .andExpect(jsonPath("$.continuation.previousEpoch").value(3))
+            .andExpect(jsonPath("$.continuation.fromSetupLabel").value("Default runner"))
+            .andExpect(jsonPath("$.continuation.toSetupLabel").value("GPU runner"))
+            .andRespond(
+                withSuccess(
+                    """{"id":"job-1","status":"RUNNING","exitCode":null,"output":null}""",
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        val job =
+            client.startHeadlessJob(
+                workspace = workspace(),
+                kind = WorkspaceAgentKind.CLAUDE,
+                prompt = "continue",
+                stableSessionId = sessionId,
+                epoch = 4,
+                continuation =
+                    AgentGatewayClient.ContinuationMetadata(
+                        reason = "restart",
+                        previousEpoch = 3,
+                        fromSetupLabel = "Default runner",
+                        toSetupLabel = "GPU runner",
+                    ),
+            )
+
+        assertThat(job.id).isEqualTo("job-1")
         server.verify()
     }
 

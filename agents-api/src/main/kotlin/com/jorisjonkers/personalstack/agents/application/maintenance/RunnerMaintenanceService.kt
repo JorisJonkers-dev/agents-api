@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
@@ -59,7 +60,7 @@ class RunnerMaintenanceService(
         val candidates =
             workspaces
                 .findAllByStatusNot(WorkspaceStatus.DESTROYED)
-                .filter { it.status in activeStatuses }
+                .filter { it.status in activeStatuses && !it.hasRunnerSetupGuard() && !hasPendingSetupSession(it) }
         val cycled = candidates.mapNotNull { scaleDownToIdle(it) }
         if (cycled.isNotEmpty()) {
             log.info("maintenance: graceful scale-down cycled {} workspace(s)", cycled.size)
@@ -106,4 +107,14 @@ class RunnerMaintenanceService(
                 if (cleared) sessionStatus.publishStatus(it.clearGatewayBinding(now), idle = true)
             }
     }
+
+    private fun hasPendingSetupSession(workspace: Workspace): Boolean =
+        agentSessions
+            .findAllByWorkspaceId(workspace.id)
+            .any { it.pendingSetupId != null || it.pendingSetupVersion != null }
+
+    private fun Workspace.hasRunnerSetupGuard(): Boolean =
+        runnerSetupOperation != RunnerSetupOperation.IDLE ||
+            pendingRunnerSetupId != null ||
+            pendingRunnerSetupVersion != null
 }

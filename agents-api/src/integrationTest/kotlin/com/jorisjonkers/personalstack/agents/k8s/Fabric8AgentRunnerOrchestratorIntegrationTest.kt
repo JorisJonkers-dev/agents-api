@@ -1,9 +1,13 @@
 package com.jorisjonkers.personalstack.agents.k8s
 
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLink
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -12,6 +16,8 @@ import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.k8s.Fabric8AgentRunnerOrchestrator
+import io.fabric8.kubernetes.api.model.ContainerStatusBuilder
+import io.fabric8.kubernetes.api.model.PodBuilder
 import io.fabric8.kubernetes.client.KubernetesClient
 import io.fabric8.kubernetes.client.KubernetesClientException
 import org.assertj.core.api.Assertions.assertThat
@@ -217,6 +223,122 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         assertThat(container.startupProbe.httpGet.path).isEqualTo("/healthz")
         assertThat(container.startupProbe.failureThreshold).isEqualTo(60)
         assertThat(container.livenessProbe).isNotNull
+    }
+
+    @Test
+    @DisplayName("provision applies setup spec to Pod image env config labels and volumes")
+    fun `provision applies setup spec to pod env config labels and volumes`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace()
+        val setup = customSetupSpec()
+
+        orchestrator.provision(workspace, setup, runnerGeneration = 7)
+
+        val pod =
+            admin
+                .pods()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-${workspace.id.short()}")
+                .get()
+        val container = pod.spec.containers.single()
+        assertThat(container.image).isEqualTo("ghcr.io/example/custom-runner:2026")
+        assertThat(container.imagePullPolicy).isEqualTo("IfNotPresent")
+        assertThat(pod.spec.serviceAccountName).isEqualTo("agent-runner")
+        assertThat(pod.spec.nodeSelector)
+            .containsEntry("agents/node", "custom-node")
+            .containsEntry("agents/capability-docker-socket", "true")
+
+        assertThat(pod.metadata.labels)
+            .containsEntry(RunnerState.LABEL_SETUP_ID, "gpu")
+            .containsEntry(RunnerState.LABEL_SETUP_VERSION, "2")
+            .containsEntry(RunnerState.LABEL_RUNNER_GENERATION, "7")
+        assertThat(pod.metadata.annotations)
+            .containsEntry(RunnerState.ANNOTATION_SETUP_HASH, "setup-hash-123")
+
+        val env = container.env.associateBy { it.name }
+        assertThat(env["AGENT_MCP_PROFILE"]?.value).isEqualTo("frontend")
+        assertThat(env["AGENT_MCP_DIR"]?.value).isEqualTo("/etc/custom-mcp")
+        assertThat(env["AGENT_MCP_SERVERS_FILE"]?.value).isEqualTo("/etc/custom/claude.json")
+        assertThat(env["AGENT_CODEX_MCP_FILE"]?.value).isEqualTo("/etc/custom/codex.toml")
+        assertThat(env["GITHUB_MCP_TOOLSETS"]?.value).isEqualTo("repos,issues")
+        assertThat(env["GITHUB_MCP_EXCLUDE_TOOLS"]?.value).isEqualTo("fork_repository")
+        assertThat(env["AGENT_GATEWAY_RUNNER_SETUP_ID"]?.value).isEqualTo("gpu")
+        assertThat(env["AGENT_GATEWAY_RUNNER_SETUP_VERSION"]?.value).isEqualTo("2")
+        assertThat(env["AGENT_GATEWAY_RUNNER_SETUP_HASH"]?.value).isEqualTo("setup-hash-123")
+        assertThat(env["AGENT_GATEWAY_RUNNER_GENERATION"]?.value).isEqualTo("7")
+        assertThat(env["KB_URL"]?.value).isEqualTo("http://knowledge.custom.svc.cluster.local:8080")
+        assertThat(env["KB_BEARER_TOKEN"]?.valueFrom?.secretKeyRef?.name).isEqualTo("custom-kb-bearer")
+        assertThat(env["KB_BEARER_TOKEN"]?.valueFrom?.secretKeyRef?.key).isEqualTo("custom-bearer")
+        assertThat(env["DOCKER_HOST"]?.value).isEqualTo("unix:///var/run/custom-docker.sock")
+        assertThat(env["TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE"]?.value).isEqualTo("/var/run/custom-docker.sock")
+
+        assertThat(pod.spec.securityContext.supplementalGroups).contains(44L)
+        assertThat(
+            pod.spec.volumes
+                .single { it.name == "claude-credentials" }
+                .persistentVolumeClaim.claimName,
+        ).isEqualTo("custom-claude-credentials")
+        assertThat(
+            pod.spec.volumes
+                .single { it.name == "codex-credentials" }
+                .persistentVolumeClaim.claimName,
+        ).isEqualTo("custom-codex-credentials")
+        assertThat(
+            pod.spec.volumes
+                .single { it.name == "github-deploy-key" }
+                .secret.secretName,
+        ).isEqualTo("custom-github-deploy-key")
+        assertThat(
+            pod.spec.volumes
+                .single { it.name == "mcp-config" }
+                .configMap.name,
+        ).isEqualTo("custom-mcp-servers")
+        assertThat(container.volumeMounts.single { it.name == "mcp-config" }.mountPath)
+            .isEqualTo("/etc/custom-mcp")
+        assertThat(
+            pod.spec.volumes
+                .single { it.name == "docker-socket" }
+                .hostPath.path,
+        ).isEqualTo("/var/run/custom-docker.sock")
+
+        val service =
+            admin
+                .services()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-${workspace.id.short()}")
+                .get()
+        assertThat(
+            service.spec.ports
+                .single()
+                .port,
+        ).isEqualTo(19090)
+    }
+
+    @Test
+    @DisplayName("runnerState reads identity and readiness rejects mismatched generation")
+    fun `runnerState reads identity and readiness rejects mismatched generation`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val setup = customSetupSpec()
+        val workspace =
+            adHocWorkspace().copy(
+                currentRunnerSetupId = setup.setupId,
+                currentRunnerSetupVersion = setup.setupVersion,
+                runnerSetupGeneration = 7,
+            )
+
+        val handle = orchestrator.provision(workspace, setup, runnerGeneration = 7)
+        markPodReady(handle.podName)
+        val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
+
+        val state = orchestrator.runnerState(bound)
+        assertThat(state?.identity).isEqualTo(setup.identity(runnerGeneration = 7))
+        assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 7))).isTrue()
+        assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 8))).isFalse()
+        assertThat(orchestrator.isReady(bound.copy(runnerSetupGeneration = 8))).isFalse()
     }
 
     @Test
@@ -440,6 +562,60 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )
+
+    private fun customSetupSpec(): RunnerSetupProvisioningSpec =
+        RunnerSetupProvisioningSpec(
+            setupId = AgentSetupId("gpu"),
+            setupVersion = AgentSetupVersion(2),
+            setupHash = "setup-hash-123",
+            image = "ghcr.io/example/custom-runner:2026",
+            imagePullPolicy = "IfNotPresent",
+            serviceAccount = "agent-runner",
+            gatewayPort = 19090,
+            claudeCredentialsPvc = "custom-claude-credentials",
+            codexCredentialsPvc = "custom-codex-credentials",
+            githubDeployKeySecret = "custom-github-deploy-key",
+            knowledgeBaseUrl = "http://knowledge.custom.svc.cluster.local:8080",
+            knowledgeBearerSecret = "custom-kb-bearer",
+            knowledgeBearerSecretKey = "custom-bearer",
+            mcpServersConfigMap = "custom-mcp-servers",
+            mcpProfile = "frontend",
+            mcpDir = "/etc/custom-mcp",
+            claudeMcpServersFile = "/etc/custom/claude.json",
+            codexMcpServersFile = "/etc/custom/codex.toml",
+            githubMcpToolsets = "repos,issues",
+            githubMcpExcludeTools = "fork_repository",
+            dockerSocketEnabled = true,
+            dockerSocketPath = "/var/run/custom-docker.sock",
+            dockerSocketSupplementalGroups = listOf(44L),
+            nodeSelector =
+                mapOf(
+                    "agents/node" to "custom-node",
+                    "agents/capability-docker-socket" to "true",
+                ),
+        )
+
+    private fun markPodReady(podName: String) {
+        admin
+            .pods()
+            .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+            .withName(podName)
+            .editStatus { pod ->
+                PodBuilder(pod)
+                    .withNewStatus()
+                    .withPhase("Running")
+                    .withContainerStatuses(
+                        ContainerStatusBuilder()
+                            .withName("agent-runner")
+                            .withImage("ghcr.io/example/custom-runner:2026")
+                            .withImageID("docker-pullable://ghcr.io/example/custom-runner@sha256:test")
+                            .withReady(true)
+                            .withRestartCount(0)
+                            .build(),
+                    ).endStatus()
+                    .build()
+            }
+    }
 
     private class StaticDeployKeyStore(
         private val linkId: GithubLinkId,

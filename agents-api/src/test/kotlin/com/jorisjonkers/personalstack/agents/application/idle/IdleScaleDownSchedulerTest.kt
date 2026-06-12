@@ -1,6 +1,8 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -97,6 +99,38 @@ class IdleScaleDownSchedulerTest {
 
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
         verify(exactly = 0) { orchestrator.destroy(any()) }
+    }
+
+    @Test
+    fun `sweep skips workspace during runner setup transition`() {
+        val ws =
+            workspace(updatedAt = now.minusSeconds(7_200))
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+    }
+
+    @Test
+    fun `sweep skips workspace with a session pending setup promotion`() {
+        val ws = workspace(updatedAt = now.minusSeconds(14_401))
+        val session =
+            runningSession(ws.id)
+                .copy(
+                    pendingSetupId = AgentSetupId("gpu"),
+                    pendingSetupVersion = AgentSetupVersion(2),
+                )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
     }
 
     @Test

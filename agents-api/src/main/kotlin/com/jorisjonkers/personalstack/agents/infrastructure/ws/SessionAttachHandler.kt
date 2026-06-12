@@ -6,6 +6,7 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRu
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
@@ -88,7 +89,7 @@ class SessionAttachHandler(
      *
      * Explicit attach guards preserve the close reason for each failure.
      */
-    @Suppress("CyclomaticComplexMethod", "LongMethod", "ReturnCount")
+    @Suppress("CyclomaticComplexMethod", "LongMethod", "ReturnCount", "ComplexCondition")
     private fun resolveAttach(clientSession: WebSocketSession): ResolvedAttach? {
         val sessionId =
             sessionIdOf(clientSession)
@@ -116,6 +117,15 @@ class SessionAttachHandler(
         val workspace =
             reboundWorkspace ?: workspaces.findById(agentSession.workspaceId)
                 ?: return closeAndReturn(clientSession, "workspace gone", CloseStatus.SERVER_ERROR)
+        if (
+            agentSession.pendingSetupId != null ||
+            agentSession.pendingSetupVersion != null ||
+            workspace.hasRunnerSetupGuard() ||
+            workspace.currentRunnerSetupId != agentSession.currentSetupId ||
+            workspace.currentRunnerSetupVersion != agentSession.currentSetupVersion
+        ) {
+            return closeAndReturn(clientSession, "runner setup transition", CloseStatus.SERVICE_RESTARTED)
+        }
         val gatewayAgentId =
             agentSession.gatewayAgentId
                 ?: return closeAndReturn(
@@ -243,6 +253,11 @@ class SessionAttachHandler(
 
     private fun nonNegativeInteger(value: String?): String? =
         value?.takeIf { it.matches(NON_NEGATIVE_INTEGER) && it.toLongOrNull() != null }
+
+    private fun Workspace.hasRunnerSetupGuard(): Boolean =
+        runnerSetupOperation != RunnerSetupOperation.IDLE ||
+            pendingRunnerSetupId != null ||
+            pendingRunnerSetupVersion != null
 
     private fun upstreamUri(
         gatewayBase: String,

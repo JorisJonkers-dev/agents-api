@@ -1,6 +1,16 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationResult
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -26,17 +36,36 @@ class RunnerSessionBindingServiceTest {
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>()
+    private val setupSelection = mockk<AgentSetupSelectionService>()
+    private val setupValidation = mockk<AgentSetupValidationService>()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val setup = setupEntry()
+    private val setupSpec = RunnerSetupProvisioningSpec.from(setup.definition)
     private val binder =
         RunnerSessionBinder(
             workspaces = workspaces,
             sessions = sessions,
             gateway = gateway,
             orchestrator = orchestrator,
-            tx = RunnerSessionBindingTransactions(sessions, sessionStatus),
+            setupSelection = setupSelection,
+            setupValidation = setupValidation,
+            tx = RunnerSessionBindingTransactions(workspaces, sessions, sessionStatus),
             sessionStatus = sessionStatus,
             backoffInitialMs = 0,
         )
+
+    init {
+        // AgentSetupId/Version are value classes whose constructors validate their
+        // input, so a MockK any() matcher (which builds a dummy by boxing an empty
+        // string) trips the validation. Every fixture resolves to the default setup,
+        // so match those concrete instances instead of any().
+        every {
+            setupSelection.requireSelectable(AgentSetupId.default(), AgentSetupVersion.initial())
+        } returns setup
+        every { setupSelection.defaultSelectable() } returns setup
+        every { setupValidation.validate(any()) } returns validSetupResult()
+        every { setupValidation.requireValid(any()) } returns validSetupResult()
+    }
 
     @Test
     fun `start creates epoch 1 generation and binds spawned stable gateway session`() {
@@ -44,6 +73,7 @@ class RunnerSessionBindingServiceTest {
         val sessionId = WorkspaceAgentSessionId.random()
         val created = slot<WorkspaceAgentSession>()
         every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(created)) } answers { created.captured }
         every {
@@ -80,6 +110,8 @@ class RunnerSessionBindingServiceTest {
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         assertThat(created.captured.epoch).isEqualTo(1)
         assertThat(created.captured.generation).isEqualTo(1)
+        assertThat(created.captured.currentSetupId).isEqualTo(setup.definition.id)
+        assertThat(created.captured.currentSetupVersion).isEqualTo(setup.definition.version)
         verify(exactly = 0) { orchestrator.provision(any()) }
     }
 
@@ -89,11 +121,11 @@ class RunnerSessionBindingServiceTest {
         val session =
             session(ws.id, gatewayAgentId = "stale-agent")
                 .copy(epoch = 4, generation = 2)
-        val repointed = ws.withPodInfo("agent-runner-fresh001", "workspace-abcdef01", "http://fresh:8090")
         every { sessions.findById(session.id) } returns session andThen
             session.beginGeneration(nextEpoch = 5).bindGatewayAgent("fresh")
         every { workspaces.findById(ws.id) } returns ws
-        every { gateway.isReady(any()) } returnsMany listOf(false, false, true)
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns false
+        every { gateway.isReady(any()) } returns true
         every {
             sessions.beginGeneration(
                 id = session.id,
@@ -102,17 +134,34 @@ class RunnerSessionBindingServiceTest {
                 now = any(),
             )
         } returns true
-        every { orchestrator.scaleDown(ws) } returns Unit
-        every { orchestrator.provision(ws) } returns
+        every {
+            workspaces.beginRunnerSetupOperation(
+                ws.id,
+                ws.runnerSetupGeneration,
+                setup.definition.id,
+                setup.definition.version,
+                any(),
+                any(),
+            )
+        } returns true
+        every { orchestrator.scaleDown(any()) } returns Unit
+        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
             AgentRunnerOrchestrator.RunnerHandle(
                 podName = "agent-runner-fresh001",
                 pvcName = "workspace-abcdef01",
                 gatewayEndpoint = "http://fresh:8090",
             )
-        every { workspaces.save(any()) } returns repointed
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            orchestrator.isReady(
+                match { it.gatewayEndpoint == "http://fresh:8090" },
+                setupSpec.identity(ws.runnerSetupGeneration + 1),
+            )
+        } returns true
+        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
         every {
             gateway.spawnAgent(
-                workspace = repointed,
+                workspace = any(),
                 kind = WorkspaceAgentKind.CLAUDE,
                 workspacePath = null,
                 stableSessionId = session.id,
@@ -140,7 +189,7 @@ class RunnerSessionBindingServiceTest {
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify { sessions.beginGeneration(session.id, 2, 5, any()) }
-        verify { gateway.spawnAgent(repointed, WorkspaceAgentKind.CLAUDE, null, session.id, 5, any()) }
+        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 5, any()) }
     }
 
     @Test
@@ -149,6 +198,7 @@ class RunnerSessionBindingServiceTest {
         val sessionId = WorkspaceAgentSessionId.random()
         val created = slot<WorkspaceAgentSession>()
         every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(created)) } answers { created.captured }
         every {
@@ -194,7 +244,6 @@ class RunnerSessionBindingServiceTest {
         val session =
             session(ws.id, gatewayAgentId = "old-agent")
                 .copy(epoch = 2, generation = 6)
-        val repointed = ws.withPodInfo("agent-runner-fresh001", "workspace-abcdef01", "http://fresh:8090")
         every { sessions.findById(session.id) } returns session andThen
             session.beginGeneration(nextEpoch = 3).bindGatewayAgent("fresh")
         every { workspaces.findById(ws.id) } returns ws
@@ -206,23 +255,50 @@ class RunnerSessionBindingServiceTest {
                 now = any(),
             )
         } returns true
-        every { orchestrator.scaleDown(ws) } returns Unit
-        every { orchestrator.provision(ws) } returns
+        every {
+            workspaces.beginRunnerSetupOperation(
+                ws.id,
+                ws.runnerSetupGeneration,
+                setup.definition.id,
+                setup.definition.version,
+                any(),
+                any(),
+            )
+        } returns true
+        every { orchestrator.scaleDown(any()) } returns Unit
+        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
             AgentRunnerOrchestrator.RunnerHandle(
                 podName = "agent-runner-fresh001",
                 pvcName = "workspace-abcdef01",
                 gatewayEndpoint = "http://fresh:8090",
             )
-        every { workspaces.save(any()) } returns repointed
-        every { gateway.isReady(repointed) } returns true
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            orchestrator.isReady(
+                match { it.gatewayEndpoint == "http://fresh:8090" },
+                setupSpec.identity(ws.runnerSetupGeneration + 1),
+            )
+        } returns true
+        every { gateway.isReady(any()) } returns true
+        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
+        every {
+            sessions.setPendingSetupIfCurrent(
+                id = session.id,
+                expectedCurrentSetupId = session.currentSetupId,
+                expectedCurrentSetupVersion = session.currentSetupVersion,
+                pendingSetupId = setup.definition.id,
+                pendingSetupVersion = setup.definition.version,
+                now = any(),
+            )
+        } returns true
         every {
             gateway.spawnAgent(
-                workspace = repointed,
+                workspace = any(),
                 kind = WorkspaceAgentKind.CLAUDE,
                 workspacePath = null,
                 stableSessionId = session.id,
                 epoch = 3,
-                continuation = AgentGatewayClient.ContinuationMetadata(reason = "restart", previousEpoch = 2),
+                continuation = any(),
             )
         } returns gatewayAgent("fresh", epoch = 3)
         every {
@@ -231,6 +307,14 @@ class RunnerSessionBindingServiceTest {
                 expectedGeneration = 7,
                 gatewayAgentId = "fresh",
                 cliSessionId = "native-1",
+                now = any(),
+            )
+        } returns true
+        every {
+            sessions.promotePendingSetupIfCurrent(
+                id = session.id,
+                expectedPendingSetupId = setup.definition.id,
+                expectedPendingSetupVersion = setup.definition.version,
                 now = any(),
             )
         } returns true
@@ -246,9 +330,9 @@ class RunnerSessionBindingServiceTest {
             )
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
-        verify(exactly = 1) { orchestrator.scaleDown(ws) }
-        verify(exactly = 1) { orchestrator.provision(ws) }
-        verify { gateway.spawnAgent(repointed, WorkspaceAgentKind.CLAUDE, null, session.id, 3, any()) }
+        verify(exactly = 1) { orchestrator.scaleDown(any()) }
+        verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
+        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 3, any()) }
     }
 
     @Test
@@ -264,7 +348,12 @@ class RunnerSessionBindingServiceTest {
             )
         } returns false
 
-        val result = RunnerSessionBindingTransactions(sessions, sessionStatus).beginGeneration(session, starting)
+        val result =
+            RunnerSessionBindingTransactions(
+                workspaces,
+                sessions,
+                sessionStatus,
+            ).beginGeneration(session, starting)
 
         assertThat(result).isFalse
         verify(exactly = 0) { sessionStatus.publishStatus(any<WorkspaceAgentSession>(), any()) }
@@ -311,4 +400,53 @@ class RunnerSessionBindingServiceTest {
         updatedAt = Instant.now(),
         cliSessionId = "native-old",
     )
+
+    private fun setupEntry() =
+        AgentSetupCatalogEntry(
+            definition =
+                AgentSetupDefinition(
+                    id = AgentSetupId.default(),
+                    version = AgentSetupVersion.initial(),
+                    displayName = "Default",
+                    description = null,
+                    namespace = "agents-system",
+                    image = "agent-runner:latest",
+                    imagePullPolicy = "IfNotPresent",
+                    serviceAccount = "agent-runner",
+                    gatewayPort = 8090,
+                    claudeCredentialsPvc = "claude",
+                    codexCredentialsPvc = "codex",
+                    githubDeployKeySecret = "github",
+                    cliTools = emptyMap(),
+                    knowledgeBaseUrl = "http://knowledge",
+                    knowledgeBearerSecret = "knowledge",
+                    knowledgeBearerSecretKey = "token",
+                    mcpServersConfigMap = "mcp",
+                    defaultMcpProfile = "minimal",
+                    connectorConfig = emptyMap(),
+                    toolProfiles = emptyList(),
+                    toolAllowlist = emptyList(),
+                    dockerSocketEnabled = false,
+                    dockerSocketPath = "/var/run/docker.sock",
+                    dockerSocketSupplementalGroups = emptyList(),
+                    nodeSelector = emptyMap(),
+                    createdAt = Instant.now(),
+                    updatedAt = Instant.now(),
+                ),
+            availability =
+                AgentSetupAvailability(
+                    id = AgentSetupId.default(),
+                    version = AgentSetupVersion.initial(),
+                    selectable = true,
+                    defaultSelectable = true,
+                    unavailableReason = null,
+                    updatedAt = Instant.now(),
+                ),
+        )
+
+    private fun validSetupResult() =
+        AgentSetupValidationResult(
+            target = AgentSetupRef(setup.definition.id, setup.definition.version),
+            valid = true,
+        )
 }

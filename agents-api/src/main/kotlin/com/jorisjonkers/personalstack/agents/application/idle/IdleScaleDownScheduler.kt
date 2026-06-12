@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.idle
 
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -57,13 +58,14 @@ class IdleScaleDownScheduler(
         if (candidates.isNotEmpty()) log.info("idle-sweep scaled down {} workspace(s)", candidates.size)
     }
 
+    @Suppress("ReturnCount")
     private fun isEligibleForScaleDown(workspace: Workspace): Boolean {
+        if (workspace.hasRunnerSetupGuard()) return false
         if (connected.isConnected(workspace.id)) return false
         val lastSeen = effectiveLastSeen(workspace)
-        val hasRunning =
-            agentSessions
-                .findAllByWorkspaceId(workspace.id)
-                .any { it.status == WorkspaceAgentSessionStatus.RUNNING }
+        val sessions = agentSessions.findAllByWorkspaceId(workspace.id)
+        if (sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null }) return false
+        val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
         val threshold =
             Duration.ofSeconds(if (hasRunning) agentIdleAfterSeconds else idleAfterSeconds)
         return !lastSeen.isAfter(clock.instant().minus(threshold))
@@ -105,4 +107,9 @@ class IdleScaleDownScheduler(
                 if (cleared) sessionStatus.publishStatus(it.clearGatewayBinding(now), idle = true)
             }
     }
+
+    private fun Workspace.hasRunnerSetupGuard(): Boolean =
+        runnerSetupOperation != RunnerSetupOperation.IDLE ||
+            pendingRunnerSetupId != null ||
+            pendingRunnerSetupVersion != null
 }

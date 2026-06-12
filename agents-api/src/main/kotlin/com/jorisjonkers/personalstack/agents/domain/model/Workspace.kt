@@ -2,6 +2,8 @@ package com.jorisjonkers.personalstack.agents.domain.model
 
 import java.time.Instant
 
+enum class RunnerSetupOperation { IDLE, RESTARTING, FAILED }
+
 /**
  * A Workspace is a long-lived "place where agents work". Three
  * flavours discriminated by [kind]:
@@ -43,7 +45,22 @@ data class Workspace(
         ReplaceWith("repositoryId"),
     )
     val githubLinkId: GithubLinkId? = null,
+    val currentRunnerSetupId: AgentSetupId = AgentSetupId.default(),
+    val currentRunnerSetupVersion: AgentSetupVersion = AgentSetupVersion.initial(),
+    val pendingRunnerSetupId: AgentSetupId? = null,
+    val pendingRunnerSetupVersion: AgentSetupVersion? = null,
+    val runnerSetupGeneration: Long = 0,
+    val runnerSetupOperation: RunnerSetupOperation = RunnerSetupOperation.IDLE,
+    val runnerSetupOperationStartedAt: Instant? = null,
+    val runnerSetupOperationUpdatedAt: Instant? = null,
 ) {
+    init {
+        require((pendingRunnerSetupId == null) == (pendingRunnerSetupVersion == null)) {
+            "pending runner setup id and version must be set together"
+        }
+        require(runnerSetupGeneration >= 0) { "runner setup generation must be non-negative" }
+    }
+
     val isRepoBacked: Boolean get() = repoUrl != null
 
     fun withPodInfo(
@@ -64,4 +81,40 @@ data class Workspace(
     fun markFailed(): Workspace = copy(status = WorkspaceStatus.FAILED, updatedAt = Instant.now())
 
     fun markDestroyed(): Workspace = copy(status = WorkspaceStatus.DESTROYED, updatedAt = Instant.now())
+
+    fun beginRunnerSetupRestart(
+        setupId: AgentSetupId,
+        setupVersion: AgentSetupVersion,
+        now: Instant = Instant.now(),
+    ): Workspace =
+        copy(
+            pendingRunnerSetupId = setupId,
+            pendingRunnerSetupVersion = setupVersion,
+            runnerSetupGeneration = runnerSetupGeneration + 1,
+            runnerSetupOperation = RunnerSetupOperation.RESTARTING,
+            runnerSetupOperationStartedAt = now,
+            runnerSetupOperationUpdatedAt = now,
+            updatedAt = now,
+        )
+
+    fun completeRunnerSetupRestart(now: Instant = Instant.now()): Workspace {
+        val nextId = requireNotNull(pendingRunnerSetupId) { "pending runner setup id is required" }
+        val nextVersion = requireNotNull(pendingRunnerSetupVersion) { "pending runner setup version is required" }
+        return copy(
+            currentRunnerSetupId = nextId,
+            currentRunnerSetupVersion = nextVersion,
+            pendingRunnerSetupId = null,
+            pendingRunnerSetupVersion = null,
+            runnerSetupOperation = RunnerSetupOperation.IDLE,
+            runnerSetupOperationUpdatedAt = now,
+            updatedAt = now,
+        )
+    }
+
+    fun failRunnerSetupRestart(now: Instant = Instant.now()): Workspace =
+        copy(
+            runnerSetupOperation = RunnerSetupOperation.FAILED,
+            runnerSetupOperationUpdatedAt = now,
+            updatedAt = now,
+        )
 }

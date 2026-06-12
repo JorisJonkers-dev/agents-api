@@ -1,7 +1,11 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.k8s
 
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLink
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.DeployKeyStore
@@ -64,18 +68,28 @@ class Fabric8AgentRunnerOrchestrator(
 ) : AgentRunnerOrchestrator {
     private val log = LoggerFactory.getLogger(Fabric8AgentRunnerOrchestrator::class.java)
 
-    override fun provision(workspace: Workspace): AgentRunnerOrchestrator.RunnerHandle {
+    override fun provision(workspace: Workspace): AgentRunnerOrchestrator.RunnerHandle =
+        provision(workspace, legacySetupSpec(), workspace.runnerSetupGeneration)
+
+    override fun provision(
+        workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
+    ): AgentRunnerOrchestrator.RunnerHandle {
         val short = workspace.id.short()
         val podName = "agent-runner-$short"
         val pvcName = "workspace-$short"
         val serviceName = "agent-runner-$short"
-        val deployKeySecretName = ensureDeployKeySecret(workspace, short)
-        applyResources(workspace, podName, pvcName, serviceName, deployKeySecretName)
-        val endpoint = "http://$serviceName.${props.namespace}.svc.cluster.local:${props.gatewayPort}"
+        val deployKeySecretName = ensureDeployKeySecret(workspace, short, setup)
+        applyResources(workspace, setup, runnerGeneration, podName, pvcName, serviceName, deployKeySecretName)
+        val endpoint = "http://$serviceName.${props.namespace}.svc.cluster.local:${setup.gatewayPort}"
         log.info(
-            "provisioned runner pod {} for workspace {} using deploy-key Secret {}",
+            "provisioned runner pod {} for workspace {} using setup {}@{} generation {} and deploy-key Secret {}",
             podName,
             workspace.id,
+            setup.setupId,
+            setup.setupVersion,
+            runnerGeneration,
             deployKeySecretName,
         )
         return AgentRunnerOrchestrator.RunnerHandle(
@@ -87,6 +101,8 @@ class Fabric8AgentRunnerOrchestrator(
 
     private fun applyResources(
         workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
         podName: String,
         pvcName: String,
         serviceName: String,
@@ -100,12 +116,12 @@ class Fabric8AgentRunnerOrchestrator(
         client
             .pods()
             .inNamespace(props.namespace)
-            .resource(pod(workspace, podName, pvcName, deployKeySecretName))
+            .resource(pod(workspace, setup, runnerGeneration, podName, pvcName, deployKeySecretName))
             .serverSideApply()
         client
             .services()
             .inNamespace(props.namespace)
-            .resource(service(serviceName, podName))
+            .resource(service(serviceName, podName, setup.gatewayPort))
             .serverSideApply()
     }
 
@@ -152,21 +168,60 @@ class Fabric8AgentRunnerOrchestrator(
         log.info("destroyed runner pod and PVC for workspace {}", workspace.id)
     }
 
-    override fun isReady(workspace: Workspace): Boolean {
-        val name = workspace.podName ?: return false
+    override fun runnerState(workspace: Workspace): RunnerState? {
+        val name = workspace.podName ?: return null
         val pod =
             client
                 .pods()
                 .inNamespace(props.namespace)
                 .withName(name)
-                .get() ?: return false
+                .get() ?: return null
+        return runnerState(pod)
+    }
+
+    override fun isReady(workspace: Workspace): Boolean {
+        val state = runnerState(workspace) ?: return false
+        return state.containerReady &&
+            state.phase == "Running" &&
+            state.matches(
+                setupId = workspace.currentRunnerSetupId,
+                setupVersion = workspace.currentRunnerSetupVersion,
+                runnerGeneration = workspace.runnerSetupGeneration,
+            )
+    }
+
+    override fun isReady(
+        workspace: Workspace,
+        expectedIdentity: RunnerState.Identity,
+    ): Boolean {
+        val state = runnerState(workspace) ?: return false
+        return state.containerReady && state.phase == "Running" && state.matches(expectedIdentity)
+    }
+
+    private fun runnerState(pod: Pod): RunnerState {
         val containerReady =
             pod.status
                 ?.containerStatuses
                 ?.firstOrNull()
                 ?.ready ?: false
-        return containerReady && pod.status?.phase == "Running"
+        val labels = pod.metadata?.labels.orEmpty()
+        val annotations = pod.metadata?.annotations.orEmpty()
+        return RunnerState(
+            podName = pod.metadata?.name.orEmpty(),
+            workspaceId = labels[RunnerState.LABEL_WORKSPACE_ID],
+            setupId = labels[RunnerState.LABEL_SETUP_ID]?.let(::parseSetupId),
+            setupVersion = labels[RunnerState.LABEL_SETUP_VERSION]?.let(::parseSetupVersion),
+            setupHash = annotations[RunnerState.ANNOTATION_SETUP_HASH],
+            runnerGeneration = labels[RunnerState.LABEL_RUNNER_GENERATION]?.toLongOrNull(),
+            phase = pod.status?.phase,
+            containerReady = containerReady,
+        )
     }
+
+    private fun parseSetupId(value: String): AgentSetupId? = runCatching { AgentSetupId(value) }.getOrNull()
+
+    private fun parseSetupVersion(value: String): AgentSetupVersion? =
+        value.toLongOrNull()?.let { runCatching { AgentSetupVersion(it) }.getOrNull() }
 
     private fun workspaceSecretName(short: String): String = "agent-runner-deploy-key-$short"
 
@@ -182,8 +237,9 @@ class Fabric8AgentRunnerOrchestrator(
     private fun ensureDeployKeySecret(
         workspace: Workspace,
         short: String,
+        setup: RunnerSetupProvisioningSpec,
     ): String {
-        val material = resolveKeyMaterial(workspace) ?: return props.githubDeployKeySecret
+        val material = resolveKeyMaterial(workspace) ?: return setup.githubDeployKeySecret
         val secretName = workspaceSecretName(short)
         val secret = buildWorkspaceSecret(secretName, short, material.link, material.key)
         client
@@ -277,6 +333,8 @@ class Fabric8AgentRunnerOrchestrator(
     @Suppress("LongMethod")
     private fun pod(
         workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
         name: String,
         workspacePvc: String,
         deployKeySecret: String,
@@ -285,10 +343,11 @@ class Fabric8AgentRunnerOrchestrator(
             .withNewMetadata()
             .withName(name)
             .withNamespace(props.namespace)
-            .withLabels<String, String>(podLabels(workspace))
+            .withLabels<String, String>(podLabels(workspace, setup, runnerGeneration))
+            .withAnnotations<String, String>(podAnnotations(setup))
             .endMetadata()
             .withNewSpec()
-            .withServiceAccountName(props.serviceAccount)
+            .withServiceAccountName(setup.serviceAccount)
             // The runner never calls the Kubernetes API itself — cluster
             // reads go through the read-only kubernetes MCP server over
             // HTTP. Don't project the SA token into the Pod, so the agent
@@ -296,21 +355,21 @@ class Fabric8AgentRunnerOrchestrator(
             // cannot reach the API server even if the SA were later granted
             // RBAC by mistake.
             .withAutomountServiceAccountToken(false)
-            .withNodeSelector<String, String>(props.nodeSelector)
+            .withNodeSelector<String, String>(setup.nodeSelector)
             .withRestartPolicy("Always")
             .withNewSecurityContext()
             .withRunAsUser(RUN_AS_UID)
             .withRunAsGroup(RUN_AS_GID)
             .withFsGroup(FS_GROUP)
-            .withSupplementalGroups(podSupplementalGroups())
+            .withSupplementalGroups(podSupplementalGroups(setup))
             .endSecurityContext()
             .addNewContainer()
             .withName("agent-runner")
-            .withImage(props.image)
-            .withImagePullPolicy(props.imagePullPolicy)
-            .withPorts(ContainerPortBuilder().withName("gateway").withContainerPort(props.gatewayPort).build())
-            .withEnv(podEnv(workspace))
-            .withVolumeMounts(podVolumeMounts())
+            .withImage(setup.image)
+            .withImagePullPolicy(setup.imagePullPolicy)
+            .withPorts(ContainerPortBuilder().withName("gateway").withContainerPort(setup.gatewayPort).build())
+            .withEnv(podEnv(workspace, setup, runnerGeneration))
+            .withVolumeMounts(podVolumeMounts(setup))
             // Startup probe gates liveness + readiness until the gateway's
             // JVM has finished its cold start. Without it the liveness probe
             // (failureThreshold 3 x 10s ~= 30s, no initial delay) killed the
@@ -345,57 +404,98 @@ class Fabric8AgentRunnerOrchestrator(
             .withLimits<String, Quantity>(mapOf("cpu" to Quantity(CPU_LIMIT), "memory" to Quantity(MEMORY_LIMIT)))
             .endResources()
             .endContainer()
-            .withVolumes(podVolumes(workspacePvc, deployKeySecret))
+            .withVolumes(podVolumes(workspacePvc, deployKeySecret, setup))
             .endSpec()
             .build()
 
-    private fun podLabels(workspace: Workspace): Map<String, String> =
+    private fun podLabels(
+        workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
+    ): Map<String, String> =
         mapOf(
             "app.kubernetes.io/name" to "agent-runner",
             "app.kubernetes.io/part-of" to "agent-runner",
-            "agent-runner/workspace-id" to workspace.id.short(),
+            RunnerState.LABEL_WORKSPACE_ID to workspace.id.short(),
+            RunnerState.LABEL_SETUP_ID to setup.setupId.value,
+            RunnerState.LABEL_SETUP_VERSION to setup.setupVersion.value.toString(),
+            RunnerState.LABEL_RUNNER_GENERATION to runnerGeneration.toString(),
         )
 
-    private fun podEnv(workspace: Workspace) =
-        buildList {
-            add(EnvVarBuilder().withName("HOME").withValue("/home/agent").build())
-            add(EnvVarBuilder().withName("CODEX_HOME").withValue("/home/agent/.codex").build())
-            add(EnvVarBuilder().withName("DEPLOYMENT_ENVIRONMENT").withValue("production").build())
-            add(EnvVarBuilder().withName("OTEL_SERVICE_NAME").withValue("agent-gateway").build())
-            add(
-                EnvVarBuilder()
-                    .withName("OTEL_EXPORTER_OTLP_ENDPOINT")
-                    .withValue("http://alloy.observability.svc.cluster.local:4318")
-                    .build(),
-            )
-            add(EnvVarBuilder().withName("OTEL_EXPORTER_OTLP_PROTOCOL").withValue("http/protobuf").build())
-            // The runner Pod is the outer sandbox for the agent process.
-            // Docker socket access is the explicit host-equivalent exception
-            // for Testcontainers and Docker CLI workflows. IS_SANDBOX tells
-            // Claude Code so that --dangerously-skip-permissions runs without
-            // the bypass-mode warning + acceptance prompt.
-            add(EnvVarBuilder().withName("IS_SANDBOX").withValue("1").build())
-            add(EnvVarBuilder().withName("AGENT_MCP_PROFILE").withValue(props.defaultMcpProfile).build())
-            addAll(dockerEnv())
-            addAll(knowledgeEnv())
-            addAll(githubAppTokenEnv())
-            // REPO_URL/REPO_BRANCH drive the entrypoint's boot-time clone
-            // into /workspace/<repo-name>. Cloning in the runner removes the race that
-            // left repo-backed workspaces empty: the old create-time
-            // gateway.clone fired before the runner gateway was up and was
-            // swallowed. Only repo-backed workspaces carry a repoUrl.
-            workspace.repoUrl?.let { url ->
-                add(EnvVarBuilder().withName("REPO_URL").withValue(url).build())
-                workspace.branch?.let { add(EnvVarBuilder().withName("REPO_BRANCH").withValue(it).build()) }
-            }
-            // REPO_URLS carries the workspace's additional repos (everything
-            // attached that is not the primary), as url#branch entries. The
-            // entrypoint clones each into /workspace/<repo-name> over the
-            // App-token credential helper.
-            additionalRepoUrls(workspace).takeIf { it.isNotEmpty() }?.let { urls ->
-                add(EnvVarBuilder().withName("REPO_URLS").withValue(urls.joinToString(" ")).build())
-            }
+    private fun podAnnotations(setup: RunnerSetupProvisioningSpec): Map<String, String> =
+        mapOf(RunnerState.ANNOTATION_SETUP_HASH to setup.setupHash)
+
+    @Suppress("LongMethod")
+    private fun podEnv(
+        workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
+    ) = buildList {
+        add(EnvVarBuilder().withName("HOME").withValue("/home/agent").build())
+        add(EnvVarBuilder().withName("CODEX_HOME").withValue("/home/agent/.codex").build())
+        add(EnvVarBuilder().withName("DEPLOYMENT_ENVIRONMENT").withValue("production").build())
+        add(EnvVarBuilder().withName("OTEL_SERVICE_NAME").withValue("agent-gateway").build())
+        add(
+            EnvVarBuilder()
+                .withName("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .withValue("http://alloy.observability.svc.cluster.local:4318")
+                .build(),
+        )
+        add(EnvVarBuilder().withName("OTEL_EXPORTER_OTLP_PROTOCOL").withValue("http/protobuf").build())
+        // The runner Pod is the outer sandbox for the agent process.
+        // Docker socket access is the explicit host-equivalent exception
+        // for Testcontainers and Docker CLI workflows. IS_SANDBOX tells
+        // Claude Code so that --dangerously-skip-permissions runs without
+        // the bypass-mode warning + acceptance prompt.
+        add(EnvVarBuilder().withName("IS_SANDBOX").withValue("1").build())
+        add(EnvVarBuilder().withName("AGENT_MCP_PROFILE").withValue(setup.mcpProfile).build())
+        add(EnvVarBuilder().withName("AGENT_MCP_DIR").withValue(setup.mcpDir).build())
+        setup.claudeMcpServersFile?.let {
+            add(EnvVarBuilder().withName("AGENT_MCP_SERVERS_FILE").withValue(it).build())
         }
+        setup.codexMcpServersFile?.let {
+            add(EnvVarBuilder().withName("AGENT_CODEX_MCP_FILE").withValue(it).build())
+        }
+        setup.githubMcpToolsets?.let {
+            add(EnvVarBuilder().withName("GITHUB_MCP_TOOLSETS").withValue(it).build())
+        }
+        setup.githubMcpExcludeTools?.let {
+            add(EnvVarBuilder().withName("GITHUB_MCP_EXCLUDE_TOOLS").withValue(it).build())
+        }
+        add(EnvVarBuilder().withName("AGENT_GATEWAY_RUNNER_SETUP_ID").withValue(setup.setupId.value).build())
+        add(
+            EnvVarBuilder()
+                .withName("AGENT_GATEWAY_RUNNER_SETUP_VERSION")
+                .withValue(setup.setupVersion.value.toString())
+                .build(),
+        )
+        add(EnvVarBuilder().withName("AGENT_GATEWAY_RUNNER_SETUP_HASH").withValue(setup.setupHash).build())
+        add(
+            EnvVarBuilder()
+                .withName("AGENT_GATEWAY_RUNNER_GENERATION")
+                .withValue(runnerGeneration.toString())
+                .build(),
+        )
+        addAll(dockerEnv(setup))
+        addAll(knowledgeEnv(setup))
+        addAll(githubAppTokenEnv())
+        // REPO_URL/REPO_BRANCH drive the entrypoint's boot-time clone
+        // into /workspace/<repo-name>. Cloning in the runner removes the race that
+        // left repo-backed workspaces empty: the old create-time
+        // gateway.clone fired before the runner gateway was up and was
+        // swallowed. Only repo-backed workspaces carry a repoUrl.
+        workspace.repoUrl?.let { url ->
+            add(EnvVarBuilder().withName("REPO_URL").withValue(url).build())
+            workspace.branch?.let { add(EnvVarBuilder().withName("REPO_BRANCH").withValue(it).build()) }
+        }
+        // REPO_URLS carries the workspace's additional repos (everything
+        // attached that is not the primary), as url#branch entries. The
+        // entrypoint clones each into /workspace/<repo-name> over the
+        // App-token credential helper.
+        additionalRepoUrls(workspace).takeIf { it.isNotEmpty() }?.let { urls ->
+            add(EnvVarBuilder().withName("REPO_URLS").withValue(urls.joinToString(" ")).build())
+        }
+    }
 
     private fun additionalRepoUrls(workspace: Workspace): List<String> {
         val links = workspaceRepos.ifAvailable ?: return emptyList()
@@ -408,15 +508,15 @@ class Fabric8AgentRunnerOrchestrator(
             }
     }
 
-    private fun dockerEnv() =
-        if (!props.dockerSocketEnabled) {
+    private fun dockerEnv(setup: RunnerSetupProvisioningSpec) =
+        if (!setup.dockerSocketEnabled) {
             emptyList()
         } else {
             listOf(
-                EnvVarBuilder().withName("DOCKER_HOST").withValue("unix://${props.dockerSocketPath}").build(),
+                EnvVarBuilder().withName("DOCKER_HOST").withValue("unix://${setup.dockerSocketPath}").build(),
                 EnvVarBuilder()
                     .withName("TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE")
-                    .withValue(props.dockerSocketPath)
+                    .withValue(setup.dockerSocketPath)
                     .build(),
                 EnvVarBuilder()
                     .withName("AGENT_RUNNER_NODE_HOST_IP")
@@ -436,15 +536,15 @@ class Fabric8AgentRunnerOrchestrator(
     // KB_URL + KB_BEARER_TOKEN are the exact names the knowledge-system
     // install.sh hooks read; without the bearer every hook short-circuits
     // to a no-op and the knowledge.* MCP tools are unreachable.
-    private fun knowledgeEnv() =
+    private fun knowledgeEnv(setup: RunnerSetupProvisioningSpec) =
         listOf(
-            EnvVarBuilder().withName("KB_URL").withValue(props.knowledgeBaseUrl).build(),
+            EnvVarBuilder().withName("KB_URL").withValue(setup.knowledgeBaseUrl).build(),
             EnvVarBuilder()
                 .withName("KB_BEARER_TOKEN")
                 .withNewValueFrom()
                 .withNewSecretKeyRef()
-                .withName(props.knowledgeBearerSecret)
-                .withKey(props.knowledgeBearerSecretKey)
+                .withName(setup.knowledgeBearerSecret)
+                .withKey(setup.knowledgeBearerSecretKey)
                 .endSecretKeyRef()
                 .endValueFrom()
                 .build(),
@@ -467,16 +567,16 @@ class Fabric8AgentRunnerOrchestrator(
                 .build(),
         )
 
-    private fun podVolumeMounts() =
+    private fun podVolumeMounts(setup: RunnerSetupProvisioningSpec) =
         buildList {
             add(VolumeMountBuilder().withName("workspace").withMountPath("/workspace").build())
             add(VolumeMountBuilder().withName("claude-credentials").withMountPath("/home/agent/.claude").build())
             add(VolumeMountBuilder().withName("codex-credentials").withMountPath("/home/agent/.codex").build())
-            if (props.dockerSocketEnabled) {
+            if (setup.dockerSocketEnabled) {
                 add(
                     VolumeMountBuilder()
                         .withName(DOCKER_SOCKET_VOLUME)
-                        .withMountPath(props.dockerSocketPath)
+                        .withMountPath(setup.dockerSocketPath)
                         .build(),
                 )
             }
@@ -493,7 +593,7 @@ class Fabric8AgentRunnerOrchestrator(
             add(
                 VolumeMountBuilder()
                     .withName("mcp-config")
-                    .withMountPath("/etc/agent-mcp")
+                    .withMountPath(setup.mcpDir)
                     .withReadOnly(true)
                     .build(),
             )
@@ -502,13 +602,14 @@ class Fabric8AgentRunnerOrchestrator(
     private fun podVolumes(
         workspacePvc: String,
         deployKeySecret: String,
+        setup: RunnerSetupProvisioningSpec,
     ) = buildList {
         add(pvcVolume("workspace", workspacePvc))
-        add(pvcVolume("claude-credentials", props.claudeCredentialsPvc))
-        add(pvcVolume("codex-credentials", props.codexCredentialsPvc))
-        dockerSocketVolume()?.let(::add)
+        add(pvcVolume("claude-credentials", setup.claudeCredentialsPvc))
+        add(pvcVolume("codex-credentials", setup.codexCredentialsPvc))
+        dockerSocketVolume(setup)?.let(::add)
         add(githubDeployKeyVolume(deployKeySecret))
-        add(mcpConfigVolume())
+        add(mcpConfigVolume(setup))
     }
 
     private fun pvcVolume(
@@ -521,14 +622,14 @@ class Fabric8AgentRunnerOrchestrator(
         .endPersistentVolumeClaim()
         .build()
 
-    private fun dockerSocketVolume(): Volume? =
-        if (!props.dockerSocketEnabled) {
+    private fun dockerSocketVolume(setup: RunnerSetupProvisioningSpec): Volume? =
+        if (!setup.dockerSocketEnabled) {
             null
         } else {
             VolumeBuilder()
                 .withName(DOCKER_SOCKET_VOLUME)
                 .withNewHostPath()
-                .withPath(props.dockerSocketPath)
+                .withPath(setup.dockerSocketPath)
                 .withType("Socket")
                 .endHostPath()
                 .build()
@@ -542,18 +643,18 @@ class Fabric8AgentRunnerOrchestrator(
             .endSecret()
             .build()
 
-    private fun mcpConfigVolume(): Volume =
+    private fun mcpConfigVolume(setup: RunnerSetupProvisioningSpec): Volume =
         VolumeBuilder()
             .withName("mcp-config")
             .withNewConfigMap()
-            .withName(props.mcpServersConfigMap)
+            .withName(setup.mcpServersConfigMap)
             .withOptional(true)
             .endConfigMap()
             .build()
 
-    private fun podSupplementalGroups(): List<Long> =
-        if (props.dockerSocketEnabled) {
-            (listOf(RUN_AS_GID) + props.dockerSocketSupplementalGroups).distinct()
+    private fun podSupplementalGroups(setup: RunnerSetupProvisioningSpec): List<Long> =
+        if (setup.dockerSocketEnabled) {
+            (listOf(RUN_AS_GID) + setup.dockerSocketSupplementalGroups).distinct()
         } else {
             listOf(RUN_AS_GID)
         }
@@ -561,6 +662,7 @@ class Fabric8AgentRunnerOrchestrator(
     private fun service(
         name: String,
         podName: String,
+        gatewayPort: Int,
     ): io.fabric8.kubernetes.api.model.Service =
         ServiceBuilder()
             .withNewMetadata()
@@ -571,11 +673,34 @@ class Fabric8AgentRunnerOrchestrator(
             .withSelector<String, String>(mapOf("agent-runner/workspace-id" to podName.substringAfter("agent-runner-")))
             .addNewPort()
             .withName("gateway")
-            .withPort(props.gatewayPort)
+            .withPort(gatewayPort)
             .withNewTargetPort("gateway")
             .endPort()
             .endSpec()
             .build()
+
+    private fun legacySetupSpec(): RunnerSetupProvisioningSpec =
+        RunnerSetupProvisioningSpec(
+            setupId = AgentSetupId.default(),
+            setupVersion = AgentSetupVersion.initial(),
+            setupHash = "runtime-default",
+            image = props.image,
+            imagePullPolicy = props.imagePullPolicy,
+            serviceAccount = props.serviceAccount,
+            gatewayPort = props.gatewayPort,
+            claudeCredentialsPvc = props.claudeCredentialsPvc,
+            codexCredentialsPvc = props.codexCredentialsPvc,
+            githubDeployKeySecret = props.githubDeployKeySecret,
+            knowledgeBaseUrl = props.knowledgeBaseUrl,
+            knowledgeBearerSecret = props.knowledgeBearerSecret,
+            knowledgeBearerSecretKey = props.knowledgeBearerSecretKey,
+            mcpServersConfigMap = props.mcpServersConfigMap,
+            mcpProfile = props.defaultMcpProfile,
+            dockerSocketEnabled = props.dockerSocketEnabled,
+            dockerSocketPath = props.dockerSocketPath,
+            dockerSocketSupplementalGroups = props.dockerSocketSupplementalGroups,
+            nodeSelector = props.nodeSelector,
+        )
 
     companion object {
         // Pod security: non-root, with fsGroup so PVC mounts get the right owner.

@@ -13,16 +13,22 @@ import com.jorisjonkers.personalstack.agents.application.query.ProjectQueryServi
 import com.jorisjonkers.personalstack.agents.application.query.RepositoryQueryService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusBroadcaster
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffService
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.setup.SetupGuideService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
+import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.GitHubAppInstallationTokenClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AdminRunnerController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentRunnerUnavailableExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSessionController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ChatSessionController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
@@ -64,6 +70,7 @@ import java.nio.file.Paths
 @WebMvcTest(
     controllers = [
         AdminRunnerController::class,
+        AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
@@ -90,9 +97,11 @@ import java.nio.file.Paths
         OpenApiConfig::class,
         GlobalExceptionHandler::class,
         AgentRunnerUnavailableExceptionHandler::class,
+        AgentSetupExceptionHandler::class,
         KubernetesExceptionHandler::class,
         RepositoryAccessDeniedExceptionHandler::class,
         AdminRunnerController::class,
+        AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
@@ -123,6 +132,35 @@ class OpenApiSpecExportTest {
             .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
     }
 
+    @Test
+    fun `setup endpoints and restart setup fields are exported`() {
+        mockMvc
+            .perform(get("/api/v1/api-docs"))
+            .andExpect(jsonPath("$['paths']['/api/v1/agent-setups']").exists())
+            .andExpect(
+                jsonPath("$['paths']['/api/v1/agent-setups/{setupId}/versions/{version}']").exists(),
+            ).andExpect(
+                jsonPath("$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup']").exists(),
+            ).andExpect(
+                jsonPath(
+                    "$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-preview']",
+                ).exists(),
+            ).andExpect(jsonPath("$['components']['schemas']['RestartAgentSessionHttpRequest']").exists())
+            .andExpect(
+                jsonPath(
+                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['targetSetupId']",
+                ).exists(),
+            ).andExpect(
+                jsonPath(
+                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedSetupId']",
+                ).exists(),
+            ).andExpect(
+                jsonPath(
+                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedEpoch']",
+                ).exists(),
+            )
+    }
+
     private fun resolveOpenApiSpecPath(): Path {
         // The Gradle task sets `openapi.spec.output` to the canonical
         // committed location. Fallback to `<cwd>/openapi.json` when run
@@ -141,6 +179,15 @@ class OpenApiSpecExportTest {
     class Collaborators {
         @Bean
         fun agentGatewayClient(): AgentGatewayClient = mockk(relaxed = true)
+
+        @Bean
+        fun agentSetupDiffService(): AgentSetupDiffService = mockk(relaxed = true)
+
+        @Bean
+        fun agentSetupRepository(): AgentSetupRepository = mockk(relaxed = true)
+
+        @Bean
+        fun agentSetupValidationService(): AgentSetupValidationService = mockk(relaxed = true)
 
         @Bean
         fun chatSessionQueryService(): ChatSessionQueryService = mockk(relaxed = true)
@@ -192,6 +239,9 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun setupGuideService(): SetupGuideService = mockk(relaxed = true)
+
+        @Bean
+        fun setupRestartEventRepository(): SetupRestartEventRepository = mockk(relaxed = true)
 
         @Bean
         fun workspaceAgentSessionRepository(): WorkspaceAgentSessionRepository = mockk(relaxed = true)

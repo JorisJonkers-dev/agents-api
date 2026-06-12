@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
@@ -42,6 +44,23 @@ class OpenPullRequestCommandHandlerTest {
         assertThrows<IllegalStateException> {
             handler.handle(OpenPullRequestCommand(id, "/x", "t", "b"))
         }
+    }
+
+    @Test
+    fun `handle rejects workspace with pending runner setup`() {
+        val id = WorkspaceId.random()
+        val ws =
+            workspace(id)
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+        every { workspaces.findById(id) } returns ws
+
+        assertThrows<IllegalArgumentException> {
+            handler.handle(OpenPullRequestCommand(id, "/x", "t", "b"))
+        }
+        verify(exactly = 0) { gateway.openPr(any(), any(), any(), any(), any()) }
     }
 
     private fun workspace(id: WorkspaceId) =

@@ -8,6 +8,9 @@ import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQue
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -101,23 +104,32 @@ class AgentSessionController(
                 content = [Content(schema = Schema(implementation = RestartAgentSessionResponse::class))],
             ),
             ApiResponse(
+                responseCode = "422",
+                description = "Invalid setup request",
+                content = [Content(schema = Schema(implementation = ProblemDetail::class))],
+            ),
+            ApiResponse(
                 responseCode = "503",
                 description = "Service Unavailable",
                 content = [Content(schema = Schema(implementation = ProblemDetail::class))],
             ),
         ],
     )
+    @Suppress("LongMethod")
     fun restart(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
         @RequestBody(required = false) req: RestartAgentSessionHttpRequest?,
     ): ResponseEntity<RestartAgentSessionResponse> {
+        restartPreconditionConflict(workspaceId, sessionId, req)?.let { return it }
         val result =
             restartAgentSession.restart(
                 RestartAgentSessionInput(
                     workspaceId = WorkspaceId(workspaceId),
                     sessionId = WorkspaceAgentSessionId(sessionId),
                     expectedGeneration = req?.expectedGeneration,
+                    targetSetupId = req?.targetSetupId?.let(::AgentSetupId),
+                    targetSetupVersion = req?.targetSetupVersion?.let(::AgentSetupVersion),
                 ),
             )
         return when (result) {
@@ -141,6 +153,45 @@ class AgentSessionController(
                 )
         }
     }
+
+    @Suppress("ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
+    private fun restartPreconditionConflict(
+        workspaceId: UUID,
+        sessionId: UUID,
+        req: RestartAgentSessionHttpRequest?,
+    ): ResponseEntity<RestartAgentSessionResponse>? {
+        if (
+            req?.expectedEpoch == null &&
+            req?.expectedSetupId == null &&
+            req?.expectedSetupVersion == null &&
+            req?.expectedCurrentSetupId == null &&
+            req?.expectedCurrentSetupVersion == null
+        ) {
+            return null
+        }
+        val expectedSetupId = req.expectedCurrentSetupId ?: req.expectedSetupId
+        val expectedSetupVersion = req.expectedCurrentSetupVersion ?: req.expectedSetupVersion
+        require((expectedSetupId == null) == (expectedSetupVersion == null)) {
+            "expected setup id and version must be supplied together"
+        }
+        val workspaceModelId = WorkspaceId(workspaceId)
+        val session = sessions.findById(WorkspaceAgentSessionId(sessionId)) ?: return null
+        require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
+        if (req.expectedEpoch != null && req.expectedEpoch != session.epoch) return restartConflict(session)
+        expectedSetupId ?: return null
+        if (
+            expectedSetupId != session.currentSetupId.value ||
+            requireNotNull(expectedSetupVersion) != session.currentSetupVersion.value
+        ) {
+            return restartConflict(session)
+        }
+        return null
+    }
+
+    private fun restartConflict(session: WorkspaceAgentSession): ResponseEntity<RestartAgentSessionResponse> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .body(RestartAgentSessionResponse.of(session))
 
     @PostMapping("/{sessionId}/staged-inputs")
     fun stageInput(

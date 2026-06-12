@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.query
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -56,6 +58,9 @@ class GetWorkspaceQueryServiceTest {
         val result = service.get(w.id) ?: error("expected workspace detail")
 
         assertThat(result.workspace).isEqualTo(w)
+        assertThat(result.workspace.currentRunnerSetupId).isEqualTo(w.currentRunnerSetupId)
+        assertThat(result.workspace.pendingRunnerSetupId).isEqualTo(w.pendingRunnerSetupId)
+        assertThat(result.workspace.runnerSetupGeneration).isEqualTo(w.runnerSetupGeneration)
         assertThat(result.sessions).isEmpty()
         assertThat(result.repositories.map { it.repository }).containsExactly(r1, r2)
         assertThat(result.repositories.map { it.isPrimary }).containsExactly(true, false)
@@ -120,6 +125,11 @@ class GetWorkspaceQueryServiceTest {
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         repositoryId = repositoryId,
+        currentRunnerSetupId = AgentSetupId("default"),
+        currentRunnerSetupVersion = AgentSetupVersion(1),
+        pendingRunnerSetupId = AgentSetupId("gpu"),
+        pendingRunnerSetupVersion = AgentSetupVersion(2),
+        runnerSetupGeneration = 3,
     )
 
     private fun repository(

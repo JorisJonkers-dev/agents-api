@@ -5,6 +5,8 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartA
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -110,6 +112,84 @@ class AgentSessionControllerTest {
             .andExpect(jsonPath("$.epoch").value(3))
             .andExpect(jsonPath("$.generation").value(7))
             .andExpect(jsonPath("$.status").value("RUNNING"))
+            .andExpect(jsonPath("$.currentSetup.id").value("default"))
+            .andExpect(jsonPath("$.currentSetup.version").value(1))
+    }
+
+    @Test
+    fun `POST restart forwards target setup and accepts epoch and current setup preconditions`() {
+        val workspace = workspace()
+        val current = agentSession().copy(epoch = 2, generation = 6)
+        val restarted =
+            current.copy(
+                epoch = 3,
+                generation = 7,
+                currentSetupId = AgentSetupId("gpu"),
+                currentSetupVersion = AgentSetupVersion(2),
+            )
+        every { sessions.findById(sessionId) } returns current
+        every {
+            restartAgentSession.restart(
+                RestartAgentSessionInput(
+                    workspaceId = workspaceId,
+                    sessionId = sessionId,
+                    expectedGeneration = 6,
+                    targetSetupId = AgentSetupId("gpu"),
+                    targetSetupVersion = AgentSetupVersion(2),
+                ),
+            )
+        } returns
+            RunnerSessionBindingResult.Bound(
+                workspace = workspace,
+                session = restarted,
+                gatewayAgent =
+                    AgentGatewayClient.GatewayAgent(
+                        id = "fresh",
+                        kind = WorkspaceAgentKind.CLAUDE,
+                        cwd = "/workspace",
+                        epoch = 3,
+                    ),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/restart")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {
+                          "expectedGeneration": 6,
+                          "expectedEpoch": 2,
+                          "expectedSetupId": "default",
+                          "expectedSetupVersion": 1,
+                          "targetSetupId": "gpu",
+                          "targetSetupVersion": 2
+                        }
+                        """.trimIndent(),
+                    ),
+            ).andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.currentSetup.id").value("gpu"))
+            .andExpect(jsonPath("$.currentSetup.version").value(2))
+    }
+
+    @Test
+    fun `POST restart returns conflict when expected epoch is stale`() {
+        val current = agentSession().copy(epoch = 3, generation = 7)
+        every { sessions.findById(sessionId) } returns current
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/restart")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"expectedEpoch":2}"""),
+            ).andExpect(status().isConflict)
+            .andExpect(jsonPath("$.sessionId").value(sessionId.value.toString()))
+            .andExpect(jsonPath("$.epoch").value(3))
+            .andExpect(jsonPath("$.generation").value(7))
+            .andExpect(jsonPath("$.status").value("RUNNING"))
+
+        verify(exactly = 0) { restartAgentSession.restart(any()) }
     }
 
     @Test
@@ -153,6 +233,8 @@ class AgentSessionControllerTest {
         assertThat(running.generation).isEqualTo(9)
         assertThat(running.gatewayBoundAt).isEqualTo(boundAt)
         assertThat(running.idle).isFalse()
+        assertThat(running.currentSetup.id).isEqualTo("default")
+        assertThat(running.currentSetup.version).isEqualTo(1)
         assertThat(idle.idle).isTrue()
     }
 

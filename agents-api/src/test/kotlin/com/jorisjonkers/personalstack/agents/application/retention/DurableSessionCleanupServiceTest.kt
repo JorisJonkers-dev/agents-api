@@ -1,7 +1,13 @@
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -10,12 +16,10 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionS
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -28,7 +32,7 @@ class DurableSessionCleanupServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
-    private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
+    private val binding = mockk<RunnerSessionBindingService>()
     private val runtime = runtimeProperties()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val service =
@@ -36,7 +40,7 @@ class DurableSessionCleanupServiceTest {
             workspaces = workspaces,
             sessions = sessions,
             gateway = gateway,
-            orchestrator = orchestrator,
+            binding = binding,
             runtime = runtime,
             sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
@@ -106,34 +110,79 @@ class DurableSessionCleanupServiceTest {
                 gatewayEndpoint = null,
             )
         val pending = session(workspaceId = workspace.id, cleanupRequestedAt = now.minusSeconds(60))
-        val saved = slot<Workspace>()
+        val prepared =
+            workspace.withPodInfo(
+                podName = "agent-runner-new",
+                pvcName = "workspace-pvc",
+                gatewayEndpoint = "http://new:8090",
+            )
         every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
         every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
         every { workspaces.findById(workspace.id) } returns workspace
         every { gateway.isReady(workspace) } returns false
         every {
-            orchestrator.provision(workspace)
+            binding.prepareRunner(PrepareRunnerInput(workspace.id, WorkspaceAgentKind.CLAUDE))
         } returns
-            AgentRunnerOrchestrator.RunnerHandle(
-                podName = "agent-runner-new",
-                pvcName = "workspace-pvc",
-                gatewayEndpoint = "http://new:8090",
+            RunnerPreparationResult.Ready(
+                workspace = prepared,
+                setupId = prepared.currentRunnerSetupId,
+                setupVersion = prepared.currentRunnerSetupVersion,
+                provisioning =
+                    RunnerProvisioningResult.Provisioned(
+                        podName = "agent-runner-new",
+                        pvcName = "workspace-pvc",
+                        gatewayEndpoint = "http://new:8090",
+                    ),
             )
-        every { workspaces.save(capture(saved)) } answers { saved.captured }
-        every { gateway.isReady(match { it.gatewayEndpoint == "http://new:8090" }) } returns true
         every { sessions.delete(pending.id) } returns true
 
         val result = service.sweep()
 
         assertThat(result.cleaned).isEqualTo(1)
-        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.STARTING)
-        assertThat(saved.captured.podName).isEqualTo("agent-runner-new")
-        assertThat(saved.captured.pvcName).isEqualTo("workspace-pvc")
-        assertThat(saved.captured.gatewayEndpoint).isEqualTo("http://new:8090")
-        verify { orchestrator.scaleDown(workspace) }
-        verify { orchestrator.provision(workspace) }
-        verify { gateway.cleanupStableSession(saved.captured, pending.id) }
+        verify { binding.prepareRunner(PrepareRunnerInput(workspace.id, WorkspaceAgentKind.CLAUDE)) }
+        verify { gateway.cleanupStableSession(prepared, pending.id) }
         verify { sessions.delete(pending.id) }
+    }
+
+    @Test
+    fun `sweep leaves cleanup pending when session has pending setup`() {
+        val workspace = workspace()
+        val pending =
+            session(workspaceId = workspace.id, cleanupRequestedAt = now.minusSeconds(60))
+                .copy(
+                    pendingSetupId = AgentSetupId("gpu"),
+                    pendingSetupVersion = AgentSetupVersion(2),
+                )
+        every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
+        every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
+
+        val result = service.sweep()
+
+        assertThat(result.cleaned).isEqualTo(0)
+        assertThat(result.failed).isEqualTo(1)
+        verify(exactly = 0) { workspaces.findById(any()) }
+        verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
+    }
+
+    @Test
+    fun `sweep does not mount runner while workspace setup transition is pending`() {
+        val workspace =
+            workspace(status = WorkspaceStatus.IDLE)
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+        val pending = session(workspaceId = workspace.id, cleanupRequestedAt = now.minusSeconds(60))
+        every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns emptyList()
+        every { sessions.findCleanupRequested(runtime.durableSessionCleanupBatchSize) } returns listOf(pending)
+        every { workspaces.findById(workspace.id) } returns workspace
+
+        val result = service.sweep()
+
+        assertThat(result.cleaned).isEqualTo(0)
+        assertThat(result.failed).isEqualTo(1)
+        verify(exactly = 0) { binding.prepareRunner(any()) }
+        verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
     }
 
     @Test

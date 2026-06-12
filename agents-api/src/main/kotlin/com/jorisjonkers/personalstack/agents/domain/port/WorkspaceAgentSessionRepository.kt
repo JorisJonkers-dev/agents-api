@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.domain.port
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
@@ -50,6 +52,29 @@ interface WorkspaceAgentSessionRepository {
 
     fun markCleanupRequested(
         id: WorkspaceAgentSessionId,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    fun setPendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedCurrentSetupId: AgentSetupId,
+        expectedCurrentSetupVersion: AgentSetupVersion,
+        pendingSetupId: AgentSetupId,
+        pendingSetupVersion: AgentSetupVersion,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    fun promotePendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedPendingSetupId: AgentSetupId,
+        expectedPendingSetupVersion: AgentSetupVersion,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    fun clearPendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedPendingSetupId: AgentSetupId,
+        expectedPendingSetupVersion: AgentSetupVersion,
         now: Instant = Instant.now(),
     ): Boolean
 

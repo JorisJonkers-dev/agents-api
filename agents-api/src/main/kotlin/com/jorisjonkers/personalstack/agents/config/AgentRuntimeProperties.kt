@@ -1,6 +1,12 @@
 package com.jorisjonkers.personalstack.agents.config
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import org.springframework.boot.context.properties.ConfigurationProperties
+import java.time.Instant
 
 private const val NIXOS_DOCKER_GROUP_GID = 131L
 
@@ -94,6 +100,15 @@ data class AgentRuntimeProperties(
     val githubAppBearerSecretKey: String = "token-bearer",
     val durableSessionRetentionSeconds: Long = 604_800,
     val durableSessionCleanupBatchSize: Int = 25,
+    val setups: List<AgentSetupProperties> =
+        listOf(
+            AgentSetupProperties(
+                id = "default",
+                displayName = "Default runner",
+                description = "Runtime-derived default runner setup.",
+                defaultSelectable = true,
+            ),
+        ),
 ) {
     init {
         require(defaultMcpProfile in VALID_MCP_PROFILES) {
@@ -113,9 +128,103 @@ data class AgentRuntimeProperties(
         require(durableSessionCleanupBatchSize > 0) {
             "agent-runtime.durable-session-cleanup-batch-size must be positive"
         }
+        require(setups.isNotEmpty()) { "agent-runtime.setups must contain at least one setup" }
+        require(setups.distinctBy { it.id to it.version }.size == setups.size) {
+            "agent-runtime.setups must not contain duplicate id/version pairs"
+        }
+        val defaultSetups = setups.filter { it.defaultSelectable }
+        require(defaultSetups.size == 1) {
+            "agent-runtime.setups must contain exactly one default-selectable setup"
+        }
+        setups.forEach { setup ->
+            require(setup.version > 0) {
+                "agent-runtime.setups.${setup.id}.version must be positive"
+            }
+            require(setup.id.matches(VALID_SETUP_ID)) {
+                "agent-runtime.setups.${setup.id}.id must start with a lower-case letter " +
+                    "and contain only lower-case letters, digits, and dashes"
+            }
+            setup.defaultMcpProfile?.let { profile ->
+                require(profile in VALID_MCP_PROFILES) {
+                    "agent-runtime.setups.${setup.id}.default-mcp-profile must be one of " +
+                        VALID_MCP_PROFILES.joinToString(", ") +
+                        "; got '$profile'"
+                }
+            }
+            setup.dockerSocketPath?.let { path ->
+                require(path.startsWith("/")) {
+                    "agent-runtime.setups.${setup.id}.docker-socket-path must be an absolute path; got '$path'"
+                }
+            }
+            setup.dockerSocketSupplementalGroups?.let { groups ->
+                require(groups.all { it > 0L }) {
+                    "agent-runtime.setups.${setup.id}.docker-socket-supplemental-groups " +
+                        "must contain positive numeric gids"
+                }
+            }
+            require(setup.toolProfiles?.isNotEmpty() != false) {
+                "agent-runtime.setups.${setup.id}.tool-profiles must not be empty"
+            }
+        }
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
+    fun setupCatalogEntries(now: Instant = Instant.now()): List<AgentSetupCatalogEntry> =
+        setups.map { setup ->
+            val version = AgentSetupVersion(setup.version)
+            val definition =
+                AgentSetupDefinition(
+                    id = AgentSetupId(setup.id),
+                    version = version,
+                    displayName = setup.displayName,
+                    description = setup.description,
+                    namespace = setup.namespace ?: namespace,
+                    image = setup.image ?: image,
+                    imagePullPolicy = setup.imagePullPolicy ?: imagePullPolicy,
+                    serviceAccount = setup.serviceAccount ?: serviceAccount,
+                    gatewayPort = setup.gatewayPort ?: gatewayPort,
+                    claudeCredentialsPvc = setup.claudeCredentialsPvc ?: claudeCredentialsPvc,
+                    codexCredentialsPvc = setup.codexCredentialsPvc ?: codexCredentialsPvc,
+                    githubDeployKeySecret = setup.githubDeployKeySecret ?: githubDeployKeySecret,
+                    cliTools = setup.cliTools ?: DEFAULT_CLI_TOOLS,
+                    knowledgeBaseUrl = setup.knowledgeBaseUrl ?: knowledgeBaseUrl,
+                    knowledgeBearerSecret = setup.knowledgeBearerSecret ?: knowledgeBearerSecret,
+                    knowledgeBearerSecretKey = setup.knowledgeBearerSecretKey ?: knowledgeBearerSecretKey,
+                    mcpServersConfigMap = setup.mcpServersConfigMap ?: mcpServersConfigMap,
+                    defaultMcpProfile = setup.defaultMcpProfile ?: defaultMcpProfile,
+                    connectorConfig = setup.connectorConfig ?: emptyMap(),
+                    toolProfiles = setup.toolProfiles ?: listOf(setup.defaultMcpProfile ?: defaultMcpProfile),
+                    toolAllowlist = setup.toolAllowlist ?: emptyList(),
+                    dockerSocketEnabled = setup.dockerSocketEnabled ?: dockerSocketEnabled,
+                    dockerSocketPath = setup.dockerSocketPath ?: dockerSocketPath,
+                    dockerSocketSupplementalGroups =
+                        setup.dockerSocketSupplementalGroups ?: dockerSocketSupplementalGroups,
+                    nodeSelector = setup.nodeSelector ?: nodeSelector,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            AgentSetupCatalogEntry(
+                definition = definition,
+                availability =
+                    AgentSetupAvailability(
+                        id = definition.id,
+                        version = version,
+                        selectable = setup.selectable,
+                        defaultSelectable = setup.defaultSelectable,
+                        unavailableReason = setup.unavailableReason,
+                        updatedAt = now,
+                    ),
+            )
+        }
+
     companion object {
+        private val VALID_SETUP_ID = Regex("[a-z][a-z0-9-]{0,79}")
+        private val DEFAULT_CLI_TOOLS =
+            mapOf(
+                "claude" to "default",
+                "codex" to "default",
+            )
+
         val VALID_MCP_PROFILES: Set<String> =
             setOf(
                 "minimal",
@@ -126,3 +235,34 @@ data class AgentRuntimeProperties(
             )
     }
 }
+
+data class AgentSetupProperties(
+    val id: String,
+    val version: Long = 1,
+    val displayName: String,
+    val description: String? = null,
+    val namespace: String? = null,
+    val image: String? = null,
+    val imagePullPolicy: String? = null,
+    val serviceAccount: String? = null,
+    val gatewayPort: Int? = null,
+    val claudeCredentialsPvc: String? = null,
+    val codexCredentialsPvc: String? = null,
+    val githubDeployKeySecret: String? = null,
+    val cliTools: Map<String, String>? = null,
+    val knowledgeBaseUrl: String? = null,
+    val knowledgeBearerSecret: String? = null,
+    val knowledgeBearerSecretKey: String? = null,
+    val mcpServersConfigMap: String? = null,
+    val defaultMcpProfile: String? = null,
+    val connectorConfig: Map<String, String>? = null,
+    val toolProfiles: List<String>? = null,
+    val toolAllowlist: List<String>? = null,
+    val dockerSocketEnabled: Boolean? = null,
+    val dockerSocketPath: String? = null,
+    val dockerSocketSupplementalGroups: List<Long>? = null,
+    val nodeSelector: Map<String, String>? = null,
+    val selectable: Boolean = true,
+    val defaultSelectable: Boolean = false,
+    val unavailableReason: String? = null,
+)

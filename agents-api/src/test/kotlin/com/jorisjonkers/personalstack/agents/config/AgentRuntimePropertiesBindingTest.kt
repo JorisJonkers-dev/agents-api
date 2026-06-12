@@ -139,6 +139,34 @@ class AgentRuntimePropertiesBindingTest {
     }
 
     @Test
+    fun `setup catalog binds default selectable setup with runtime overrides`() {
+        val props =
+            bind(
+                base +
+                    mapOf(
+                        "agent-runtime.setups[0].id" to "gpu",
+                        "agent-runtime.setups[0].version" to "2",
+                        "agent-runtime.setups[0].display-name" to "GPU runner",
+                        "agent-runtime.setups[0].default-selectable" to "true",
+                        "agent-runtime.setups[0].image" to "ghcr.io/example/gpu-runner:2026",
+                        "agent-runtime.setups[0].default-mcp-profile" to "frontend",
+                        "agent-runtime.setups[0].docker-socket-supplemental-groups" to "44,45",
+                        "agent-runtime.setups[0].node-selector.[agents/node]" to "gpu-node",
+                    ),
+            )
+
+        assertThat(props.setups).hasSize(1)
+        assertThat(props.setups.single().id).isEqualTo("gpu")
+        assertThat(props.setups.single().version).isEqualTo(2)
+        assertThat(props.setups.single().displayName).isEqualTo("GPU runner")
+        assertThat(props.setups.single().defaultSelectable).isTrue()
+        assertThat(props.setups.single().image).isEqualTo("ghcr.io/example/gpu-runner:2026")
+        assertThat(props.setups.single().defaultMcpProfile).isEqualTo("frontend")
+        assertThat(props.setups.single().dockerSocketSupplementalGroups).containsExactly(44L, 45L)
+        assertThat(props.setups.single().nodeSelector).containsEntry("agents/node", "gpu-node")
+    }
+
+    @Test
     fun `durable session retention rejects non-positive values`() {
         assertThatThrownBy {
             bind(
@@ -148,6 +176,24 @@ class AgentRuntimePropertiesBindingTest {
         }.rootCause()
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("agent-runtime.durable-session-retention-seconds")
+    }
+
+    @Test
+    fun `setup catalog rejects duplicate setup versions`() {
+        assertThatThrownBy {
+            bind(
+                base +
+                    mapOf(
+                        "agent-runtime.setups[0].id" to "default",
+                        "agent-runtime.setups[0].display-name" to "Default",
+                        "agent-runtime.setups[0].default-selectable" to "true",
+                        "agent-runtime.setups[1].id" to "default",
+                        "agent-runtime.setups[1].display-name" to "Default duplicate",
+                    ),
+            )
+        }.rootCause()
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("duplicate id/version")
     }
 
     private fun bind(properties: Map<String, String>): AgentRuntimeProperties {

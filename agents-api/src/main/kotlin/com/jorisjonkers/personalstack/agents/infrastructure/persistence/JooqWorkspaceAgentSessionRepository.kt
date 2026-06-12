@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.persistence
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
@@ -37,6 +39,10 @@ class JooqWorkspaceAgentSessionRepository(
             .set(GATEWAY_BOUND_AT, session.gatewayBoundAt?.atOffset(ZoneOffset.UTC))
             .set(RETAINED_UNTIL, session.retainedUntil?.atOffset(ZoneOffset.UTC))
             .set(CLEANUP_REQUESTED_AT, session.cleanupRequestedAt?.atOffset(ZoneOffset.UTC))
+            .set(CURRENT_SETUP_ID, session.currentSetupId.value)
+            .set(CURRENT_SETUP_VERSION, session.currentSetupVersion.value)
+            .set(PENDING_SETUP_ID, session.pendingSetupId?.value)
+            .set(PENDING_SETUP_VERSION, session.pendingSetupVersion?.value)
             .set(CREATED_AT, createdAt)
             .set(UPDATED_AT, updatedAt)
             .onConflict(ID)
@@ -180,6 +186,59 @@ class JooqWorkspaceAgentSessionRepository(
             .and(CLEANUP_REQUESTED_AT.isNull)
             .execute() == 1
 
+    override fun setPendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedCurrentSetupId: AgentSetupId,
+        expectedCurrentSetupVersion: AgentSetupVersion,
+        pendingSetupId: AgentSetupId,
+        pendingSetupVersion: AgentSetupVersion,
+        now: java.time.Instant,
+    ): Boolean =
+        dsl
+            .update(WAS)
+            .set(PENDING_SETUP_ID, pendingSetupId.value)
+            .set(PENDING_SETUP_VERSION, pendingSetupVersion.value)
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(CURRENT_SETUP_ID.eq(expectedCurrentSetupId.value))
+            .and(CURRENT_SETUP_VERSION.eq(expectedCurrentSetupVersion.value))
+            .and(PENDING_SETUP_ID.isNull)
+            .execute() == 1
+
+    override fun promotePendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedPendingSetupId: AgentSetupId,
+        expectedPendingSetupVersion: AgentSetupVersion,
+        now: java.time.Instant,
+    ): Boolean =
+        dsl
+            .update(WAS)
+            .set(CURRENT_SETUP_ID, PENDING_SETUP_ID)
+            .set(CURRENT_SETUP_VERSION, PENDING_SETUP_VERSION)
+            .set(PENDING_SETUP_ID, null as String?)
+            .set(PENDING_SETUP_VERSION, null as Long?)
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(PENDING_SETUP_ID.eq(expectedPendingSetupId.value))
+            .and(PENDING_SETUP_VERSION.eq(expectedPendingSetupVersion.value))
+            .execute() == 1
+
+    override fun clearPendingSetupIfCurrent(
+        id: WorkspaceAgentSessionId,
+        expectedPendingSetupId: AgentSetupId,
+        expectedPendingSetupVersion: AgentSetupVersion,
+        now: java.time.Instant,
+    ): Boolean =
+        dsl
+            .update(WAS)
+            .set(PENDING_SETUP_ID, null as String?)
+            .set(PENDING_SETUP_VERSION, null as Long?)
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(PENDING_SETUP_ID.eq(expectedPendingSetupId.value))
+            .and(PENDING_SETUP_VERSION.eq(expectedPendingSetupVersion.value))
+            .execute() == 1
+
     override fun findCleanupRequested(limit: Int): List<WorkspaceAgentSession> =
         dsl
             .selectFrom(WAS)
@@ -208,6 +267,10 @@ class JooqWorkspaceAgentSessionRepository(
             gatewayBoundAt = this[GATEWAY_BOUND_AT]?.toInstant(),
             retainedUntil = this[RETAINED_UNTIL]?.toInstant(),
             cleanupRequestedAt = this[CLEANUP_REQUESTED_AT]?.toInstant(),
+            currentSetupId = AgentSetupId(this[CURRENT_SETUP_ID] ?: "default"),
+            currentSetupVersion = AgentSetupVersion(this[CURRENT_SETUP_VERSION] ?: 1),
+            pendingSetupId = this[PENDING_SETUP_ID]?.let { AgentSetupId(it) },
+            pendingSetupVersion = this[PENDING_SETUP_VERSION]?.let { AgentSetupVersion(it) },
         )
 
     companion object {
@@ -236,6 +299,14 @@ class JooqWorkspaceAgentSessionRepository(
         @JvmStatic val RETAINED_UNTIL = DSL.field("retained_until", OffsetDateTime::class.java)
 
         @JvmStatic val CLEANUP_REQUESTED_AT = DSL.field("cleanup_requested_at", OffsetDateTime::class.java)
+
+        @JvmStatic val CURRENT_SETUP_ID = DSL.field("current_setup_id", String::class.java)
+
+        @JvmStatic val CURRENT_SETUP_VERSION = DSL.field("current_setup_version", Long::class.javaObjectType)
+
+        @JvmStatic val PENDING_SETUP_ID = DSL.field("pending_setup_id", String::class.java)
+
+        @JvmStatic val PENDING_SETUP_VERSION = DSL.field("pending_setup_version", Long::class.javaObjectType)
 
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 

@@ -7,6 +7,8 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPr
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -228,6 +230,25 @@ class SessionAttachHandlerTest {
         handler.afterConnectionEstablished(clientSession())
 
         assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/fresh/attach")
+    }
+
+    @Test
+    fun `attach closes while workspace setup transition is pending`() {
+        val client = clientSession()
+        every { client.close(any()) } just Runs
+        every { workspaces.findById(workspaceId) } returns
+            workspace()
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+
+        handler.afterConnectionEstablished(client)
+
+        val closed = slot<CloseStatus>()
+        verify { client.close(capture(closed)) }
+        assertThat(closed.captured.reason).isEqualTo("runner setup transition")
+        verify(exactly = 0) { anyConstructed<StandardWebSocketClient>().execute(any(), any<String>()) }
     }
 
     @Test

@@ -1,5 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -8,9 +14,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionS
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -21,19 +25,24 @@ import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 
 class StartHeadlessJobCommandHandlerTest {
-    private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
-    private val orchestrator = mockk<AgentRunnerOrchestrator>()
-    private val handler = StartHeadlessJobCommandHandler(workspaces, sessions, gateway, orchestrator)
+    private val binding = mockk<RunnerSessionBindingService>()
+    private val handler = StartHeadlessJobCommandHandler(sessions, gateway, binding)
 
     @Test
     fun `handle launches headless job and persists session when runner is ready`() {
         val ws = workspace()
-        every { workspaces.findById(ws.id) } returns ws
-        every { gateway.isReady(ws) } returns true
+        val sessionId = WorkspaceAgentSessionId.random()
+        every { binding.prepareRunner(PrepareRunnerInput(ws.id, WorkspaceAgentKind.CLAUDE)) } returns
+            RunnerPreparationResult.Ready(
+                workspace = ws,
+                setupId = AgentSetupId("gpu"),
+                setupVersion = AgentSetupVersion(2),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
         every {
-            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "write tests", null, null)
+            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "write tests", null, null, sessionId, 1, null)
         } returns
             AgentGatewayClient.HeadlessJob(
                 id = "hls-abc123",
@@ -46,7 +55,7 @@ class StartHeadlessJobCommandHandlerTest {
 
         handler.handle(
             StartHeadlessJobCommand(
-                sessionId = WorkspaceAgentSessionId.random(),
+                sessionId = sessionId,
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CLAUDE,
                 prompt = "write tests",
@@ -55,14 +64,17 @@ class StartHeadlessJobCommandHandlerTest {
 
         assertThat(saved.captured.gatewayAgentId).isEqualTo("hls-abc123")
         assertThat(saved.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
-        verify(exactly = 0) { orchestrator.destroy(any()) }
-        verify(exactly = 0) { orchestrator.provision(any()) }
+        assertThat(saved.captured.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
+        assertThat(saved.captured.currentSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(saved.captured.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
+        verify(exactly = 1) { binding.prepareRunner(any()) }
     }
 
     @Test
     fun `handle raises NoSuchElementException when workspace does not exist`() {
         val missingId = WorkspaceId.random()
-        every { workspaces.findById(missingId) } returns null
+        every { binding.prepareRunner(PrepareRunnerInput(missingId, WorkspaceAgentKind.CLAUDE)) } throws
+            NoSuchElementException("workspace not found: ${missingId.value}")
 
         val ex =
             assertThrows<NoSuchElementException> {

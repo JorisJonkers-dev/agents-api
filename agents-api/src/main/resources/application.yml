@@ -150,6 +150,19 @@ agent-runtime:
   durable-session-retention-seconds: ${AGENT_RUNTIME_DURABLE_SESSION_RETENTION_SECONDS:604800}
   durable-session-cleanup-sweep-period-ms: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_SWEEP_PERIOD_MS:300000}
   durable-session-cleanup-batch-size: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_BATCH_SIZE:25}
+  setups:
+    - id: default
+      version: ${AGENT_RUNTIME_SETUP_VERSION:1}
+      display-name: ${AGENT_RUNTIME_SETUP_DISPLAY_NAME:Default runner}
+      description: ${AGENT_RUNTIME_SETUP_DESCRIPTION:Runtime-derived default runner setup.}
+      cli-tools:
+        claude: ${AGENT_RUNTIME_SETUP_CLAUDE_VERSION:default}
+        codex: ${AGENT_RUNTIME_SETUP_CODEX_VERSION:default}
+      connector-config: {}
+      tool-profiles:
+        - ${AGENT_RUNTIME_DEFAULT_MCP_PROFILE:minimal}
+      tool-allowlist: []
+      default-selectable: true
   # Standing agent-gateway used for the workspace-independent
   # `/git/verify` deploy-key probe at attach/create time. Empty =>
   # the probe is skipped and the stored read/write degrade to null.
@@ -169,3 +182,6 @@ agent-runtime:
   # Shared bearer the runner presents on the in-cluster installation-
   # token endpoint. Empty => that endpoint is fail-closed (rejects all).
   github-app-token-bearer: ${GITHUB_APP_TOKEN_BEARER:}
+  github-app-token-url: ${GITHUB_APP_TOKEN_URL:http://agents-api.agents-system.svc.cluster.local:8082/api/v1/internal/github/installation-token}
+  github-app-bearer-secret: ${GITHUB_APP_BEARER_SECRET:github-app}
+  github-app-bearer-secret-key: ${GITHUB_APP_BEARER_SECRET_KEY:token-bearer}

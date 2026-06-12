@@ -1,5 +1,8 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
+import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationResult
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -24,8 +27,20 @@ class RestartAgentSessionServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val binding = mockk<RunnerSessionBindingService>()
+    private val setupValidation = mockk<AgentSetupValidationService>()
     private val clock = Clock.fixed(Instant.parse("2026-06-12T09:00:00Z"), ZoneOffset.UTC)
-    private val service = RestartAgentSessionService(workspaces, sessions, binding, clock)
+    private val service = RestartAgentSessionService(workspaces, sessions, binding, setupValidation, clock)
+
+    init {
+        every { setupValidation.requireValid(any()) } answers {
+            val request =
+                firstArg<com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput>()
+            AgentSetupValidationResult(
+                target = AgentSetupRef(request.targetId, request.targetVersion),
+                valid = true,
+            )
+        }
+    }
 
     @Test
     fun `restart delegates running interactive session with expected generation`() {
@@ -40,6 +55,8 @@ class RestartAgentSessionServiceTest {
                     sessionId = session.id,
                     expectedGeneration = 4,
                     reason = "manual",
+                    targetSetupId = session.currentSetupId,
+                    targetSetupVersion = session.currentSetupVersion,
                 ),
             )
         } returns bound(ws, session)
@@ -55,6 +72,7 @@ class RestartAgentSessionServiceTest {
             )
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
+        verify { setupValidation.requireValid(any()) }
         verify { binding.restart(any()) }
     }
 

@@ -26,6 +26,8 @@ class StartAgentSessionCommandHandler(
                         workspaceId = command.workspaceId,
                         sessionId = command.sessionId,
                         kind = command.kind,
+                        setupId = command.setupId,
+                        setupVersion = command.setupVersion,
                     ),
                 )
         ) {

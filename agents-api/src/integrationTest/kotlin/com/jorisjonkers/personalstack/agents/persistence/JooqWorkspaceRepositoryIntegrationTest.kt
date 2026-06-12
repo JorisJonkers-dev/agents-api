@@ -1,10 +1,13 @@
 package com.jorisjonkers.personalstack.agents.persistence
 
 import com.jorisjonkers.personalstack.agents.IntegrationTestBase
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Project
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
@@ -119,6 +122,43 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
         val loaded = workspaces.findById(w.id)
         assertThat(loaded!!.podName).isEqualTo("agent-runner-x")
         assertThat(loaded.status).isEqualTo(WorkspaceStatus.STARTING)
+    }
+
+    @Test
+    fun `runner setup CAS stages promotes and fails by generation`() {
+        val w = newWorkspace().copy(runnerSetupGeneration = 7)
+        workspaces.save(w)
+
+        val staged =
+            workspaces.beginRunnerSetupOperation(
+                id = w.id,
+                expectedGeneration = 7,
+                setupId = AgentSetupId.legacy(),
+                setupVersion = AgentSetupVersion.initial(),
+            )
+        val staleStage =
+            workspaces.beginRunnerSetupOperation(
+                id = w.id,
+                expectedGeneration = 7,
+                setupId = AgentSetupId.legacy(),
+                setupVersion = AgentSetupVersion.initial(),
+            )
+
+        assertThat(staged).isTrue()
+        assertThat(staleStage).isFalse()
+
+        val failed = workspaces.failRunnerSetupOperation(w.id, expectedGeneration = 8)
+        val failedWorkspace = workspaces.findById(w.id)
+        assertThat(failed).isTrue()
+        assertThat(failedWorkspace!!.runnerSetupOperation).isEqualTo(RunnerSetupOperation.FAILED)
+
+        val completed = workspaces.completeRunnerSetupOperation(w.id, expectedGeneration = 8)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(completed).isTrue()
+        assertThat(loaded!!.currentRunnerSetupId).isEqualTo(AgentSetupId.legacy())
+        assertThat(loaded.pendingRunnerSetupId).isNull()
+        assertThat(loaded.runnerSetupOperation).isEqualTo(RunnerSetupOperation.IDLE)
     }
 
     @Test

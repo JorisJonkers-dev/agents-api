@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.domain.port
 
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 
 /**
@@ -18,6 +20,12 @@ interface AgentRunnerOrchestrator {
 
     fun provision(workspace: Workspace): RunnerHandle
 
+    fun provision(
+        workspace: Workspace,
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
+    ): RunnerHandle
+
     /**
      * Tear down the runner Pod and Service while leaving the workspace
      * PVC and per-workspace deploy-key Secret intact. Used by the idle
@@ -33,5 +41,12 @@ interface AgentRunnerOrchestrator {
      */
     fun destroy(workspace: Workspace)
 
+    fun runnerState(workspace: Workspace): RunnerState?
+
     fun isReady(workspace: Workspace): Boolean
+
+    fun isReady(
+        workspace: Workspace,
+        expectedIdentity: RunnerState.Identity,
+    ): Boolean
 }

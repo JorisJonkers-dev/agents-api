@@ -53,6 +53,30 @@ class WorkspaceAgentSessionTest {
         assertThat(cleanup.cleanupRequestedAt).isEqualTo(cleanupRequestedAt)
     }
 
+    @Test
+    fun `setup transition stages and promotes pending setup`() {
+        val requestedAt = Instant.parse("2026-06-12T09:10:00Z")
+        val promotedAt = Instant.parse("2026-06-12T09:15:00Z")
+        val pending =
+            base()
+                .requestSetup(
+                    setupId = AgentSetupId("gpu"),
+                    setupVersion = AgentSetupVersion(2),
+                    now = requestedAt,
+                )
+
+        assertThat(pending.pendingSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(pending.pendingSetupVersion).isEqualTo(AgentSetupVersion(2))
+        assertThat(pending.updatedAt).isEqualTo(requestedAt)
+
+        val promoted = pending.promotePendingSetup(now = promotedAt)
+
+        assertThat(promoted.currentSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(promoted.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
+        assertThat(promoted.pendingSetupId).isNull()
+        assertThat(promoted.updatedAt).isEqualTo(promotedAt)
+    }
+
     private fun base() =
         WorkspaceAgentSession(
             id = WorkspaceAgentSessionId.random(),

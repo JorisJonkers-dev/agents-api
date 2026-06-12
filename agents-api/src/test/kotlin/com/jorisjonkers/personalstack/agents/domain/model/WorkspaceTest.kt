@@ -37,6 +37,33 @@ class WorkspaceTest {
         assertThat(base().copy(repoUrl = "git@github.com:owner/repo.git").isRepoBacked).isTrue
     }
 
+    @Test
+    fun `runner setup restart stages target, promotes it, and tracks generation`() {
+        val startedAt = Instant.parse("2026-06-12T10:00:00Z")
+        val completedAt = Instant.parse("2026-06-12T10:05:00Z")
+        val started =
+            base()
+                .copy(runnerSetupGeneration = 4)
+                .beginRunnerSetupRestart(
+                    setupId = AgentSetupId("gpu"),
+                    setupVersion = AgentSetupVersion(2),
+                    now = startedAt,
+                )
+
+        assertThat(started.pendingRunnerSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(started.pendingRunnerSetupVersion).isEqualTo(AgentSetupVersion(2))
+        assertThat(started.runnerSetupGeneration).isEqualTo(5)
+        assertThat(started.runnerSetupOperation).isEqualTo(RunnerSetupOperation.RESTARTING)
+
+        val completed = started.completeRunnerSetupRestart(now = completedAt)
+
+        assertThat(completed.currentRunnerSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(completed.currentRunnerSetupVersion).isEqualTo(AgentSetupVersion(2))
+        assertThat(completed.pendingRunnerSetupId).isNull()
+        assertThat(completed.runnerSetupOperation).isEqualTo(RunnerSetupOperation.IDLE)
+        assertThat(completed.runnerSetupOperationUpdatedAt).isEqualTo(completedAt)
+    }
+
     private fun base() =
         Workspace(
             id = WorkspaceId.random(),

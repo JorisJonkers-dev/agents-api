@@ -1,12 +1,14 @@
 package com.jorisjonkers.personalstack.agents.application.retention
 
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
@@ -19,7 +21,7 @@ class DurableSessionCleanupService(
     private val workspaces: WorkspaceRepository,
     private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
-    private val orchestrator: AgentRunnerOrchestrator,
+    private val binding: RunnerSessionBindingService,
     private val runtime: AgentRuntimeProperties,
     private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
@@ -71,14 +73,16 @@ class DurableSessionCleanupService(
             .count { sessions.markCleanupRequested(it.id, now) }
     }
 
+    @Suppress("ReturnCount")
     private fun cleanupPendingSession(session: WorkspaceAgentSession): Boolean {
+        if (session.pendingSetupId != null || session.pendingSetupVersion != null) return false
         val workspace =
             workspaces.findById(session.workspaceId)
                 ?: run {
                     log.warn("cleanup pending session {} has missing workspace {}", session.id, session.workspaceId)
                     return false
                 }
-        val mountedWorkspace = ensureRunnerMounted(workspace) ?: return false
+        val mountedWorkspace = ensureRunnerMounted(workspace, session) ?: return false
         return runCatching {
             gateway.cleanupStableSession(mountedWorkspace, session.id)
             sessions.delete(session.id).also { deleted ->
@@ -98,30 +102,31 @@ class DurableSessionCleanupService(
         }.getOrDefault(false)
     }
 
-    private fun ensureRunnerMounted(workspace: Workspace): Workspace? {
+    private fun ensureRunnerMounted(
+        workspace: Workspace,
+        session: WorkspaceAgentSession,
+    ): Workspace? {
+        if (workspace.hasRunnerSetupGuard()) return null
         if (runCatching { gateway.isReady(workspace) }.getOrDefault(false)) return workspace
-        val handle =
-            runCatching {
-                orchestrator.scaleDown(workspace)
-                orchestrator.provision(workspace)
-            }.onFailure {
-                log.warn("durable cleanup could not provision runner for {}: {}", workspace.id, it.message)
-            }.getOrNull() ?: return null
-        val saved =
-            workspaces.save(
-                workspace.copy(
-                    podName = handle.podName,
-                    pvcName = handle.pvcName,
-                    gatewayEndpoint = handle.gatewayEndpoint,
-                    status = WorkspaceStatus.STARTING,
-                    updatedAt = clock.instant(),
-                ),
-            )
-        return if (runCatching { gateway.isReady(saved) }.getOrDefault(false)) {
-            saved
-        } else {
-            log.warn("durable cleanup runner for {} is not ready after provisioning", workspace.id)
-            null
+        return when (
+            val prepared =
+                binding.prepareRunner(
+                    PrepareRunnerInput(
+                        workspaceId = workspace.id,
+                        kind = session.kind,
+                    ),
+                )
+        ) {
+            is RunnerPreparationResult.Ready -> prepared.workspace
+            is RunnerPreparationResult.Unavailable -> {
+                log.warn("durable cleanup could not provision runner for {}: {}", workspace.id, prepared.runnerStatus)
+                null
+            }
         }
     }
+
+    private fun Workspace.hasRunnerSetupGuard(): Boolean =
+        runnerSetupOperation != RunnerSetupOperation.IDLE ||
+            pendingRunnerSetupId != null ||
+            pendingRunnerSetupVersion != null
 }

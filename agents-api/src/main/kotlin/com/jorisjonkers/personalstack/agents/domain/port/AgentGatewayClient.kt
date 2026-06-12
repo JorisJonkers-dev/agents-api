@@ -25,6 +25,8 @@ interface AgentGatewayClient {
     data class ContinuationMetadata(
         val reason: String? = null,
         val previousEpoch: Long? = null,
+        val fromSetupLabel: String? = null,
+        val toSetupLabel: String? = null,
     )
 
     /**

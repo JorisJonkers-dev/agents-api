@@ -2,6 +2,8 @@ package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -84,6 +86,46 @@ class RunnerMaintenanceServiceTest {
 
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
         verify(exactly = 0) { workspaces.save(any()) }
+        assertThat(result.cycled).isEqualTo(0)
+    }
+
+    @Test
+    fun `gracefulScaleDownAll skips workspace during runner setup transition`() {
+        val ws =
+            workspace(WorkspaceStatus.READY)
+                .copy(
+                    pendingRunnerSetupId = AgentSetupId("gpu"),
+                    pendingRunnerSetupVersion = AgentSetupVersion(2),
+                )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+
+        val result = service.gracefulScaleDownAll()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        assertThat(result.cycled).isEqualTo(0)
+    }
+
+    @Test
+    fun `gracefulScaleDownAll skips workspace with session pending setup promotion`() {
+        val ws = workspace(WorkspaceStatus.READY)
+        val session =
+            WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CODEX,
+                gatewayAgentId = "gateway-agent",
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                createdAt = now.minusSeconds(3600),
+                updatedAt = now.minusSeconds(60),
+                pendingSetupId = AgentSetupId("gpu"),
+                pendingSetupVersion = AgentSetupVersion(2),
+            )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+
+        val result = service.gracefulScaleDownAll()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
         assertThat(result.cycled).isEqualTo(0)
     }
 

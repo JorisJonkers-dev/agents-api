@@ -35,7 +35,17 @@ data class WorkspaceAgentSession(
     val gatewayBoundAt: Instant? = null,
     val retainedUntil: Instant? = null,
     val cleanupRequestedAt: Instant? = null,
+    val currentSetupId: AgentSetupId = AgentSetupId.default(),
+    val currentSetupVersion: AgentSetupVersion = AgentSetupVersion.initial(),
+    val pendingSetupId: AgentSetupId? = null,
+    val pendingSetupVersion: AgentSetupVersion? = null,
 ) {
+    init {
+        require((pendingSetupId == null) == (pendingSetupVersion == null)) {
+            "pending setup id and version must be set together"
+        }
+    }
+
     val stableSessionId: String get() = id.value.toString()
 
     fun bindGatewayAgent(
@@ -97,4 +107,30 @@ data class WorkspaceAgentSession(
 
     fun markCleanupRequested(now: Instant = Instant.now()): WorkspaceAgentSession =
         copy(cleanupRequestedAt = now, updatedAt = now)
+
+    fun requestSetup(
+        setupId: AgentSetupId,
+        setupVersion: AgentSetupVersion,
+        now: Instant = Instant.now(),
+    ): WorkspaceAgentSession =
+        copy(
+            pendingSetupId = setupId,
+            pendingSetupVersion = setupVersion,
+            updatedAt = now,
+        )
+
+    fun promotePendingSetup(now: Instant = Instant.now()): WorkspaceAgentSession {
+        val nextId = requireNotNull(pendingSetupId) { "pending setup id is required" }
+        val nextVersion = requireNotNull(pendingSetupVersion) { "pending setup version is required" }
+        return copy(
+            currentSetupId = nextId,
+            currentSetupVersion = nextVersion,
+            pendingSetupId = null,
+            pendingSetupVersion = null,
+            updatedAt = now,
+        )
+    }
+
+    fun clearPendingSetup(now: Instant = Instant.now()): WorkspaceAgentSession =
+        copy(pendingSetupId = null, pendingSetupVersion = null, updatedAt = now)
 }
