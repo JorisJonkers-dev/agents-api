@@ -99,6 +99,21 @@ class StopAgentSessionCommandHandlerTest {
     }
 
     @Test
+    fun `handle purges an already-stopped session and publishes its removal`() {
+        val ws = workspace()
+        val session = session(ws.id, gatewayAgentId = null).copy(status = WorkspaceAgentSessionStatus.STOPPED)
+        every { sessions.findById(session.id) } returns session
+        every { sessions.delete(session.id) } returns true
+
+        handler.handle(StopAgentSessionCommand(session.id))
+
+        verify { sessions.delete(session.id) }
+        verify { sessionStatus.publishRemove(session.id) }
+        verify(exactly = 0) { gateway.stopAgent(any(), any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
+    }
+
+    @Test
     fun `handle is a no-op for unknown session`() {
         val id = WorkspaceAgentSessionId.random()
         every { sessions.findById(id) } returns null

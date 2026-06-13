@@ -43,6 +43,22 @@ class StopAgentSessionCommandHandler(
                     recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
                     return
                 }
+        // A session that is already in a terminal state has nothing left to
+        // stop, so a second delete means "purge it" — drop the retained row and
+        // tell clients to remove the tab. This is how stopped sessions are
+        // cleared from the console.
+        if (session.status == WorkspaceAgentSessionStatus.STOPPED ||
+            session.status == WorkspaceAgentSessionStatus.FAILED
+        ) {
+            val deleted = sessions.delete(session.id)
+            if (deleted) {
+                sessionStatus.publishRemove(session.id)
+                recordStop(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+            } else {
+                recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
+            }
+            return
+        }
         val workspace =
             workspaces.findById(session.workspaceId)
                 ?: run {
