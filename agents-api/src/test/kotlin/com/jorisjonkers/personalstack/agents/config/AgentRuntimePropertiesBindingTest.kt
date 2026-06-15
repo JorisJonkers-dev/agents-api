@@ -12,13 +12,13 @@ import org.springframework.boot.context.properties.source.MapConfigurationProper
  *
  * Production failure (kubectl describe on a Pending agent-runner Pod):
  *
- *     Node-Selectors: agentsnode=enschede-gtx-960m-1
+ *     Node-Selectors: personalstacknode=enschede-gtx-960m-1
  *
- * The intended selector is `agents/node=enschede-gtx-960m-1`
+ * The intended selector is `personal-stack/node=enschede-gtx-960m-1`
  * — matching the cluster's node label. Without the bracket escape
  * in `application.yml`, Spring's relaxed binding lowercases the key
  * and strips special chars (`-`, `/`, `.`), reducing
- * `agents/node` to `personalstacknode`. No node carries that
+ * `personal-stack/node` to `personalstacknode`. No node carries that
  * label, so every agent-runner Pod sits Pending forever and the
  * connection-refused 503 PR #428 surfaces is the user-visible tail.
  *
@@ -46,11 +46,11 @@ class AgentRuntimePropertiesBindingTest {
         val props =
             bind(
                 base +
-                    mapOf("agent-runtime.node-selector.[agents/node]" to "enschede-gtx-960m-1"),
+                    mapOf("agent-runtime.node-selector.[personal-stack/node]" to "enschede-gtx-960m-1"),
             )
 
         assertThat(props.nodeSelector).containsExactlyEntriesOf(
-            mapOf("agents/node" to "enschede-gtx-960m-1"),
+            mapOf("personal-stack/node" to "enschede-gtx-960m-1"),
         )
     }
 
@@ -64,14 +64,14 @@ class AgentRuntimePropertiesBindingTest {
         val props =
             bind(
                 base +
-                    mapOf("agent-runtime.node-selector.agents/node" to "enschede-gtx-960m-1"),
+                    mapOf("agent-runtime.node-selector.personal-stack/node" to "enschede-gtx-960m-1"),
             )
 
-        // Slash gets dropped — that's the production-breaking part.
-        // (Dashes survive; the trap is specifically the special-char
-        // strip, not a wholesale alphanum-only normalisation.)
+        // The slash is stripped, so the literal cluster label key is
+        // lost — that's the production-breaking part: no node carries
+        // the mangled key, so the runner Pod sits Pending forever.
         assertThat(props.nodeSelector.keys).noneMatch { it.contains("/") }
-        assertThat(props.nodeSelector).containsKey("agentsnode")
+        assertThat(props.nodeSelector).doesNotContainKey("personal-stack/node")
     }
 
     @Test
@@ -107,7 +107,7 @@ class AgentRuntimePropertiesBindingTest {
         assertThat(props.dockerSocketEnabled).isTrue()
         assertThat(props.dockerSocketPath).isEqualTo("/var/run/docker.sock")
         assertThat(props.dockerSocketSupplementalGroups).containsExactly(131L)
-        assertThat(props.nodeSelector).containsEntry("agents/capability-docker-socket", "true")
+        assertThat(props.nodeSelector).containsEntry("personal-stack/capability-docker-socket", "true")
     }
 
     @Test
@@ -151,7 +151,7 @@ class AgentRuntimePropertiesBindingTest {
                         "agent-runtime.setups[0].image" to "ghcr.io/example/gpu-runner:2026",
                         "agent-runtime.setups[0].default-mcp-profile" to "frontend",
                         "agent-runtime.setups[0].docker-socket-supplemental-groups" to "44,45",
-                        "agent-runtime.setups[0].node-selector.[agents/node]" to "gpu-node",
+                        "agent-runtime.setups[0].node-selector.[personal-stack/node]" to "gpu-node",
                     ),
             )
 
@@ -163,7 +163,7 @@ class AgentRuntimePropertiesBindingTest {
         assertThat(props.setups.single().image).isEqualTo("ghcr.io/example/gpu-runner:2026")
         assertThat(props.setups.single().defaultMcpProfile).isEqualTo("frontend")
         assertThat(props.setups.single().dockerSocketSupplementalGroups).containsExactly(44L, 45L)
-        assertThat(props.setups.single().nodeSelector).containsEntry("agents/node", "gpu-node")
+        assertThat(props.setups.single().nodeSelector).containsEntry("personal-stack/node", "gpu-node")
     }
 
     @Test

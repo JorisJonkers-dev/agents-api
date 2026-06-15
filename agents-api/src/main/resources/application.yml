@@ -135,15 +135,15 @@ agent-runtime:
   # node as the runner workload.
   # Spring Boot's `@ConfigurationProperties` relaxed binding lowercases
   # map keys and strips special chars (`-`, `/`, `.`) unless the key
-  # is bracket-escaped. Without the brackets, `agents/node`
-  # bound to `agentsnode` on the runtime side and every
+  # is bracket-escaped. Without the brackets, `personal-stack/node`
+  # bound to `personalstacknode` on the runtime side and every
   # agent-runner Pod sat Pending forever ("0/7 nodes are available:
   # 7 node(s) didn't match Pod's node affinity/selector"). The
   # bracket form forces Spring to take the key literally.
   # https://docs.spring.io/spring-boot/reference/features/external-config.html#features.external-config.typesafe-configuration-properties.relaxed-binding.maps
   node-selector:
-    '[agents/node]': ${AGENT_RUNTIME_NODE:enschede-gtx-960m-1}
-    '[agents/capability-docker-socket]': ${AGENT_RUNTIME_DOCKER_SOCKET_CAPABILITY:true}
+    '[personal-stack/node]': ${AGENT_RUNTIME_NODE:enschede-gtx-960m-1}
+    '[personal-stack/capability-docker-socket]': ${AGENT_RUNTIME_DOCKER_SOCKET_CAPABILITY:true}
   # Idle scale-down. A workspace whose last observed activity is
   # older than `idle-after-seconds` gets its Pod + Service + per-
   # workspace Secret deleted; the workspace PVC survives so a

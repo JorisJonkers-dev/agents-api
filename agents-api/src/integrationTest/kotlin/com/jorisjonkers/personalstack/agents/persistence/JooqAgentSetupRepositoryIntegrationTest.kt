@@ -48,7 +48,7 @@ class JooqAgentSetupRepositoryIntegrationTest : IntegrationTestBase() {
         assertThat(loaded.version).isEqualTo(definition.version)
         assertThat(loaded.cliTools).containsEntry("codex", "gpu")
         assertThat(loaded.toolProfiles).containsExactly("frontend", "code-intel")
-        assertThat(loaded.nodeSelector).containsEntry("agents/node", "gpu-node")
+        assertThat(loaded.nodeSelector).containsEntry("personal-stack/node", "gpu-node")
         assertThat(selectable.map { it.definition.id }).contains(AgentSetupId("gpu"))
     }
 
@@ -82,7 +82,7 @@ class JooqAgentSetupRepositoryIntegrationTest : IntegrationTestBase() {
             dockerSocketEnabled = true,
             dockerSocketPath = "/var/run/docker.sock",
             dockerSocketSupplementalGroups = listOf(44L, 45L),
-            nodeSelector = mapOf("agents/node" to "gpu-node"),
+            nodeSelector = mapOf("personal-stack/node" to "gpu-node"),
             createdAt = now,
             updatedAt = now,
         )

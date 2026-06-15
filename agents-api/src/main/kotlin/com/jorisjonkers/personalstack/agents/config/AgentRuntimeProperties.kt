@@ -15,8 +15,8 @@ private val DEFAULT_DOCKER_SOCKET_SUPPLEMENTAL_GROUPS =
 
 private val DEFAULT_NODE_SELECTOR =
     mapOf(
-        "agents/node" to "enschede-gtx-960m-1",
-        "agents/capability-docker-socket" to "true",
+        "personal-stack/node" to "enschede-gtx-960m-1",
+        "personal-stack/capability-docker-socket" to "true",
     )
 
 /**

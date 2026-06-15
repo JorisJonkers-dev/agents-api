@@ -185,8 +185,8 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
                 .withName("agent-runner-${workspace.id.short()}")
                 .get()
         assertThat(pod.spec.nodeSelector)
-            .containsEntry("agents/node", "enschede-gtx-960m-1")
-            .containsEntry("agents/capability-docker-socket", "true")
+            .containsEntry("personal-stack/node", "enschede-gtx-960m-1")
+            .containsEntry("personal-stack/capability-docker-socket", "true")
         val mcpMount =
             pod.spec.containers
                 .single()
@@ -247,8 +247,8 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         assertThat(container.imagePullPolicy).isEqualTo("IfNotPresent")
         assertThat(pod.spec.serviceAccountName).isEqualTo("agent-runner")
         assertThat(pod.spec.nodeSelector)
-            .containsEntry("agents/node", "custom-node")
-            .containsEntry("agents/capability-docker-socket", "true")
+            .containsEntry("personal-stack/node", "custom-node")
+            .containsEntry("personal-stack/capability-docker-socket", "true")
 
         assertThat(pod.metadata.labels)
             .containsEntry(RunnerState.LABEL_SETUP_ID, "gpu")
@@ -590,8 +590,8 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
             dockerSocketSupplementalGroups = listOf(44L),
             nodeSelector =
                 mapOf(
-                    "agents/node" to "custom-node",
-                    "agents/capability-docker-socket" to "true",
+                    "personal-stack/node" to "custom-node",
+                    "personal-stack/capability-docker-socket" to "true",
                 ),
         )
 
