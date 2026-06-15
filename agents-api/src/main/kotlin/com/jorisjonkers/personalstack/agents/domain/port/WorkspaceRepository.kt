@@ -36,5 +36,23 @@ interface WorkspaceRepository {
         now: Instant = Instant.now(),
     ): Boolean
 
+    /**
+     * Release a runner-setup lease that has been stuck in a non-IDLE
+     * state since before [olderThan], resetting it to IDLE and dropping
+     * the pending setup so the workspace can bind a new session again.
+     *
+     * The age predicate (`runner_setup_operation_updated_at < olderThan`)
+     * is the safety guard: a live `start`/`restart` holds the lease only
+     * for the few seconds of provisioning, so a generous [olderThan]
+     * never preempts an in-flight operation — it only reclaims leases
+     * orphaned by a crash mid-provision (RESTARTING) or left terminal by
+     * a failed provision (FAILED). Returns true when a row was reset.
+     */
+    fun releaseStaleRunnerSetupOperation(
+        id: WorkspaceId,
+        olderThan: Instant,
+        now: Instant = Instant.now(),
+    ): Boolean
+
     fun delete(id: WorkspaceId)
 }

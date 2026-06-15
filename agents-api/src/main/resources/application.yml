@@ -151,6 +151,16 @@ agent-runtime:
   # `idle-sweep-period-ms` intervals.
   idle-after-seconds: ${AGENT_RUNTIME_IDLE_AFTER_SECONDS:1800}
   idle-sweep-period-ms: ${AGENT_RUNTIME_IDLE_SWEEP_PERIOD_MS:300000}
+  # Stale runner-setup-lease reaper. A `start`/`restart` holds the
+  # workspace's runner-setup lease (RESTARTING) only for the few seconds
+  # of provisioning. Any lease still non-IDLE after
+  # `runner-setup-lease-timeout-seconds` is orphaned — agents-api crashed
+  # mid-provision, or a provision failed (FAILED) and nothing reset it —
+  # and is reclaimed to IDLE so the workspace can bind sessions again.
+  # The timeout is minutes (>> provisioning) so it never preempts a live
+  # operation. Swept every `runner-setup-lease-sweep-period-ms`.
+  runner-setup-lease-timeout-seconds: ${AGENT_RUNTIME_RUNNER_SETUP_LEASE_TIMEOUT_SECONDS:300}
+  runner-setup-lease-sweep-period-ms: ${AGENT_RUNTIME_RUNNER_SETUP_LEASE_SWEEP_PERIOD_MS:120000}
   durable-session-retention-seconds: ${AGENT_RUNTIME_DURABLE_SESSION_RETENTION_SECONDS:604800}
   durable-session-cleanup-sweep-period-ms: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_SWEEP_PERIOD_MS:300000}
   durable-session-cleanup-batch-size: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_BATCH_SIZE:25}

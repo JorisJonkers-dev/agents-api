@@ -155,6 +155,27 @@ class JooqWorkspaceRepository(
             .and(RUNNER_SETUP_GENERATION.eq(expectedGeneration))
             .execute() == 1
 
+    override fun releaseStaleRunnerSetupOperation(
+        id: WorkspaceId,
+        olderThan: Instant,
+        now: Instant,
+    ): Boolean =
+        dsl
+            .update(WORKSPACES)
+            .set(RUNNER_SETUP_OPERATION, RunnerSetupOperation.IDLE.name)
+            .set(PENDING_RUNNER_SETUP_ID, null as String?)
+            .set(PENDING_RUNNER_SETUP_VERSION, null as Long?)
+            .set(RUNNER_SETUP_OPERATION_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(
+                RUNNER_SETUP_OPERATION.`in`(
+                    RunnerSetupOperation.RESTARTING.name,
+                    RunnerSetupOperation.FAILED.name,
+                ),
+            ).and(RUNNER_SETUP_OPERATION_UPDATED_AT.lessThan(olderThan.atOffset(ZoneOffset.UTC)))
+            .execute() == 1
+
     override fun delete(id: WorkspaceId) {
         dsl.deleteFrom(WORKSPACES).where(ID.eq(id.value)).execute()
     }

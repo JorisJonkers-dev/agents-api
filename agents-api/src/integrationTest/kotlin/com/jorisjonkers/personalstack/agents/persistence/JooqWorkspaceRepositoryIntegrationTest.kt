@@ -162,6 +162,85 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
+    fun `releaseStaleRunnerSetupOperation resets a stale RESTARTING lease to IDLE and drops pending`() {
+        val staleAt = Instant.parse("2026-05-19T11:00:00Z")
+        val now = Instant.parse("2026-05-19T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-19T11:55:00Z")
+        val w =
+            newWorkspace().copy(
+                runnerSetupGeneration = 4,
+                pendingRunnerSetupId = AgentSetupId.legacy(),
+                pendingRunnerSetupVersion = AgentSetupVersion.initial(),
+                runnerSetupOperation = RunnerSetupOperation.RESTARTING,
+                runnerSetupOperationStartedAt = staleAt,
+                runnerSetupOperationUpdatedAt = staleAt,
+            )
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleRunnerSetupOperation(w.id, olderThan, now)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(released).isTrue()
+        assertThat(loaded!!.runnerSetupOperation).isEqualTo(RunnerSetupOperation.IDLE)
+        assertThat(loaded.pendingRunnerSetupId).isNull()
+        assertThat(loaded.pendingRunnerSetupVersion).isNull()
+        assertThat(loaded.currentRunnerSetupId).isEqualTo(w.currentRunnerSetupId)
+    }
+
+    @Test
+    fun `releaseStaleRunnerSetupOperation resets a stale FAILED lease to IDLE`() {
+        val staleAt = Instant.parse("2026-05-19T10:00:00Z")
+        val now = Instant.parse("2026-05-19T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-19T11:55:00Z")
+        val w =
+            newWorkspace().copy(
+                runnerSetupOperation = RunnerSetupOperation.FAILED,
+                runnerSetupOperationStartedAt = staleAt,
+                runnerSetupOperationUpdatedAt = staleAt,
+            )
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleRunnerSetupOperation(w.id, olderThan, now)
+
+        assertThat(released).isTrue()
+        assertThat(workspaces.findById(w.id)!!.runnerSetupOperation).isEqualTo(RunnerSetupOperation.IDLE)
+    }
+
+    @Test
+    fun `releaseStaleRunnerSetupOperation no-ops on a lease newer than the threshold`() {
+        val freshAt = Instant.parse("2026-05-19T11:59:00Z")
+        val now = Instant.parse("2026-05-19T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-19T11:55:00Z")
+        val w =
+            newWorkspace().copy(
+                pendingRunnerSetupId = AgentSetupId.legacy(),
+                pendingRunnerSetupVersion = AgentSetupVersion.initial(),
+                runnerSetupOperation = RunnerSetupOperation.RESTARTING,
+                runnerSetupOperationStartedAt = freshAt,
+                runnerSetupOperationUpdatedAt = freshAt,
+            )
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleRunnerSetupOperation(w.id, olderThan, now)
+
+        assertThat(released).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerSetupOperation).isEqualTo(RunnerSetupOperation.RESTARTING)
+    }
+
+    @Test
+    fun `releaseStaleRunnerSetupOperation no-ops on an IDLE workspace`() {
+        val now = Instant.parse("2026-05-19T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-19T11:55:00Z")
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleRunnerSetupOperation(w.id, olderThan, now)
+
+        assertThat(released).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerSetupOperation).isEqualTo(RunnerSetupOperation.IDLE)
+    }
+
+    @Test
     fun `findAllByStatusNot excludes the supplied status`() {
         val a = newWorkspace()
         val b = newWorkspace().copy(status = WorkspaceStatus.DESTROYED)
