@@ -11,6 +11,8 @@ import com.jorisjonkers.personalstack.agents.domain.port.RunnerBindingInventoryS
 import com.jorisjonkers.personalstack.agents.domain.port.SecretBindingPresence
 import com.jorisjonkers.personalstack.agents.domain.port.SecretKeyPresence
 import io.fabric8.kubernetes.client.KubernetesClient
+import io.fabric8.kubernetes.client.KubernetesClientException
+import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
 
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Component
 class Fabric8RunnerBindingInventory(
     private val client: KubernetesClient,
 ) : RunnerBindingInventory {
+    private val log = LoggerFactory.getLogger(Fabric8RunnerBindingInventory::class.java)
+
     @Suppress("LongMethod")
     override fun inspect(
         definition: AgentSetupDefinition,
@@ -130,14 +134,39 @@ class Fabric8RunnerBindingInventory(
             .withName(name)
             .get() != null
 
-    private fun nodeSelectorSatisfiable(selector: Map<String, String>): Boolean =
-        selector.isEmpty() ||
+    /**
+     * Listing nodes is a cluster-scoped call, so it needs RBAC beyond
+     * the namespaced runner-controller Role agents-api is granted for
+     * Pod/PVC/Secret management. Node-selector satisfiability is only a
+     * preflight hint for the setup-options / restart-preview UI — the
+     * Kubernetes scheduler remains the real authority (an unschedulable
+     * Pod simply stays Pending and is surfaced through the runner
+     * availability path). A missing `nodes:list` permission (or any
+     * transient API error) must therefore not propagate, because
+     * [KubernetesExceptionHandler] would turn it into a 502 that takes
+     * down session launch, restart, and setup-options entirely. Degrade
+     * to "assume satisfiable" and log instead.
+     */
+    private fun nodeSelectorSatisfiable(selector: Map<String, String>): Boolean {
+        if (selector.isEmpty()) return true
+        return try {
             client
                 .nodes()
                 .withLabels(selector)
                 .list()
                 .items
                 .isNotEmpty()
+        } catch (ex: KubernetesClientException) {
+            log.warn(
+                "Could not list nodes for selector {} (code={}); assuming satisfiable. " +
+                    "Grant agents-api cluster-scoped nodes:list for accurate validation.",
+                selector,
+                ex.code,
+                ex,
+            )
+            true
+        }
+    }
 
     private fun ref(
         kind: String,
