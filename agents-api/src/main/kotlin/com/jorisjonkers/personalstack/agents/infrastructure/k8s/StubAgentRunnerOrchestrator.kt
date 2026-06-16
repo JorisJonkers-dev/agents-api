@@ -117,4 +117,8 @@ class StubAgentRunnerOrchestrator : AgentRunnerOrchestrator {
         workspace: Workspace,
         expectedIdentity: RunnerState.Identity,
     ): Boolean = runnerState(workspace)?.matches(expectedIdentity) == true
+
+    // The stub never runs real pods, so it has no image to compare; treat
+    // runners as always current.
+    override fun isRunnerImageStale(workspace: Workspace): Boolean = false
 }

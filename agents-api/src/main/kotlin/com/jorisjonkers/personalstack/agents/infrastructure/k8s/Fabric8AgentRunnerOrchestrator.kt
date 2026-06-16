@@ -179,6 +179,45 @@ class Fabric8AgentRunnerOrchestrator(
         return runnerState(pod)
     }
 
+    override fun isRunnerImageStale(workspace: Workspace): Boolean {
+        // Unknown current release → never recycle (fail safe toward not
+        // disrupting). A still-unstamped legacy runner counts as stale so the
+        // first sweep after this ships migrates it onto the marked image.
+        val marker = currentReleaseMarker() ?: return false
+        return runnerState(workspace)?.let { it.imageMarker != marker } ?: false
+    }
+
+    /**
+     * The agents-api image digest this process is running, used as the
+     * "current release" marker. Resolved once from our own Pod (HOSTNAME is
+     * the Pod name in Kubernetes) and cached: it cannot change within a
+     * process lifetime because a new release replaces the process. A new
+     * release therefore yields a new marker, which is what makes runners
+     * provisioned under the previous release look stale.
+     */
+    private val releaseMarker: String? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { computeReleaseMarker() }
+
+    private fun currentReleaseMarker(): String? = releaseMarker
+
+    private fun computeReleaseMarker(): String? {
+        val host = System.getenv("HOSTNAME")?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            client
+                .pods()
+                .inNamespace(props.namespace)
+                .withName(host)
+                .get()
+                ?.status
+                ?.containerStatuses
+                ?.firstOrNull()
+                ?.imageID
+                ?.takeIf { it.isNotBlank() }
+        }.getOrElse {
+            log.warn("could not resolve agents-api image marker from pod {}: {}", host, it.message)
+            null
+        }
+    }
+
     override fun isReady(workspace: Workspace): Boolean {
         val state = runnerState(workspace) ?: return false
         return state.containerReady &&
@@ -215,6 +254,7 @@ class Fabric8AgentRunnerOrchestrator(
             runnerGeneration = labels[RunnerState.LABEL_RUNNER_GENERATION]?.toLongOrNull(),
             phase = pod.status?.phase,
             containerReady = containerReady,
+            imageMarker = annotations[RunnerState.ANNOTATION_IMAGE_MARKER],
         )
     }
 
@@ -423,7 +463,10 @@ class Fabric8AgentRunnerOrchestrator(
         )
 
     private fun podAnnotations(setup: RunnerSetupProvisioningSpec): Map<String, String> =
-        mapOf(RunnerState.ANNOTATION_SETUP_HASH to setup.setupHash)
+        buildMap {
+            put(RunnerState.ANNOTATION_SETUP_HASH, setup.setupHash)
+            currentReleaseMarker()?.let { put(RunnerState.ANNOTATION_IMAGE_MARKER, it) }
+        }
 
     @Suppress("LongMethod")
     private fun podEnv(

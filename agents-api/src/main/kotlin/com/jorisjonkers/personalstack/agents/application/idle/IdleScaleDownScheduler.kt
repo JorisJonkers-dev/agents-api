@@ -78,9 +78,15 @@ class IdleScaleDownScheduler(
     private fun isEligibleForScaleDown(workspace: Workspace): Boolean {
         if (workspace.hasRunnerSetupGuard()) return false
         if (connected.isConnected(workspace.id)) return false
-        val lastSeen = effectiveLastSeen(workspace)
         val sessions = agentSessions.findAllByWorkspaceId(workspace.id)
         if (sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null }) return false
+        // No client is attached (checked above), so recycling won't interrupt a
+        // session the user is watching. If the runner is on an image from an
+        // older release, scale it down now so the next attach comes back on the
+        // current image — without waiting out the idle timer. This is what lets
+        // a deploy reach the runner automatically instead of by manual restart.
+        if (orchestrator.isRunnerImageStale(workspace)) return true
+        val lastSeen = effectiveLastSeen(workspace)
         val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
         val threshold =
             Duration.ofSeconds(if (hasRunning) agentIdleAfterSeconds else idleAfterSeconds)

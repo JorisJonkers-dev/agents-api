@@ -179,6 +179,32 @@ class IdleScaleDownSchedulerTest {
     }
 
     @Test
+    fun `sweep recycles a disconnected runner on a stale image even when recently active`() {
+        val ws = workspace(updatedAt = now.minusSeconds(60))
+        tracker.touch(ws.id) // fresh — the idle timer alone would not scale this down
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        noRunningSessions(ws)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        every { workspaces.save(any()) } answers { firstArg() }
+
+        scheduler.sweep()
+
+        verify { orchestrator.scaleDown(ws) }
+    }
+
+    @Test
+    fun `sweep does not recycle a stale-image runner while a client is connected`() {
+        val ws = workspace(updatedAt = now.minusSeconds(60))
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        connected.attach(ws.id)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+    }
+
+    @Test
     fun `sweep skips a workspace with RUNNING sessions inside the agent idle threshold`() {
         val ws = workspace(updatedAt = now.minusSeconds(7_200))
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)

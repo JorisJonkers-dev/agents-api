@@ -49,4 +49,15 @@ interface AgentRunnerOrchestrator {
         workspace: Workspace,
         expectedIdentity: RunnerState.Identity,
     ): Boolean
+
+    /**
+     * True when the workspace's runner Pod is running an image from an
+     * older release than the one currently in force (the agents-api image
+     * was rebuilt and redeployed since the runner was provisioned). The
+     * idle sweep uses this to recycle a disconnected stale runner so it
+     * comes back on the new image, without waiting for the idle timer.
+     * Returns false when the current release can't be determined or the
+     * runner is absent, so an unknown never triggers a recycle.
+     */
+    fun isRunnerImageStale(workspace: Workspace): Boolean
 }
