@@ -24,6 +24,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionS
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
+import jakarta.websocket.ContainerProvider
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.socket.BinaryMessage
@@ -80,7 +81,20 @@ class SessionAttachHandler(
     )
 
     private val bridges = ConcurrentHashMap<String, Bridge>()
-    private val client = StandardWebSocketClient()
+
+    // The gateway streams terminal output as bounded frames (LogTailer
+    // MAX_CHUNK_CHARS); a screenful of a TUI's ANSI escapes can JSON-encode
+    // to tens of KiB, well past the container's 8 KiB default. Reassembling
+    // a frame larger than the buffer fails the read and drops the socket, so
+    // raise the inbound text/binary limits on the client that bridges to the
+    // gateway. The browser leg is sent fragmented and has no such limit.
+    private val client =
+        StandardWebSocketClient(
+            ContainerProvider.getWebSocketContainer().apply {
+                defaultMaxTextMessageBufferSize = UPSTREAM_MAX_MESSAGE_BYTES
+                defaultMaxBinaryMessageBufferSize = UPSTREAM_MAX_MESSAGE_BYTES
+            },
+        )
 
     private data class ResolvedAttach(
         val sessionId: WorkspaceAgentSessionId,
@@ -379,6 +393,12 @@ class SessionAttachHandler(
 
     companion object {
         private const val UPSTREAM_HANDSHAKE_SECONDS = 5L
+
+        // Generous headroom over the gateway's largest JSON-wrapped output
+        // frame so a screenful of ANSI escapes never overruns the reassembly
+        // buffer. Allocated lazily per session by the container.
+        private const val UPSTREAM_MAX_MESSAGE_BYTES = 1024 * 1024
+
         private val NON_NEGATIVE_INTEGER = Regex("""\d+""")
 
         private fun outcomeOf(status: CloseStatus): OutcomeLabel =
