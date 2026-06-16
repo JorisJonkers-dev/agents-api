@@ -14,6 +14,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionI
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
@@ -24,6 +25,7 @@ import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -51,6 +53,7 @@ class IdleScaleDownSchedulerTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
+    private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
     private val connected = ConnectedClientTracker()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
@@ -60,6 +63,7 @@ class IdleScaleDownSchedulerTest {
             workspaces = workspaces,
             agentSessions = agentSessions,
             orchestrator = orchestrator,
+            gateway = gateway,
             tracker = tracker,
             connected = connected,
             sessionStatus = sessionStatus,
@@ -67,6 +71,7 @@ class IdleScaleDownSchedulerTest {
             telemetry = telemetry,
             idleAfterSeconds = 1_800,
             agentIdleAfterSeconds = 14_400,
+            staleRecycleQuietSeconds = 300,
         )
 
     private fun noRunningSessions(ws: Workspace) {
@@ -198,6 +203,58 @@ class IdleScaleDownSchedulerTest {
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
         connected.attach(ws.id)
         every { orchestrator.isRunnerImageStale(ws) } returns true
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+    }
+
+    @Test
+    fun `sweep waits to recycle a stale runner while its agent is still busy`() {
+        val ws = workspace(updatedAt = now.minusSeconds(60))
+        val session = runningSession(ws.id)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        // Output as recently as 10s ago — inside the 300s quiet window.
+        every { gateway.agentIdle(ws, session.gatewayAgentId!!) } returns Duration.ofSeconds(10)
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+    }
+
+    @Test
+    fun `sweep recycles a stale runner once its agent has gone idle past the grace window`() {
+        val ws = workspace(updatedAt = now.minusSeconds(60))
+        val session = runningSession(ws.id)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        every { gateway.agentIdle(ws, session.gatewayAgentId!!) } returns Duration.ofSeconds(600)
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                now = now,
+            )
+        } returns true
+
+        scheduler.sweep()
+
+        verify { orchestrator.scaleDown(ws) }
+    }
+
+    @Test
+    fun `sweep does not recycle a stale runner when agent idle time is unknown`() {
+        val ws = workspace(updatedAt = now.minusSeconds(60))
+        val session = runningSession(ws.id)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        // Gateway unreachable / agent unknown → can't confirm idle → don't recycle.
+        every { gateway.agentIdle(ws, session.gatewayAgentId!!) } returns null
 
         scheduler.sweep()
 

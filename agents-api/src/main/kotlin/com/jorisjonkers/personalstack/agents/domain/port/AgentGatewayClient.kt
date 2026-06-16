@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.domain.port
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+import java.time.Duration
 
 /**
  * Driven port: the HTTP/WS facade in front of an agent-gateway
@@ -111,6 +112,17 @@ interface AgentGatewayClient {
     ): String
 
     fun isReady(workspace: Workspace): Boolean
+
+    /**
+     * Time since the gateway's agent last produced output, or null when it
+     * can't be determined (gateway unreachable, agent unknown, no log yet).
+     * Used to hold off recycling a runner until its agent is idle; callers
+     * must treat null as "cannot confirm idle" and not recycle.
+     */
+    fun agentIdle(
+        workspace: Workspace,
+        gatewayAgentId: String,
+    ): Duration?
 
     enum class HeadlessStatus { RUNNING, COMPLETED, FAILED, CANCELLED }
 

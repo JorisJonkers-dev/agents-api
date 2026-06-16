@@ -284,6 +284,24 @@ class HttpAgentGatewayClient(
             true
         }.getOrElse { false }
 
+    override fun agentIdle(
+        workspace: Workspace,
+        gatewayAgentId: String,
+    ): Duration? =
+        runCatching {
+            restClient
+                .get()
+                .uri("${endpoint(workspace)}/agents/$gatewayAgentId")
+                .retrieve()
+                .body(AgentIdleDto::class.java)
+                ?.idleMillis
+                ?.let(Duration::ofMillis)
+        }.getOrNull()
+
+    private data class AgentIdleDto(
+        val idleMillis: Long? = null,
+    )
+
     private data class HeadlessRequestBody(
         val kind: WorkspaceAgentKind,
         val prompt: String,

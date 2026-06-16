@@ -9,8 +9,10 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
@@ -43,6 +45,7 @@ class IdleScaleDownScheduler(
     private val workspaces: WorkspaceRepository,
     private val agentSessions: WorkspaceAgentSessionRepository,
     private val orchestrator: AgentRunnerOrchestrator,
+    private val gateway: AgentGatewayClient,
     private val tracker: WorkspaceActivityTracker,
     private val connected: ConnectedClientTracker,
     private val sessionStatus: SessionStatusPublisher,
@@ -52,6 +55,8 @@ class IdleScaleDownScheduler(
     private val idleAfterSeconds: Long,
     @param:Value("\${agent-runtime.agent-idle-after-seconds:14400}")
     private val agentIdleAfterSeconds: Long,
+    @param:Value("\${agent-runtime.stale-recycle-quiet-seconds:300}")
+    private val staleRecycleQuietSeconds: Long,
 ) {
     private val log = LoggerFactory.getLogger(IdleScaleDownScheduler::class.java)
 
@@ -80,17 +85,37 @@ class IdleScaleDownScheduler(
         if (connected.isConnected(workspace.id)) return false
         val sessions = agentSessions.findAllByWorkspaceId(workspace.id)
         if (sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null }) return false
-        // No client is attached (checked above), so recycling won't interrupt a
-        // session the user is watching. If the runner is on an image from an
-        // older release, scale it down now so the next attach comes back on the
-        // current image — without waiting out the idle timer. This is what lets
-        // a deploy reach the runner automatically instead of by manual restart.
-        if (orchestrator.isRunnerImageStale(workspace)) return true
+        // No client is attached (checked above). If the runner is on an image
+        // from an older release, recycle it so the next attach comes back on
+        // the current image — but only once every running agent has gone quiet,
+        // so an agent that is still working is never interrupted mid-task.
+        if (orchestrator.isRunnerImageStale(workspace)) return staleRunnerSafeToRecycle(workspace, sessions)
         val lastSeen = effectiveLastSeen(workspace)
         val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
         val threshold =
             Duration.ofSeconds(if (hasRunning) agentIdleAfterSeconds else idleAfterSeconds)
         return !lastSeen.isAfter(clock.instant().minus(threshold))
+    }
+
+    /**
+     * A stale runner may only be recycled once every running agent has been
+     * idle (no output) for the grace window. A session with no live agent is
+     * nothing to interrupt. If any agent is still producing output — or its
+     * idle time can't be confirmed from the gateway — we wait for the next
+     * sweep rather than risk cutting off an in-progress task.
+     */
+    private fun staleRunnerSafeToRecycle(
+        workspace: Workspace,
+        sessions: List<WorkspaceAgentSession>,
+    ): Boolean {
+        val running = sessions.filter { it.status == WorkspaceAgentSessionStatus.RUNNING }
+        if (running.isEmpty()) return true
+        val grace = Duration.ofSeconds(staleRecycleQuietSeconds)
+        return running.all { session ->
+            val agentId = session.gatewayAgentId ?: return@all false
+            val idle = gateway.agentIdle(workspace, agentId)
+            idle != null && idle >= grace
+        }
     }
 
     private fun effectiveLastSeen(workspace: Workspace): Instant = tracker.lastSeen(workspace.id) ?: workspace.updatedAt
