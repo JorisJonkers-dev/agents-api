@@ -7,6 +7,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import java.time.Instant
+import java.util.UUID
 
 interface WorkspaceRepository {
     fun save(workspace: Workspace): Workspace
@@ -49,6 +50,49 @@ interface WorkspaceRepository {
      * a failed provision (FAILED). Returns true when a row was reset.
      */
     fun releaseStaleRunnerSetupOperation(
+        id: WorkspaceId,
+        olderThan: Instant,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    /**
+     * Acquire the boot lease atomically — sets runner_boot_lease_id = [leaseId]
+     * only when no lease is currently held. Returns true when the lease was taken.
+     * Callers MUST check the return value and abort any K8s operation when false.
+     */
+    fun acquireBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    /**
+     * Release the boot lease on successful completion. Only succeeds when the
+     * stored lease id matches [leaseId]; does not increment the attempt counter.
+     */
+    fun completeBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    /**
+     * Release the boot lease after a failed boot. Only succeeds when the stored
+     * lease id matches [leaseId]; increments runner_boot_attempt so repeated
+     * failures are observable.
+     */
+    fun failBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant = Instant.now(),
+    ): Boolean
+
+    /**
+     * Release a boot lease that has been held since before [olderThan] without
+     * completing normally (crash mid-boot or pod stuck). Increments the attempt
+     * counter so the recovery is visible. Returns true when a row was reset.
+     */
+    fun releaseStaleBootLease(
         id: WorkspaceId,
         olderThan: Instant,
         now: Instant = Instant.now(),

@@ -15,6 +15,8 @@ import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionSt
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerSetupTarget
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
@@ -64,19 +66,13 @@ class RunnerSessionBinder(
             workspaces.findById(request.workspaceId)
                 ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
         val target = resolveNewSessionSetup(workspace, request.kind, request.setupId, request.setupVersion)
-        val ready =
-            runCatching { prepareRunner(workspace, target) }
-                .getOrElse { ex ->
-                    if (ex is RunnerSetupOperationConflict) {
-                        return RunnerSessionBindingResult.Conflict(current = sessions.findById(request.sessionId))
-                    }
-                    throw ex
-                }
+        // Validate readiness before persisting the session — no provisioning in interactive binding paths.
+        checkBindingReadiness(workspace, target)?.let { return it }
         val now = Instant.now()
         val session =
             WorkspaceAgentSession(
                 id = request.sessionId,
-                workspaceId = ready.workspace.id,
+                workspaceId = workspace.id,
                 kind = request.kind,
                 gatewayAgentId = null,
                 status = WorkspaceAgentSessionStatus.STARTING,
@@ -90,35 +86,11 @@ class RunnerSessionBinder(
             )
         val saved = sessions.save(session)
         sessionStatus.publishStatus(saved)
-        return spawnAndBind(ready.workspace, session, continuation = null, provisioning = ready.provisioning)
-    }
-
-    override fun prepareRunner(request: PrepareRunnerInput): RunnerPreparationResult =
-        observePreparationOperation {
-            prepareRunnerInternal(request)
-        }
-
-    private fun prepareRunnerInternal(request: PrepareRunnerInput): RunnerPreparationResult {
-        val workspace =
-            workspaces.findById(request.workspaceId)
-                ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
-        val target = resolveNewSessionSetup(workspace, request.kind, request.setupId, request.setupVersion)
-        val ready =
-            runCatching { prepareRunner(workspace, target) }
-                .getOrElse { ex ->
-                    if (ex is RunnerSetupOperationConflict) {
-                        return RunnerPreparationResult.Unavailable(
-                            workspaceId = workspace.id,
-                            runnerStatus = "RunnerSetupOperationInProgress",
-                        )
-                    }
-                    throw ex
-                }
-        return RunnerPreparationResult.Ready(
-            workspace = ready.workspace,
-            setupId = target.entry.definition.id,
-            setupVersion = target.entry.definition.version,
-            provisioning = ready.provisioning,
+        return spawnAndBind(
+            workspace,
+            session,
+            continuation = null,
+            provisioning = RunnerProvisioningResult.AlreadyReady,
         )
     }
 
@@ -217,14 +189,20 @@ class RunnerSessionBinder(
         require(session.workspaceId == workspaceId) {
             "session does not belong to workspace: ${request.sessionId.value}"
         }
+        // Session-level conflict: a restart is already in progress for this session.
+        if (session.pendingSetupId != null || session.pendingSetupVersion != null) {
+            return RunnerSessionBindingResult.Conflict(current = session)
+        }
+        // Workspace runner setup in progress → runner not yet available, retry later.
         if (
-            session.pendingSetupId != null ||
-            session.pendingSetupVersion != null ||
             workspace.pendingRunnerSetupId != null ||
             workspace.pendingRunnerSetupVersion != null ||
             workspace.runnerSetupOperation != RunnerSetupOperation.IDLE
         ) {
-            return RunnerSessionBindingResult.Conflict(current = session)
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS.label,
+            )
         }
         val target = resolveSessionSetup(workspace, session)
 
@@ -257,28 +235,33 @@ class RunnerSessionBinder(
             "session is not running: ${request.sessionId.value}"
         }
 
+        // Validate runner readiness before bumping generation — no provisioning in interactive binding paths.
+        if (workspace.runnerBootLeaseId != null) {
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.BOOT_LEASE_HELD.label,
+            )
+        }
+        if (!isRunnerReadyFor(workspace, target)) {
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+        }
+
         val starting = session.beginGeneration(nextEpoch = session.epoch + 1)
         if (!tx.beginGeneration(session, starting)) {
             return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
         }
-        val ready =
-            runCatching { prepareRunner(workspace, target) }
-                .getOrElse { ex ->
-                    if (ex is RunnerSetupOperationConflict) {
-                        return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
-                    }
-                    tx.markFailed(starting)
-                    throw ex
-                }
         return spawnAndBind(
-            workspace = ready.workspace,
+            workspace = workspace,
             session = starting,
             continuation =
                 AgentGatewayClient.ContinuationMetadata(
                     reason = "rebind",
                     previousEpoch = session.epoch,
                 ),
-            provisioning = ready.provisioning,
+            provisioning = RunnerProvisioningResult.AlreadyReady,
         )
     }
 
@@ -328,47 +311,34 @@ class RunnerSessionBinder(
         )
     }
 
-    @Suppress("ThrowsCount")
-    private fun prepareRunner(
+    @Suppress("ReturnCount")
+    private fun checkBindingReadiness(
         workspace: Workspace,
         target: RunnerSetupTarget,
-    ): RunnerReady =
-        observeStageOperation(OperationLabel.REPROVISION_RUNNER, ModeLabel.DURABLE) {
-            prepareRunnerInternal(workspace, target)
-        }
-
-    @Suppress("ThrowsCount")
-    private fun prepareRunnerInternal(
-        workspace: Workspace,
-        target: RunnerSetupTarget,
-    ): RunnerReady {
-        if (isRunnerReadyFor(workspace, target)) return RunnerReady(workspace, RunnerProvisioningResult.AlreadyReady)
+    ): RunnerSessionBindingResult.Unavailable? {
         if (
             workspace.runnerSetupOperation != RunnerSetupOperation.IDLE ||
             workspace.pendingRunnerSetupId != null ||
             workspace.pendingRunnerSetupVersion != null
         ) {
-            throw RunnerSetupOperationConflict()
-        }
-
-        val leasedWorkspace =
-            workspace.beginRunnerSetupRestart(
-                setupId = target.entry.definition.id,
-                setupVersion = target.entry.definition.version,
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS.label,
             )
-        if (!tx.beginWorkspaceSetupOperation(workspace, leasedWorkspace)) {
-            throw RunnerSetupOperationConflict()
         }
-        val ready =
-            runCatching { forceProvisionAndWait(leasedWorkspace, target, leasedWorkspace.runnerSetupGeneration) }
-                .getOrElse { ex ->
-                    tx.failWorkspaceSetupOperation(leasedWorkspace)
-                    throw ex
-                }
-        if (!tx.completeWorkspaceSetupOperation(ready.workspace)) {
-            throw RunnerSetupOperationConflict()
+        if (workspace.runnerBootLeaseId != null) {
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.BOOT_LEASE_HELD.label,
+            )
         }
-        return ready.copy(workspace = ready.workspace.completeRunnerSetupRestart())
+        if (!isRunnerReadyFor(workspace, target)) {
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspace.id,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+        }
+        return null
     }
 
     private fun isRunnerReadyFor(
@@ -608,29 +578,6 @@ class RunnerSessionBinder(
         }
     }
 
-    private fun observePreparationOperation(block: () -> RunnerPreparationResult): RunnerPreparationResult {
-        val startedAt = System.nanoTime()
-        try {
-            val result = block()
-            val (outcome, reason) =
-                when (result) {
-                    is RunnerPreparationResult.Ready -> OutcomeLabel.SUCCESS to FailureReasonLabel.NONE
-                    is RunnerPreparationResult.Unavailable -> setupConflict()
-                }
-            recordOperation(OperationLabel.REPROVISION_RUNNER, ModeLabel.DURABLE, outcome, reason, startedAt)
-            return result
-        } catch (ex: Exception) {
-            recordOperation(
-                operation = OperationLabel.REPROVISION_RUNNER,
-                mode = ModeLabel.DURABLE,
-                outcome = OutcomeLabel.FAILURE,
-                reason = reasonClass(ex),
-                startedAt = startedAt,
-            )
-            throw ex
-        }
-    }
-
     private fun <T> observeStageOperation(
         operation: OperationLabel,
         mode: ModeLabel,
@@ -667,9 +614,6 @@ class RunnerSessionBinder(
         )
     }
 
-    private fun setupConflict(): Pair<OutcomeLabel, FailureReasonLabel> =
-        OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
-
     private fun bindingConflict(): Pair<OutcomeLabel, FailureReasonLabel> =
         OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
 
@@ -679,7 +623,6 @@ class RunnerSessionBinder(
             is IllegalArgumentException,
             -> FailureReasonLabel.INVALID_REQUEST
 
-            is RunnerSetupOperationConflict -> FailureReasonLabel.CAPACITY
             is AgentRunnerUnavailableException -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
             is IOException -> FailureReasonLabel.IO_ERROR
             else -> FailureReasonLabel.UNKNOWN
@@ -694,13 +637,6 @@ class RunnerSessionBinder(
         val workspace: Workspace,
         val provisioning: RunnerProvisioningResult,
     )
-
-    private data class RunnerSetupTarget(
-        val entry: AgentSetupCatalogEntry,
-        val spec: RunnerSetupProvisioningSpec,
-    )
-
-    private class RunnerSetupOperationConflict : RuntimeException()
 }
 
 @Component

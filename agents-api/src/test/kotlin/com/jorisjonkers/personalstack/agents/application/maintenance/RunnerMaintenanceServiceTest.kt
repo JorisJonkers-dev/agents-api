@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.UUID
 
 class RunnerMaintenanceServiceTest {
     private val now = Instant.parse("2026-05-19T12:00:00Z")
@@ -122,6 +123,19 @@ class RunnerMaintenanceServiceTest {
             )
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
         every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+
+        val result = service.gracefulScaleDownAll()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        assertThat(result.cycled).isEqualTo(0)
+    }
+
+    @Test
+    fun `gracefulScaleDownAll skips workspace with an active boot lease`() {
+        val ws =
+            workspace(WorkspaceStatus.STARTING)
+                .copy(runnerBootLeaseId = UUID.randomUUID())
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
 
         val result = service.gracefulScaleDownAll()
 

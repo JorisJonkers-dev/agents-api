@@ -1,7 +1,10 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web.dto
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService.WorkspaceRepositoryView
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessSnapshot
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessState
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -329,6 +332,33 @@ data class StagedInputResponse(
     val bytes: Long,
     val name: String,
 )
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class WorkspaceConnectResponse(
+    val workspaceId: UUID,
+    val setupId: String,
+    val setupVersion: Long,
+    val state: String,
+    val reason: String?,
+    val checkedAt: Instant,
+) {
+    companion object {
+        fun of(snapshot: RunnerReadinessSnapshot) =
+            WorkspaceConnectResponse(
+                workspaceId = snapshot.workspaceId.value,
+                setupId = snapshot.setupId.value,
+                setupVersion = snapshot.setupVersion.value,
+                state =
+                    when (snapshot.state) {
+                        is RunnerReadinessState.Ready -> "ready"
+                        is RunnerReadinessState.Booting -> "booting"
+                        is RunnerReadinessState.Unavailable -> "unavailable"
+                    },
+                reason = (snapshot.state as? RunnerReadinessState.Unavailable)?.reason?.label,
+                checkedAt = snapshot.checkedAt,
+            )
+    }
+}
 
 data class TurnResponse(
     val id: UUID,

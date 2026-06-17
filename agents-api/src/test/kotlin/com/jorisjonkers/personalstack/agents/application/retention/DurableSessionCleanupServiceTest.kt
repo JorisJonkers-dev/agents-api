@@ -4,11 +4,8 @@ import com.jorisjonkers.personalstack.agents.application.observability.AgentsApi
 import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
@@ -44,7 +41,7 @@ class DurableSessionCleanupServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
-    private val binding = mockk<RunnerSessionBindingService>()
+    private val runnerLifecycle = mockk<WorkspaceRunnerLifecycleService>()
     private val runtime = runtimeProperties()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val telemetry = RecordingTelemetry()
@@ -53,7 +50,7 @@ class DurableSessionCleanupServiceTest {
             workspaces = workspaces,
             sessions = sessions,
             gateway = gateway,
-            binding = binding,
+            runnerLifecycle = runnerLifecycle,
             runtime = runtime,
             sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
@@ -139,25 +136,18 @@ class DurableSessionCleanupServiceTest {
         every { workspaces.findById(workspace.id) } returns workspace
         every { gateway.isReady(workspace) } returns false
         every {
-            binding.prepareRunner(PrepareRunnerInput(workspace.id, WorkspaceAgentKind.CLAUDE))
+            runnerLifecycle.boot(workspace.id, WorkspaceAgentKind.CLAUDE, null, null)
         } returns
-            RunnerPreparationResult.Ready(
+            WorkspaceRunnerLifecycleService.BootOutcome.Ready(
                 workspace = prepared,
-                setupId = prepared.currentRunnerSetupId,
-                setupVersion = prepared.currentRunnerSetupVersion,
-                provisioning =
-                    RunnerProvisioningResult.Provisioned(
-                        podName = "agent-runner-new",
-                        pvcName = "workspace-pvc",
-                        gatewayEndpoint = "http://new:8090",
-                    ),
+                provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
         every { sessions.delete(pending.id) } returns true
 
         val result = service.sweep()
 
         assertThat(result.cleaned).isEqualTo(1)
-        verify { binding.prepareRunner(PrepareRunnerInput(workspace.id, WorkspaceAgentKind.CLAUDE)) }
+        verify { runnerLifecycle.boot(workspace.id, WorkspaceAgentKind.CLAUDE, null, null) }
         verify { gateway.cleanupStableSession(prepared, pending.id) }
         verify { sessions.delete(pending.id) }
         assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
@@ -203,7 +193,7 @@ class DurableSessionCleanupServiceTest {
 
         assertThat(result.cleaned).isEqualTo(0)
         assertThat(result.failed).isEqualTo(1)
-        verify(exactly = 0) { binding.prepareRunner(any()) }
+        verify(exactly = 0) { runnerLifecycle.boot(any(), any()) }
         verify(exactly = 0) { gateway.cleanupStableSession(any(), any()) }
         assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
         assertThat(telemetry.operations.map { it.reason }).contains(FailureReasonLabel.CANCELLED)

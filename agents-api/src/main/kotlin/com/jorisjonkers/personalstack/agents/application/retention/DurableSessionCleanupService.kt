@@ -8,10 +8,8 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -30,7 +28,7 @@ class DurableSessionCleanupService(
     private val workspaces: WorkspaceRepository,
     private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
-    private val binding: RunnerSessionBindingService,
+    private val runnerLifecycle: WorkspaceRunnerLifecycleService,
     private val runtime: AgentRuntimeProperties,
     private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
@@ -135,23 +133,22 @@ class DurableSessionCleanupService(
             return null
         }
         if (runCatching { gateway.isReady(workspace) }.getOrDefault(false)) return workspace
-        val prepared =
+        val bootOutcome =
             runCatching {
-                binding.prepareRunner(
-                    PrepareRunnerInput(
-                        workspaceId = workspace.id,
-                        kind = session.kind,
-                    ),
-                )
-            }.getOrElse {
-                log.warn("durable cleanup runner preparation failed for {}: {}", workspace.id, it.message)
+                runnerLifecycle.boot(workspaceId = workspace.id, kind = session.kind)
+            }.getOrElse { ex ->
+                log.warn("durable cleanup runner boot failed for {}: {}", workspace.id, ex.message)
                 recordCleanup(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
                 return null
             }
-        return when (prepared) {
-            is RunnerPreparationResult.Ready -> prepared.workspace
-            is RunnerPreparationResult.Unavailable -> {
-                log.warn("durable cleanup could not provision runner for {}: {}", workspace.id, prepared.runnerStatus)
+        return when (bootOutcome) {
+            is WorkspaceRunnerLifecycleService.BootOutcome.Ready -> bootOutcome.workspace
+            is WorkspaceRunnerLifecycleService.BootOutcome.Conflict -> {
+                log.warn(
+                    "durable cleanup could not provision runner for {}: {}",
+                    workspace.id,
+                    bootOutcome.reason.label,
+                )
                 recordCleanup(OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
                 null
             }

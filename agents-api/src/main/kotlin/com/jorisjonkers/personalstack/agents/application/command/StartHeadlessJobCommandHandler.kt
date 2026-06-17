@@ -7,9 +7,7 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.PrepareRunnerInput
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPreparationResult
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -22,8 +20,9 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * Provisions the runner if needed, submits a one-shot headless job to
- * the gateway, and persists a [WorkspaceAgentSession] to track it.
+ * Boots the runner if needed via the workspace lifecycle API, submits a
+ * one-shot headless job to the gateway, and persists a
+ * [WorkspaceAgentSession] to track it.
  *
  * Idle sweep protection (skipping workspaces with running headless jobs)
  * depends on N3's `run_mode` column — activate after N3 merges.
@@ -32,7 +31,7 @@ import java.time.Instant
 class StartHeadlessJobCommandHandler(
     private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
-    private val binding: RunnerSessionBindingService,
+    private val runnerLifecycle: WorkspaceRunnerLifecycleService,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StartHeadlessJobCommand> {
     private val log = LoggerFactory.getLogger(StartHeadlessJobCommandHandler::class.java)
@@ -41,7 +40,7 @@ class StartHeadlessJobCommandHandler(
     override fun handle(command: StartHeadlessJobCommand) {
         val startedAt = Instant.now()
         runCatching {
-            val runner = prepareRunner(command)
+            val runner = bootRunner(command)
             val job = launchJob(runner, command)
             persistSession(command, runner, job)
             log.info("headless job {} launched for workspace {}", job.id, runner.workspace.id.value)
@@ -52,30 +51,27 @@ class StartHeadlessJobCommandHandler(
         }.getOrThrow()
     }
 
-    private fun prepareRunner(command: StartHeadlessJobCommand): RunnerPreparationResult.Ready {
+    private fun bootRunner(command: StartHeadlessJobCommand): WorkspaceRunnerLifecycleService.BootOutcome.Ready {
         val result =
-            binding.prepareRunner(
-                PrepareRunnerInput(
-                    workspaceId = command.workspaceId,
-                    kind = command.kind,
-                    setupId = command.setupId,
-                    setupVersion = command.setupVersion,
-                ),
+            runnerLifecycle.boot(
+                workspaceId = command.workspaceId,
+                kind = command.kind,
+                setupId = command.setupId,
+                setupVersion = command.setupVersion,
             )
         return when (result) {
-            is RunnerPreparationResult.Ready -> result
-            is RunnerPreparationResult.Unavailable ->
+            is WorkspaceRunnerLifecycleService.BootOutcome.Ready -> result
+            is WorkspaceRunnerLifecycleService.BootOutcome.Conflict ->
                 throw AgentRunnerUnavailableException(
-                    workspaceId = result.workspaceId,
-                    runnerStatus = result.runnerStatus,
-                    retryAfterSeconds =
-                        result.retryAfterSeconds ?: AgentRunnerUnavailableException.DEFAULT_RETRY_AFTER_SECONDS,
+                    workspaceId = command.workspaceId,
+                    runnerStatus = result.reason.label,
+                    retryAfterSeconds = AgentRunnerUnavailableException.DEFAULT_RETRY_AFTER_SECONDS,
                 )
         }
     }
 
     private fun launchJob(
-        runner: RunnerPreparationResult.Ready,
+        runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
         command: StartHeadlessJobCommand,
     ): AgentGatewayClient.HeadlessJob =
         runCatching {
@@ -99,7 +95,7 @@ class StartHeadlessJobCommandHandler(
 
     private fun persistSession(
         command: StartHeadlessJobCommand,
-        runner: RunnerPreparationResult.Ready,
+        runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
         job: AgentGatewayClient.HeadlessJob,
     ) {
         val now = Instant.now()
@@ -113,8 +109,8 @@ class StartHeadlessJobCommandHandler(
                 createdAt = now,
                 updatedAt = now,
                 runMode = HEADLESS_RUN_MODE,
-                currentSetupId = runner.setupId,
-                currentSetupVersion = runner.setupVersion,
+                currentSetupId = command.setupId ?: runner.workspace.currentRunnerSetupId,
+                currentSetupVersion = command.setupVersion ?: runner.workspace.currentRunnerSetupVersion,
                 epoch = 1,
                 generation = 1,
             ),

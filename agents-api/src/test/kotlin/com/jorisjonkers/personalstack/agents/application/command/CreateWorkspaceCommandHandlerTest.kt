@@ -3,6 +3,10 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.exception.RepositoryAccessDeniedException
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootProvisioningOutcome
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
@@ -14,10 +18,10 @@ import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
-import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
@@ -32,12 +36,14 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.transaction.support.TransactionCallback
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
 
 @Suppress("DEPRECATION")
 class CreateWorkspaceCommandHandlerTest {
     private val workspaces = mockk<WorkspaceRepository>()
-    private val orchestrator = mockk<AgentRunnerOrchestrator>()
+    private val lifecycleService = mockk<WorkspaceRunnerLifecycleService>()
     private val projectRepositoryLinks = mockk<ProjectRepositoryRepository>(relaxed = true)
     private val workspaceRepositoryLinks = mockk<WorkspaceRepositoryRepository>(relaxed = true)
     private val githubLinks = mockk<GithubLinkRepository>()
@@ -65,32 +71,39 @@ class CreateWorkspaceCommandHandlerTest {
         }
     private val setupSelection = mockk<AgentSetupSelectionService>()
     private val setup = setupEntry()
+    private val tx =
+        mockk<TransactionTemplate> {
+            every { execute<Any?>(any()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                (firstArg() as TransactionCallback<Any?>).doInTransaction(mockk(relaxed = true))
+            }
+        }
     private val handler =
         CreateWorkspaceCommandHandler(
             workspaces,
-            orchestrator,
+            lifecycleService,
             projectRepositoryLinks,
             workspaceRepositoryLinks,
             linkProvider,
             repositoryProvider,
             verifyAccess,
             setupSelection,
+            tx,
         )
 
     init {
         every { setupSelection.defaultSelectable() } returns setup
+        every { lifecycleService.boot(any(), any()) } returns
+            BootOutcome.Ready(
+                workspace = mockk(relaxed = true),
+                provisioning = BootProvisioningOutcome.Provisioned("p", "v", "http://p.svc:8090"),
+            )
     }
 
     @Test
-    fun `handle persists workspace and provisions Pod when repo is provided`() {
+    fun `handle persists workspace and triggers boot when repo is provided`() {
         val saved = slot<Workspace>()
         every { workspaces.save(capture(saved)) } answers { saved.captured }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle(
-                podName = "agent-runner-deadbeef",
-                pvcName = "workspace-deadbeef",
-                gatewayEndpoint = "http://agent-runner-deadbeef.agents-system.svc.cluster.local:8090",
-            )
 
         val id = WorkspaceId.random()
         handler.handle(
@@ -102,20 +115,14 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
-        verify(exactly = 2) { workspaces.save(any()) }
+        verify { lifecycleService.boot(any(), any()) }
+        verify(exactly = 1) { workspaces.save(any()) }
         verify(exactly = 0) { workspaceRepositoryLinks.attach(any(), any(), any()) }
     }
 
     @Test
-    fun `handle without repo still provisions a Pod`() {
+    fun `handle without repo still triggers boot`() {
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle(
-                podName = "p",
-                pvcName = "v",
-                gatewayEndpoint = "http://p.svc:8090",
-            )
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -126,7 +133,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
+        verify { lifecycleService.boot(any(), any()) }
     }
 
     @Test
@@ -148,8 +155,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { githubLinks.findById(linkId) } returns link
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -200,8 +205,6 @@ class CreateWorkspaceCommandHandlerTest {
             )
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -220,7 +223,7 @@ class CreateWorkspaceCommandHandlerTest {
     }
 
     @Test
-    fun `repositoryId create persists then attaches primary before provisioning`() {
+    fun `repositoryId create persists then attaches primary before boot`() {
         val repoId = RepositoryId.random()
         val repository =
             Repository(
@@ -237,8 +240,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { repositories.findById(repoId) } returns repository
         every { githubLinks.findById(GithubLinkId(repoId.value)) } returns null
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
         val workspaceId = WorkspaceId.random()
 
         handler.handle(
@@ -254,12 +255,12 @@ class CreateWorkspaceCommandHandlerTest {
         verifyOrder {
             workspaces.save(match { it.id == workspaceId && it.status == WorkspaceStatus.PENDING })
             workspaceRepositoryLinks.attach(workspaceId, repoId, isPrimary = true)
-            orchestrator.provision(match { it.id == workspaceId }, any(), any())
+            lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
         }
     }
 
     @Test
-    fun `project repositoryId create attaches primary and project extras before provisioning`() {
+    fun `project repositoryId create attaches primary and project extras before boot`() {
         val projectId = ProjectId.random()
         val primaryRepoId = RepositoryId.random()
         val extraRepoId = RepositoryId.random()
@@ -287,8 +288,6 @@ class CreateWorkspaceCommandHandlerTest {
                 ProjectRepositoryRepository.Link(projectId, secondExtraRepoId, Instant.now()),
             )
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
         val workspaceId = WorkspaceId.random()
 
         handler.handle(
@@ -307,7 +306,7 @@ class CreateWorkspaceCommandHandlerTest {
             workspaceRepositoryLinks.attach(workspaceId, primaryRepoId, isPrimary = true)
             workspaceRepositoryLinks.attach(workspaceId, extraRepoId, isPrimary = false)
             workspaceRepositoryLinks.attach(workspaceId, secondExtraRepoId, isPrimary = false)
-            orchestrator.provision(match { it.id == workspaceId }, any(), any())
+            lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
         }
     }
 
@@ -322,8 +321,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { githubLinks.findById(GithubLinkId(primaryRepoId.value)) } returns null
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
         val workspaceId = WorkspaceId.random()
 
         handler.handle(
@@ -342,7 +339,7 @@ class CreateWorkspaceCommandHandlerTest {
             workspaceRepositoryLinks.attach(workspaceId, primaryRepoId, isPrimary = true)
             workspaceRepositoryLinks.attach(workspaceId, extraRepoId, isPrimary = false)
             workspaceRepositoryLinks.attach(workspaceId, secondExtraRepoId, isPrimary = false)
-            orchestrator.provision(match { it.id == workspaceId }, any(), any())
+            lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
         }
     }
 
@@ -373,8 +370,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { githubLinks.findById(GithubLinkId(repoId.value)) } returns null
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -410,8 +405,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { githubLinks.findById(linkId) } returns link
         every { repositories.findById(RepositoryId(linkId.value)) } returns null
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -428,9 +421,6 @@ class CreateWorkspaceCommandHandlerTest {
 
     @Test
     fun `handle SCRATCH kind ignores repoUrl`() {
-        every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
 
@@ -444,7 +434,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
+        verify { lifecycleService.boot(any(), any()) }
         assertThat(saved.first().repoUrl).isNull()
         assertThat(saved.first().kind).isEqualTo(WorkspaceKind.SCRATCH)
         verify(exactly = 0) { workspaceRepositoryLinks.attach(any(), any(), any()) }
@@ -571,8 +561,6 @@ class CreateWorkspaceCommandHandlerTest {
         every { githubLinks.findById(GithubLinkId(repoId.value)) } returns null
         val saved = mutableListOf<Workspace>()
         every { workspaces.save(capture(saved)) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
         val unrelatedLinkId = GithubLinkId.random()
 
         handler.handle(
@@ -616,9 +604,9 @@ class CreateWorkspaceCommandHandlerTest {
                 )
             }
         assertThat(ex.message).contains("Permission denied")
-        // No workspace row, no Pod — the create aborted before persist.
+        // No workspace row, no boot — the create aborted before persist.
         verify(exactly = 0) { workspaces.save(any()) }
-        verify(exactly = 0) { orchestrator.provision(any(), any(), any()) }
+        verify(exactly = 0) { lifecycleService.boot(any(), any()) }
     }
 
     @Test
@@ -632,8 +620,6 @@ class CreateWorkspaceCommandHandlerTest {
                 messages = listOf("deploy key is read-only — agent commits/pushes will fail: denied"),
             )
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -644,7 +630,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
+        verify { lifecycleService.boot(any(), any()) }
     }
 
     @Test
@@ -658,8 +644,6 @@ class CreateWorkspaceCommandHandlerTest {
                 messages = listOf("default branch 'main' is NOT protected on GitHub"),
             )
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -670,7 +654,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
+        verify { lifecycleService.boot(any(), any()) }
     }
 
     @Test
@@ -684,8 +668,6 @@ class CreateWorkspaceCommandHandlerTest {
                 messages = listOf("deploy-key access could not be verified (verify gateway unavailable)"),
             )
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -696,14 +678,12 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { orchestrator.provision(any(), any(), any()) }
+        verify { lifecycleService.boot(any(), any()) }
     }
 
     @Test
     fun `SCRATCH create never invokes verify`() {
         every { workspaces.save(any()) } answers { firstArg() }
-        every { orchestrator.provision(any(), any(), any()) } returns
-            AgentRunnerOrchestrator.RunnerHandle("p", "v", "http://p.svc:8090")
 
         handler.handle(
             CreateWorkspaceCommand(
@@ -716,6 +696,29 @@ class CreateWorkspaceCommandHandlerTest {
         )
 
         verify(exactly = 0) { verifyAccess.verify(any(), any()) }
+    }
+
+    @Test
+    fun `workspace row is persisted even when boot fails`() {
+        val saved = mutableListOf<Workspace>()
+        every { workspaces.save(capture(saved)) } answers { firstArg() }
+        every { lifecycleService.boot(any(), any()) } returns
+            BootOutcome.Conflict(RunnerUnavailableReason.PROVISION_FAILED)
+
+        val workspaceId = WorkspaceId.random()
+        handler.handle(
+            CreateWorkspaceCommand(
+                workspaceId = workspaceId,
+                name = "demo",
+                repoUrl = "git@github.com:owner/repo.git",
+                branch = null,
+            ),
+        )
+
+        // workspace was persisted even though boot returned Conflict
+        assertThat(saved).hasSize(1)
+        assertThat(saved.first().id).isEqualTo(workspaceId)
+        assertThat(saved.first().status).isEqualTo(WorkspaceStatus.PENDING)
     }
 
     private fun repository(

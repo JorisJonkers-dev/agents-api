@@ -12,6 +12,7 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPr
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -253,6 +254,28 @@ class SessionAttachHandlerTest {
         handler.afterConnectionEstablished(clientSession("?epoch=-1&offset=nope"))
 
         assertThat(uriSlot.captured).isEqualTo("ws://gw:8090/ws/agents/abc12345/attach")
+    }
+
+    @Test
+    fun `running session without gateway binding closes with SERVICE_RESTARTED when runner is unavailable`() {
+        val client = clientSession()
+        every { client.close(any()) } just Runs
+        every { sessions.findById(sessionId) } returns agentSession(gatewayAgentId = null)
+        every {
+            binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))
+        } returns
+            RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspaceId,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+
+        handler.afterConnectionEstablished(client)
+
+        val closed = slot<CloseStatus>()
+        verify { client.close(capture(closed)) }
+        assertThat(closed.captured.code).isEqualTo(CloseStatus.SERVICE_RESTARTED.code)
+        assertThat(telemetry.attachFailures.single().reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+        verify(exactly = 0) { anyConstructed<StandardWebSocketClient>().execute(any(), any<String>()) }
     }
 
     @Test

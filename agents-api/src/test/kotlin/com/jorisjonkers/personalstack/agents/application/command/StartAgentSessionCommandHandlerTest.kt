@@ -1,9 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
+import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.StartRunnerSessionBindingInput
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -18,6 +20,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 
 class StartAgentSessionCommandHandlerTest {
@@ -52,6 +55,29 @@ class StartAgentSessionCommandHandlerTest {
         assertThat(request.captured.workspaceId).isEqualTo(command.workspaceId)
         assertThat(request.captured.sessionId).isEqualTo(command.sessionId)
         assertThat(request.captured.kind).isEqualTo(command.kind)
+    }
+
+    @Test
+    fun `handle throws AgentRunnerUnavailableException when binding returns Unavailable`() {
+        val command =
+            StartAgentSessionCommand(
+                sessionId = WorkspaceAgentSessionId.random(),
+                workspaceId = WorkspaceId.random(),
+                kind = WorkspaceAgentKind.CLAUDE,
+            )
+        every { binding.start(any()) } returns
+            RunnerSessionBindingResult.Unavailable(
+                workspaceId = command.workspaceId,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+
+        val ex =
+            assertThrows<AgentRunnerUnavailableException> {
+                handler.handle(command)
+            }
+
+        assertThat(ex.workspaceId).isEqualTo(command.workspaceId)
+        assertThat(ex.runnerStatus).isEqualTo(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label)
     }
 
     private fun workspace(id: WorkspaceId) =

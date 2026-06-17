@@ -6,6 +6,14 @@ import com.jorisjonkers.personalstack.agents.application.command.CreateWorkspace
 import com.jorisjonkers.personalstack.agents.application.command.DetachWorkspaceRepositoryCommand
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService
 import com.jorisjonkers.personalstack.agents.application.query.ListWorkspacesQueryService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessSnapshot
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessState
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootProvisioningOutcome
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -35,12 +43,13 @@ class WorkspaceControllerTest {
     private val commandBus = mockk<CommandBus>(relaxed = true)
     private val listQuery = mockk<ListWorkspacesQueryService>()
     private val getQuery = mockk<GetWorkspaceQueryService>()
+    private val lifecycleService = mockk<WorkspaceRunnerLifecycleService>()
     private val objectMapper = ObjectMapper()
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
-        val controller = WorkspaceController(commandBus, listQuery, getQuery)
+        val controller = WorkspaceController(commandBus, listQuery, getQuery, lifecycleService)
         mockMvc =
             MockMvcBuilders
                 .standaloneSetup(controller)
@@ -81,6 +90,41 @@ class WorkspaceControllerTest {
             deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
+        )
+
+    private fun readySnapshot(workspaceId: WorkspaceId): RunnerReadinessSnapshot =
+        RunnerReadinessSnapshot(
+            workspaceId = workspaceId,
+            setupId = AgentSetupId.default(),
+            setupVersion = AgentSetupVersion.initial(),
+            state = RunnerReadinessState.Ready,
+            checkedAt = Instant.now(),
+        )
+
+    private fun bootingSnapshot(workspaceId: WorkspaceId): RunnerReadinessSnapshot =
+        RunnerReadinessSnapshot(
+            workspaceId = workspaceId,
+            setupId = AgentSetupId.default(),
+            setupVersion = AgentSetupVersion.initial(),
+            state =
+                RunnerReadinessState.Booting(
+                    leaseId = UUID.randomUUID(),
+                    attempt = 1,
+                    startedAt = Instant.now(),
+                ),
+            checkedAt = Instant.now(),
+        )
+
+    private fun unavailableSnapshot(
+        workspaceId: WorkspaceId,
+        reason: RunnerUnavailableReason,
+    ): RunnerReadinessSnapshot =
+        RunnerReadinessSnapshot(
+            workspaceId = workspaceId,
+            setupId = AgentSetupId.default(),
+            setupVersion = AgentSetupVersion.initial(),
+            state = RunnerReadinessState.Unavailable(reason = reason),
+            checkedAt = Instant.now(),
         )
 
     @Test
@@ -291,5 +335,92 @@ class WorkspaceControllerTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `POST connect returns 200 when runner is already ready`() {
+        val w = workspace()
+        val snapshot = readySnapshot(w.id)
+        every { lifecycleService.boot(w.id, any()) } returns
+            BootOutcome.Ready(w, BootProvisioningOutcome.AlreadyReady)
+        every { lifecycleService.readinessSnapshot(w) } returns snapshot
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/${w.id.value}/connect"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.state").value("ready"))
+            .andExpect(jsonPath("$.reason").doesNotExist())
+    }
+
+    @Test
+    fun `POST connect returns 202 when runner was just provisioned`() {
+        val w = workspace()
+        val snapshot = readySnapshot(w.id)
+        every { lifecycleService.boot(w.id, any()) } returns
+            BootOutcome.Ready(w, BootProvisioningOutcome.Provisioned("pod", "pvc", "http://pod.svc:8090"))
+        every { lifecycleService.readinessSnapshot(w) } returns snapshot
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/${w.id.value}/connect"))
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.state").value("ready"))
+    }
+
+    @Test
+    fun `POST connect returns 202 when boot lease is held by another caller`() {
+        val w = workspace()
+        val snapshot = bootingSnapshot(w.id)
+        every { lifecycleService.boot(w.id, any()) } returns
+            BootOutcome.Conflict(RunnerUnavailableReason.BOOT_LEASE_HELD)
+        every { getQuery.getSummary(w.id) } returns w
+        every { lifecycleService.readinessSnapshot(w) } returns snapshot
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/${w.id.value}/connect"))
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.state").value("booting"))
+    }
+
+    @Test
+    fun `POST connect returns 404 when workspace does not exist`() {
+        val id = UUID.randomUUID()
+        every { lifecycleService.boot(WorkspaceId(id), any()) } returns
+            BootOutcome.Conflict(RunnerUnavailableReason.WORKSPACE_NOT_FOUND)
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/$id/connect"))
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `POST connect returns 503 when provision failed`() {
+        val w = workspace()
+        val snapshot = unavailableSnapshot(w.id, RunnerUnavailableReason.PROVISION_FAILED)
+        every { lifecycleService.boot(w.id, any()) } returns
+            BootOutcome.Conflict(RunnerUnavailableReason.PROVISION_FAILED)
+        every { getQuery.getSummary(w.id) } returns w
+        every { lifecycleService.readinessSnapshot(w) } returns snapshot
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/${w.id.value}/connect"))
+            .andExpect(status().isServiceUnavailable)
+            .andExpect(jsonPath("$.state").value("unavailable"))
+            .andExpect(jsonPath("$.reason").value("provision_failed"))
+    }
+
+    @Test
+    fun `POST connect returns 503 when setup operation is in progress`() {
+        val w = workspace()
+        val snapshot = unavailableSnapshot(w.id, RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS)
+        every { lifecycleService.boot(w.id, any()) } returns
+            BootOutcome.Conflict(RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS)
+        every { getQuery.getSummary(w.id) } returns w
+        every { lifecycleService.readinessSnapshot(w) } returns snapshot
+
+        mockMvc
+            .perform(post("/api/v1/workspaces/${w.id.value}/connect"))
+            .andExpect(status().isServiceUnavailable)
+            .andExpect(jsonPath("$.state").value("unavailable"))
+            .andExpect(jsonPath("$.reason").value("setup_operation_in_progress"))
     }
 }

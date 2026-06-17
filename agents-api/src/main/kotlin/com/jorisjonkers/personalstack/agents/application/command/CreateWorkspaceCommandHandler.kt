@@ -3,14 +3,15 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.exception.RepositoryAccessDeniedException
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
-import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
-import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
@@ -20,7 +21,7 @@ import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
 
 /**
@@ -37,12 +38,17 @@ import java.time.Instant
  * is set, the handler still resolves through [GithubLinkRepository]
  * and logs a deprecation warning so the migration is visible in
  * production logs.
+ *
+ * Persistence (workspace row + repository membership) is committed in its own
+ * transaction before the lifecycle boot is triggered so that a boot
+ * failure leaves the workspace in PENDING state rather than rolling back
+ * the entire create.
  */
 @Component
 @Suppress("DEPRECATION", "LongParameterList")
 class CreateWorkspaceCommandHandler(
     private val workspaces: WorkspaceRepository,
-    private val orchestrator: AgentRunnerOrchestrator,
+    private val lifecycleService: WorkspaceRunnerLifecycleService,
     private val projectRepositories: ProjectRepositoryRepository,
     private val workspaceRepositories: WorkspaceRepositoryRepository,
     /**
@@ -59,14 +65,43 @@ class CreateWorkspaceCommandHandler(
     private val repositories: ObjectProvider<RepositoryRepository>,
     private val verifyAccess: VerifyRepositoryAccess,
     private val setupSelection: AgentSetupSelectionService,
+    private val tx: TransactionTemplate,
 ) : CommandHandler<CreateWorkspaceCommand> {
     private val log = LoggerFactory.getLogger(CreateWorkspaceCommandHandler::class.java)
 
-    @Transactional
     override fun handle(command: CreateWorkspaceCommand) {
         require(command.kind != WorkspaceKind.CHAT) {
             "CHAT workspaces are not persisted — use StartChatSessionCommand instead"
         }
+        warnDeprecatedGithubLink(command)
+        val resolved = resolveRepo(command)
+        if (command.kind == WorkspaceKind.REPO_BACKED && resolved.repoUrl != null) {
+            verifyOrFail(resolved.repoUrl, resolved.branch, resolved.repositoryId)
+        }
+        val setup = setupSelection.defaultSelectable()
+
+        val workspaceId =
+            tx.execute {
+                val workspace = persistInitial(command, resolved, setup)
+                seedRepositoryMembership(workspace, command)
+                workspace.id
+            }
+
+        // Boot is best-effort: the workspace is already committed and must stay
+        // visible even if the runner cannot come up yet (e.g. setup not yet
+        // valid). Failures are recorded, never surfaced as a create error.
+        val outcome = runCatching { lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE) }.getOrNull()
+        when (outcome) {
+            is BootOutcome.Ready ->
+                log.info("workspace {} runner boot succeeded", workspaceId)
+            is BootOutcome.Conflict ->
+                log.warn("workspace {} boot conflict: {}", workspaceId, outcome.reason)
+            null ->
+                log.warn("workspace {} runner boot failed; workspace remains visible", workspaceId)
+        }
+    }
+
+    private fun warnDeprecatedGithubLink(command: CreateWorkspaceCommand) {
         if (command.repositoryId != null && command.githubLinkId != null) {
             log.warn(
                 "CreateWorkspaceCommand received both repositoryId={} and (deprecated) githubLinkId={}; " +
@@ -80,15 +115,6 @@ class CreateWorkspaceCommandHandler(
                 command.githubLinkId,
             )
         }
-        val resolved = resolveRepo(command)
-        if (command.kind == WorkspaceKind.REPO_BACKED && resolved.repoUrl != null) {
-            verifyOrFail(resolved.repoUrl, resolved.branch, resolved.repositoryId)
-        }
-        val setup = setupSelection.defaultSelectable()
-        val workspace = persistInitial(command, resolved, setup)
-        seedRepositoryMembership(workspace, command)
-        val withPod = provisionAndUpdate(workspace, RunnerSetupProvisioningSpec.from(setup.definition))
-        log.info("workspace {} provisioned as pod {}", workspace.id, withPod.podName)
     }
 
     private fun verifyOrFail(
@@ -191,21 +217,6 @@ class CreateWorkspaceCommandHandler(
         repositoryId: RepositoryId,
     ) = repos.findById(repositoryId)
         ?: throw NoSuchElementException("repository not found: repositoryId=${repositoryId.value}")
-
-    private fun provisionAndUpdate(
-        workspace: Workspace,
-        setup: RunnerSetupProvisioningSpec,
-    ): Workspace {
-        val handle = orchestrator.provision(workspace, setup, workspace.runnerSetupGeneration)
-        val withPod =
-            workspace.withPodInfo(
-                podName = handle.podName,
-                pvcName = handle.pvcName,
-                gatewayEndpoint = handle.gatewayEndpoint,
-            )
-        workspaces.save(withPod)
-        return withPod
-    }
 
     private data class ResolvedRepo(
         val repoUrl: String?,

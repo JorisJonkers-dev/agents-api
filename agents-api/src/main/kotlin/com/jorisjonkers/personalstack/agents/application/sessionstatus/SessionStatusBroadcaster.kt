@@ -30,6 +30,7 @@ class SessionStatusBroadcaster(
         emitter.onCompletion { remove(userId, emitter) }
         emitter.onTimeout { remove(userId, emitter) }
         emitter.onError { remove(userId, emitter) }
+        executor.execute { send(userId, emitter, KEEPALIVE_EVENT, SessionKeepaliveEvent(clock.instant().toString())) }
         return emitter
     }
 

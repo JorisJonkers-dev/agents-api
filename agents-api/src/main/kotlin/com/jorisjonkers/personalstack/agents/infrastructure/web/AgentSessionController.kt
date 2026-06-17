@@ -8,6 +8,7 @@ import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQue
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
@@ -205,7 +206,12 @@ class AgentSessionController(
                 ?: error("session not found: $sessionId")
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
         val workspace = workspaces.findById(workspaceModelId) ?: error("workspace not found: $workspaceId")
-        val gatewayAgentId = session.gatewayAgentId ?: error("session not bound to a gateway agent yet")
+        val gatewayAgentId =
+            session.gatewayAgentId
+                ?: throw AgentRunnerUnavailableException(
+                    workspaceId = workspaceModelId,
+                    runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+                )
         val staged = gateway.stageInput(workspace, gatewayAgentId, req.content, req.name)
         return ResponseEntity
             .status(HttpStatus.CREATED)

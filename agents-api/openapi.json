@@ -321,6 +321,63 @@
         }
       }
     },
+    "/api/v1/workspaces/{id}/connect" : {
+      "post" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "connect",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Runner is already ready",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "202" : {
+            "description" : "Runner boot in progress or just provisioned",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Workspace not found",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "Runner unavailable",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories" : {
       "get" : {
         "tags" : [ "repository-controller" ],
@@ -1900,6 +1957,33 @@
           }
         },
         "required" : [ "repositoryId" ]
+      },
+      "WorkspaceConnectResponse" : {
+        "type" : "object",
+        "properties" : {
+          "workspaceId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "setupId" : {
+            "type" : "string"
+          },
+          "setupVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
+          },
+          "checkedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "checkedAt", "setupId", "setupVersion", "state", "workspaceId" ]
       },
       "CreateRepositoryRequest" : {
         "type" : "object",

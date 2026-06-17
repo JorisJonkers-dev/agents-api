@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.domain.model
 
 import java.time.Instant
+import java.util.UUID
 
 enum class RunnerSetupOperation { IDLE, RESTARTING, FAILED }
 
@@ -53,6 +54,10 @@ data class Workspace(
     val runnerSetupOperation: RunnerSetupOperation = RunnerSetupOperation.IDLE,
     val runnerSetupOperationStartedAt: Instant? = null,
     val runnerSetupOperationUpdatedAt: Instant? = null,
+    val runnerBootLeaseId: UUID? = null,
+    val runnerBootAttempt: Int = 0,
+    val runnerBootStartedAt: Instant? = null,
+    val runnerBootUpdatedAt: Instant? = null,
 ) {
     init {
         require((pendingRunnerSetupId == null) == (pendingRunnerSetupVersion == null)) {
@@ -115,6 +120,34 @@ data class Workspace(
         copy(
             runnerSetupOperation = RunnerSetupOperation.FAILED,
             runnerSetupOperationUpdatedAt = now,
+            updatedAt = now,
+        )
+
+    fun acquireBootLease(
+        leaseId: UUID,
+        now: Instant = Instant.now(),
+    ): Workspace =
+        copy(
+            runnerBootLeaseId = leaseId,
+            runnerBootStartedAt = now,
+            runnerBootUpdatedAt = now,
+            updatedAt = now,
+        )
+
+    fun completeBootLease(now: Instant = Instant.now()): Workspace =
+        copy(
+            runnerBootLeaseId = null,
+            runnerBootStartedAt = null,
+            runnerBootUpdatedAt = now,
+            updatedAt = now,
+        )
+
+    fun failBoot(now: Instant = Instant.now()): Workspace =
+        copy(
+            runnerBootLeaseId = null,
+            runnerBootAttempt = runnerBootAttempt + 1,
+            runnerBootStartedAt = null,
+            runnerBootUpdatedAt = now,
             updatedAt = now,
         )
 }

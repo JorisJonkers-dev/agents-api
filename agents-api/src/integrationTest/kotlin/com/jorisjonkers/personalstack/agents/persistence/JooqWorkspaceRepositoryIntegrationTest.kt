@@ -241,6 +241,152 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
+    fun `acquireBootLease sets lease id when no lease held`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val leaseId = java.util.UUID.randomUUID()
+        val acquired = workspaces.acquireBootLease(w.id, leaseId)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(acquired).isTrue()
+        assertThat(loaded!!.runnerBootLeaseId).isEqualTo(leaseId)
+        assertThat(loaded.runnerBootStartedAt).isNotNull()
+    }
+
+    @Test
+    fun `acquireBootLease is rejected when a lease is already held`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val first = java.util.UUID.randomUUID()
+        val second = java.util.UUID.randomUUID()
+        workspaces.acquireBootLease(w.id, first)
+
+        val secondAcquired = workspaces.acquireBootLease(w.id, second)
+
+        assertThat(secondAcquired).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerBootLeaseId).isEqualTo(first)
+    }
+
+    @Test
+    fun `completeBootLease clears lease without incrementing attempt`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val leaseId = java.util.UUID.randomUUID()
+        workspaces.acquireBootLease(w.id, leaseId)
+
+        val completed = workspaces.completeBootLease(w.id, leaseId)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(completed).isTrue()
+        assertThat(loaded!!.runnerBootLeaseId).isNull()
+        assertThat(loaded.runnerBootAttempt).isEqualTo(0)
+    }
+
+    @Test
+    fun `completeBootLease no-ops when lease id does not match`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val realLease = java.util.UUID.randomUUID()
+        val wrongLease = java.util.UUID.randomUUID()
+        workspaces.acquireBootLease(w.id, realLease)
+
+        val completed = workspaces.completeBootLease(w.id, wrongLease)
+
+        assertThat(completed).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerBootLeaseId).isEqualTo(realLease)
+    }
+
+    @Test
+    fun `failBootLease clears lease and increments attempt`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val leaseId = java.util.UUID.randomUUID()
+        workspaces.acquireBootLease(w.id, leaseId)
+
+        val failed = workspaces.failBootLease(w.id, leaseId)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(failed).isTrue()
+        assertThat(loaded!!.runnerBootLeaseId).isNull()
+        assertThat(loaded.runnerBootAttempt).isEqualTo(1)
+    }
+
+    @Test
+    fun `failBootLease no-ops when lease id does not match`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+
+        val realLease = java.util.UUID.randomUUID()
+        val wrongLease = java.util.UUID.randomUUID()
+        workspaces.acquireBootLease(w.id, realLease)
+
+        val failed = workspaces.failBootLease(w.id, wrongLease)
+
+        assertThat(failed).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerBootAttempt).isEqualTo(0)
+    }
+
+    @Test
+    fun `releaseStaleBootLease releases a stale lease and increments attempt`() {
+        val staleAt = Instant.parse("2026-05-01T10:00:00Z")
+        val now = Instant.parse("2026-05-01T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-01T11:55:00Z")
+        val leaseId = java.util.UUID.randomUUID()
+        val w =
+            newWorkspace().copy(
+                runnerBootLeaseId = leaseId,
+                runnerBootAttempt = 1,
+                runnerBootStartedAt = staleAt,
+                runnerBootUpdatedAt = staleAt,
+            )
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleBootLease(w.id, olderThan, now)
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(released).isTrue()
+        assertThat(loaded!!.runnerBootLeaseId).isNull()
+        assertThat(loaded.runnerBootAttempt).isEqualTo(2)
+    }
+
+    @Test
+    fun `releaseStaleBootLease no-ops on a lease newer than the threshold`() {
+        val freshAt = Instant.parse("2026-05-01T11:59:00Z")
+        val now = Instant.parse("2026-05-01T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-01T11:55:00Z")
+        val leaseId = java.util.UUID.randomUUID()
+        val w =
+            newWorkspace().copy(
+                runnerBootLeaseId = leaseId,
+                runnerBootUpdatedAt = freshAt,
+            )
+        workspaces.save(w)
+
+        val released = workspaces.releaseStaleBootLease(w.id, olderThan, now)
+
+        assertThat(released).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerBootLeaseId).isEqualTo(leaseId)
+    }
+
+    @Test
+    fun `releaseStaleBootLease no-ops when no boot lease is held`() {
+        val w = newWorkspace()
+        workspaces.save(w)
+        val now = Instant.parse("2026-05-01T12:00:00Z")
+        val olderThan = Instant.parse("2026-05-01T11:55:00Z")
+
+        val released = workspaces.releaseStaleBootLease(w.id, olderThan, now)
+
+        assertThat(released).isFalse()
+        assertThat(workspaces.findById(w.id)!!.runnerBootAttempt).isEqualTo(0)
+    }
+
+    @Test
     fun `findAllByStatusNot excludes the supplied status`() {
         val a = newWorkspace()
         val b = newWorkspace().copy(status = WorkspaceStatus.DESTROYED)

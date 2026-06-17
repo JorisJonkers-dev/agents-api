@@ -116,5 +116,6 @@ class RunnerMaintenanceService(
     private fun Workspace.hasRunnerSetupGuard(): Boolean =
         runnerSetupOperation != RunnerSetupOperation.IDLE ||
             pendingRunnerSetupId != null ||
-            pendingRunnerSetupVersion != null
+            pendingRunnerSetupVersion != null ||
+            runnerBootLeaseId != null
 }

@@ -522,6 +522,155 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         assertThat(secret.data).containsKeys("private_key", "public_key", "known_hosts", "fingerprint")
     }
 
+    @Test
+    @DisplayName("runnerState returns null when pod does not exist")
+    fun `runnerState returns null when pod does not exist`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
+
+        assertThat(orchestrator.runnerState(workspace)).isNull()
+    }
+
+    @Test
+    @DisplayName("isReady returns false when pod does not exist")
+    fun `isReady returns false when pod does not exist`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
+
+        assertThat(orchestrator.isReady(workspace)).isFalse()
+    }
+
+    @Test
+    @DisplayName("isReady returns false while container is not yet ready (pending phase)")
+    fun `isReady returns false while container is not yet ready`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace()
+        val handle = orchestrator.provision(workspace)
+        val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
+
+        // Pod exists but container status has not been marked ready
+        assertThat(orchestrator.isReady(bound)).isFalse()
+    }
+
+    @Test
+    @DisplayName("isReady rejects mismatched setup identity — wrong setup id and wrong hash both return false")
+    fun `isReady rejects mismatched setup identity`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val setup = customSetupSpec()
+        val workspace =
+            adHocWorkspace().copy(
+                currentRunnerSetupId = setup.setupId,
+                currentRunnerSetupVersion = setup.setupVersion,
+                runnerSetupGeneration = 7,
+            )
+        val handle = orchestrator.provision(workspace, setup, runnerGeneration = 7)
+        markPodReady(handle.podName)
+        val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
+
+        val wrongId =
+            RunnerState.Identity(
+                setupId = AgentSetupId("different-setup"),
+                setupVersion = setup.setupVersion,
+                setupHash = setup.setupHash,
+                runnerGeneration = 7,
+            )
+        assertThat(orchestrator.isReady(bound, wrongId)).isFalse()
+
+        val wrongHash =
+            RunnerState.Identity(
+                setupId = setup.setupId,
+                setupVersion = setup.setupVersion,
+                setupHash = "wrong-hash",
+                runnerGeneration = 7,
+            )
+        assertThat(orchestrator.isReady(bound, wrongHash)).isFalse()
+    }
+
+    @Test
+    @DisplayName("isRunnerImageStale returns false when pod does not exist")
+    fun `isRunnerImageStale returns false when pod does not exist`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
+
+        assertThat(orchestrator.isRunnerImageStale(workspace)).isFalse()
+    }
+
+    @Test
+    @DisplayName("runnerState reads image marker annotation — null when release marker not available in test env")
+    fun `runnerState reads image marker annotation`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace()
+        val handle = orchestrator.provision(workspace)
+        val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
+
+        // HOSTNAME is not set to a real agents-api pod in the integration test env,
+        // so currentReleaseMarker() returns null and no ANNOTATION_IMAGE_MARKER is stamped.
+        val state = orchestrator.runnerState(bound)
+        assertThat(state).isNotNull
+        assertThat(state!!.imageMarker).isNull()
+    }
+
+    @Test
+    @DisplayName("scaleDown before provision does not throw — delete of missing resources is a no-op")
+    fun `scaleDown before provision does not throw`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace()
+
+        // No pod has been provisioned yet — scaleDown must succeed without error
+        orchestrator.scaleDown(workspace)
+    }
+
+    @Test
+    @DisplayName("re-provision with a newer generation re-stamps pod labels so prior-generation identity is rejected")
+    fun `provision stamps new generation labels making prior boot lease identity stale`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val setup = customSetupSpec()
+        val workspace =
+            adHocWorkspace().copy(
+                currentRunnerSetupId = setup.setupId,
+                currentRunnerSetupVersion = setup.setupVersion,
+                runnerSetupGeneration = 7,
+            )
+
+        val handle = orchestrator.provision(workspace, setup, runnerGeneration = 7)
+        markPodReady(handle.podName)
+        val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
+
+        // A newer boot lease takes over. The pod's labels/spec are immutable, so a
+        // generation bump requires a fresh pod: the lifecycle scales the prior pod
+        // down before re-provisioning (mirrored here) at generation 8.
+        orchestrator.scaleDown(workspace)
+        admin
+            .pods()
+            .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+            .withName(handle.podName)
+            .waitUntilCondition({ it == null }, 30, java.util.concurrent.TimeUnit.SECONDS)
+        val regenerated = orchestrator.provision(workspace, setup, runnerGeneration = 8)
+        markPodReady(regenerated.podName)
+
+        // Pod's generation label is now 8 — the prior generation-7 identity must be rejected
+        val state = orchestrator.runnerState(bound)
+        assertThat(state?.runnerGeneration).isEqualTo(8)
+        assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 7))).isFalse()
+        assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 8))).isTrue()
+    }
+
     private fun orchestrator(
         client: KubernetesClient,
         deployKeysProvider: ObjectProvider<DeployKeyStore>,

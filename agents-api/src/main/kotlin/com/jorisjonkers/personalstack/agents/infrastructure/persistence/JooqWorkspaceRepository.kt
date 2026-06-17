@@ -64,7 +64,11 @@ class JooqWorkspaceRepository(
             ).set(
                 RUNNER_SETUP_OPERATION_UPDATED_AT,
                 workspace.runnerSetupOperationUpdatedAt?.atOffset(ZoneOffset.UTC),
-            ).set(CREATED_AT, createdAt)
+            ).set(RUNNER_BOOT_LEASE_ID, workspace.runnerBootLeaseId)
+            .set(RUNNER_BOOT_ATTEMPT, workspace.runnerBootAttempt)
+            .set(RUNNER_BOOT_STARTED_AT, workspace.runnerBootStartedAt?.atOffset(ZoneOffset.UTC))
+            .set(RUNNER_BOOT_UPDATED_AT, workspace.runnerBootUpdatedAt?.atOffset(ZoneOffset.UTC))
+            .set(CREATED_AT, createdAt)
             .set(UPDATED_AT, updatedAt)
             .onConflict(ID)
             .doUpdate()
@@ -176,10 +180,74 @@ class JooqWorkspaceRepository(
             ).and(RUNNER_SETUP_OPERATION_UPDATED_AT.lessThan(olderThan.atOffset(ZoneOffset.UTC)))
             .execute() == 1
 
+    override fun acquireBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant,
+    ): Boolean =
+        dsl
+            .update(WORKSPACES)
+            .set(RUNNER_BOOT_LEASE_ID, leaseId)
+            .set(RUNNER_BOOT_STARTED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(RUNNER_BOOT_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(RUNNER_BOOT_LEASE_ID.isNull)
+            .execute() == 1
+
+    override fun completeBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant,
+    ): Boolean =
+        dsl
+            .update(WORKSPACES)
+            .set(RUNNER_BOOT_LEASE_ID, null as UUID?)
+            .set(RUNNER_BOOT_STARTED_AT, null as OffsetDateTime?)
+            .set(RUNNER_BOOT_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(RUNNER_BOOT_LEASE_ID.eq(leaseId))
+            .execute() == 1
+
+    override fun failBootLease(
+        id: WorkspaceId,
+        leaseId: UUID,
+        now: Instant,
+    ): Boolean =
+        dsl
+            .update(WORKSPACES)
+            .set(RUNNER_BOOT_LEASE_ID, null as UUID?)
+            .set(RUNNER_BOOT_ATTEMPT, RUNNER_BOOT_ATTEMPT.plus(1))
+            .set(RUNNER_BOOT_STARTED_AT, null as OffsetDateTime?)
+            .set(RUNNER_BOOT_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(RUNNER_BOOT_LEASE_ID.eq(leaseId))
+            .execute() == 1
+
+    override fun releaseStaleBootLease(
+        id: WorkspaceId,
+        olderThan: Instant,
+        now: Instant,
+    ): Boolean =
+        dsl
+            .update(WORKSPACES)
+            .set(RUNNER_BOOT_LEASE_ID, null as UUID?)
+            .set(RUNNER_BOOT_ATTEMPT, RUNNER_BOOT_ATTEMPT.plus(1))
+            .set(RUNNER_BOOT_STARTED_AT, null as OffsetDateTime?)
+            .set(RUNNER_BOOT_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(id.value))
+            .and(RUNNER_BOOT_LEASE_ID.isNotNull)
+            .and(RUNNER_BOOT_UPDATED_AT.lessThan(olderThan.atOffset(ZoneOffset.UTC)))
+            .execute() == 1
+
     override fun delete(id: WorkspaceId) {
         dsl.deleteFrom(WORKSPACES).where(ID.eq(id.value)).execute()
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun Record.toWorkspace(): Workspace =
         Workspace(
             id = WorkspaceId(this[ID]),
@@ -202,6 +270,10 @@ class JooqWorkspaceRepository(
             runnerSetupOperation = RunnerSetupOperation.valueOf(this[RUNNER_SETUP_OPERATION] ?: "IDLE"),
             runnerSetupOperationStartedAt = this[RUNNER_SETUP_OPERATION_STARTED_AT]?.toInstant(),
             runnerSetupOperationUpdatedAt = this[RUNNER_SETUP_OPERATION_UPDATED_AT]?.toInstant(),
+            runnerBootLeaseId = this[RUNNER_BOOT_LEASE_ID],
+            runnerBootAttempt = this[RUNNER_BOOT_ATTEMPT] ?: 0,
+            runnerBootStartedAt = this[RUNNER_BOOT_STARTED_AT]?.toInstant(),
+            runnerBootUpdatedAt = this[RUNNER_BOOT_UPDATED_AT]?.toInstant(),
             createdAt = this[CREATED_AT].toInstant(),
             updatedAt = this[UPDATED_AT].toInstant(),
         )
@@ -252,6 +324,16 @@ class JooqWorkspaceRepository(
 
         @JvmStatic val RUNNER_SETUP_OPERATION_UPDATED_AT =
             DSL.field("runner_setup_operation_updated_at", OffsetDateTime::class.java)
+
+        @JvmStatic val RUNNER_BOOT_LEASE_ID = DSL.field("runner_boot_lease_id", UUID::class.java)
+
+        @JvmStatic val RUNNER_BOOT_ATTEMPT = DSL.field("runner_boot_attempt", Int::class.javaObjectType)
+
+        @JvmStatic val RUNNER_BOOT_STARTED_AT =
+            DSL.field("runner_boot_started_at", OffsetDateTime::class.java)
+
+        @JvmStatic val RUNNER_BOOT_UPDATED_AT =
+            DSL.field("runner_boot_updated_at", OffsetDateTime::class.java)
 
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 

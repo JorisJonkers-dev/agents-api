@@ -6,16 +6,23 @@ import com.jorisjonkers.personalstack.agents.application.command.DestroyWorkspac
 import com.jorisjonkers.personalstack.agents.application.command.DetachWorkspaceRepositoryCommand
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService
 import com.jorisjonkers.personalstack.agents.application.query.ListWorkspacesQueryService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootProvisioningOutcome
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AttachWorkspaceRepositoryRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CreateWorkspaceRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceConnectResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceDetailResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.swagger.v3.oas.annotations.responses.ApiResponse
+import io.swagger.v3.oas.annotations.responses.ApiResponses
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -34,6 +41,7 @@ class WorkspaceController(
     private val commandBus: CommandBus,
     private val listQuery: ListWorkspacesQueryService,
     private val getQuery: GetWorkspaceQueryService,
+    private val lifecycleService: WorkspaceRunnerLifecycleService,
 ) {
     @Suppress("DEPRECATION")
     @PostMapping
@@ -72,6 +80,43 @@ class WorkspaceController(
     ): ResponseEntity<WorkspaceDetailResponse> {
         val view = getQuery.get(WorkspaceId(id)) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(WorkspaceDetailResponse.of(view.workspace, view.repositories, view.sessions))
+    }
+
+    @PostMapping("/{id}/connect")
+    @ApiResponses(
+        ApiResponse(responseCode = "200", description = "Runner is already ready"),
+        ApiResponse(responseCode = "202", description = "Runner boot in progress or just provisioned"),
+        ApiResponse(responseCode = "404", description = "Workspace not found"),
+        ApiResponse(responseCode = "503", description = "Runner unavailable"),
+    )
+    fun connect(
+        @PathVariable id: UUID,
+    ): ResponseEntity<WorkspaceConnectResponse> {
+        val outcome = lifecycleService.boot(WorkspaceId(id), WorkspaceAgentKind.CLAUDE)
+        return when (outcome) {
+            is BootOutcome.Ready -> {
+                val snapshot = lifecycleService.readinessSnapshot(outcome.workspace)
+                val body = WorkspaceConnectResponse.of(snapshot)
+                if (outcome.provisioning is BootProvisioningOutcome.AlreadyReady) {
+                    ResponseEntity.ok(body)
+                } else {
+                    ResponseEntity.accepted().body(body)
+                }
+            }
+            is BootOutcome.Conflict -> {
+                if (outcome.reason == RunnerUnavailableReason.WORKSPACE_NOT_FOUND) {
+                    return ResponseEntity.notFound().build()
+                }
+                val workspace = getQuery.getSummary(WorkspaceId(id)) ?: return ResponseEntity.notFound().build()
+                val snapshot = lifecycleService.readinessSnapshot(workspace)
+                val body = WorkspaceConnectResponse.of(snapshot)
+                if (outcome.reason == RunnerUnavailableReason.BOOT_LEASE_HELD) {
+                    ResponseEntity.accepted().body(body)
+                } else {
+                    ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body)
+                }
+            }
+        }
     }
 
     @PostMapping("/{id}/repositories")

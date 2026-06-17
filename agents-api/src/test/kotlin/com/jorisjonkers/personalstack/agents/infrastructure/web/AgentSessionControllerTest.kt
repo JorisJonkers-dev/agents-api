@@ -5,6 +5,7 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartA
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -44,7 +45,8 @@ class AgentSessionControllerTest {
         MockMvcBuilders
             .standaloneSetup(
                 AgentSessionController(commandBus, turnHistory, sessions, workspaces, gateway, restartAgentSession),
-            ).build()
+            ).setControllerAdvice(AgentRunnerUnavailableExceptionHandler())
+            .build()
 
     private val workspaceId = WorkspaceId.random()
     private val sessionId = WorkspaceAgentSessionId.random()
@@ -74,6 +76,20 @@ class AgentSessionControllerTest {
             .andExpect(jsonPath("$.name").value("source.txt"))
 
         verify { gateway.stageInput(workspace, "abc12345", "large document", "source.txt") }
+    }
+
+    @Test
+    fun `POST staged-inputs returns 503 when session has no gateway binding`() {
+        every { sessions.findById(sessionId) } returns agentSession().copy(gatewayAgentId = null)
+        every { workspaces.findById(workspaceId) } returns workspace()
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/staged-inputs")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"content":"large document","name":"source.txt"}"""),
+            ).andExpect(status().isServiceUnavailable)
+            .andExpect(jsonPath("$.runnerStatus").value(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label))
     }
 
     @Test

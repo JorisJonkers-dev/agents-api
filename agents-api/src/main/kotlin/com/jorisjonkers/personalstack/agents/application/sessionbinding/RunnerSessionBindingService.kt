@@ -15,8 +15,6 @@ interface RunnerSessionBindingService {
     fun restart(request: RestartRunnerSessionBindingInput): RunnerSessionBindingResult
 
     fun ensureBound(request: EnsureRunnerSessionBoundInput): RunnerSessionBindingResult
-
-    fun prepareRunner(request: PrepareRunnerInput): RunnerPreparationResult
 }
 
 data class StartRunnerSessionBindingInput(
@@ -42,13 +40,6 @@ data class EnsureRunnerSessionBoundInput(
     val workspaceId: WorkspaceId? = null,
 )
 
-data class PrepareRunnerInput(
-    val workspaceId: WorkspaceId,
-    val kind: WorkspaceAgentKind,
-    val setupId: AgentSetupId? = null,
-    val setupVersion: AgentSetupVersion? = null,
-)
-
 sealed interface RunnerSessionBindingResult {
     data class Bound(
         val workspace: Workspace,
@@ -66,21 +57,6 @@ sealed interface RunnerSessionBindingResult {
         val runnerStatus: String,
         val retryAfterSeconds: Int? = null,
     ) : RunnerSessionBindingResult
-}
-
-sealed interface RunnerPreparationResult {
-    data class Ready(
-        val workspace: Workspace,
-        val setupId: AgentSetupId,
-        val setupVersion: AgentSetupVersion,
-        val provisioning: RunnerProvisioningResult,
-    ) : RunnerPreparationResult
-
-    data class Unavailable(
-        val workspaceId: WorkspaceId,
-        val runnerStatus: String,
-        val retryAfterSeconds: Int? = null,
-    ) : RunnerPreparationResult
 }
 
 sealed interface RunnerProvisioningResult {

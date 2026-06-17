@@ -16,6 +16,7 @@ import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionSt
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.setup.SetupGuideService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
@@ -248,5 +249,8 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun workspaceRepository(): WorkspaceRepository = mockk(relaxed = true)
+
+        @Bean
+        fun workspaceRunnerLifecycleService(): WorkspaceRunnerLifecycleService = mockk(relaxed = true)
     }
 }

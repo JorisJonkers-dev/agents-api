@@ -64,13 +64,20 @@ class SessionStatusBroadcasterTest {
     }
 
     @Test
+    fun `subscribe sends immediate keepalive to stabilize the connection`() {
+        val emitter = emitter()
+        broadcaster.subscribe("user-1", emitter)
+        verify { emitter.send(any<SseEmitter.SseEventBuilder>()) }
+    }
+
+    @Test
     fun `keepalive is sent to connected emitters`() {
         val connected = emitter()
         broadcaster.subscribe("user-1", connected)
 
         broadcaster.sendKeepalive()
 
-        verify { connected.send(any<SseEmitter.SseEventBuilder>()) }
+        verify(exactly = 2) { connected.send(any<SseEmitter.SseEventBuilder>()) }
     }
 
     private fun emitter(completion: io.mockk.CapturingSlot<Runnable>? = null): SseEmitter {

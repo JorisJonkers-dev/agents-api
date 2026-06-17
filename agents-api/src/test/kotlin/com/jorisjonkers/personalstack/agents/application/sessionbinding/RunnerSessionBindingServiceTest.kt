@@ -11,6 +11,7 @@ import com.jorisjonkers.personalstack.agents.application.observability.RunnerRep
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
@@ -129,16 +130,108 @@ class RunnerSessionBindingServiceTest {
     }
 
     @Test
-    fun `ensureBound rebinds stale idle binding with bumped epoch and generation`() {
-        val ws = workspace(status = WorkspaceStatus.IDLE, gatewayEndpoint = null)
-        val session =
-            session(ws.id, gatewayAgentId = "stale-agent")
-                .copy(epoch = 4, generation = 2)
+    fun `start returns Unavailable without saving session when setup operation is in progress`() {
+        val ws =
+            workspace().copy(
+                pendingRunnerSetupId = AgentSetupId("gpu"),
+                pendingRunnerSetupVersion = AgentSetupVersion(2),
+            )
+        val sessionId = WorkspaceAgentSessionId.random()
+        every { workspaces.findById(ws.id) } returns ws
+
+        val result =
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        assertThat((result as RunnerSessionBindingResult.Unavailable).runnerStatus)
+            .isEqualTo(RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS.label)
+        verify(exactly = 0) { sessions.save(any()) }
+    }
+
+    @Test
+    fun `start returns Unavailable without saving session when runner is not ready`() {
+        val ws = workspace()
+        val sessionId = WorkspaceAgentSessionId.random()
+        every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns false
+
+        val result =
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        assertThat((result as RunnerSessionBindingResult.Unavailable).runnerStatus)
+            .isEqualTo(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label)
+        verify(exactly = 0) { sessions.save(any()) }
+    }
+
+    @Test
+    fun `ensureBound returns Unavailable without bumping generation when setup operation is in progress`() {
+        val ws =
+            workspace().copy(
+                pendingRunnerSetupId = AgentSetupId("gpu"),
+                pendingRunnerSetupVersion = AgentSetupVersion(2),
+            )
+        val session = session(ws.id, gatewayAgentId = "stale-agent").copy(epoch = 4, generation = 2)
+        every { sessions.findById(session.id) } returns session
+        every { workspaces.findById(ws.id) } returns ws
+
+        val result =
+            binder.ensureBound(
+                EnsureRunnerSessionBoundInput(
+                    sessionId = session.id,
+                    workspaceId = ws.id,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        assertThat((result as RunnerSessionBindingResult.Unavailable).runnerStatus)
+            .isEqualTo(RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS.label)
+        verify(exactly = 0) { sessions.beginGeneration(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `ensureBound returns Unavailable without bumping generation when runner is not ready`() {
+        val ws = workspace()
+        val session = session(ws.id, gatewayAgentId = null).copy(epoch = 4, generation = 2)
+        every { sessions.findById(session.id) } returns session
+        every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns false
+
+        val result =
+            binder.ensureBound(
+                EnsureRunnerSessionBoundInput(
+                    sessionId = session.id,
+                    workspaceId = ws.id,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        assertThat((result as RunnerSessionBindingResult.Unavailable).runnerStatus)
+            .isEqualTo(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label)
+        verify(exactly = 0) { sessions.beginGeneration(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `ensureBound rebinds unbound session without provisioning when runner is already ready`() {
+        val ws = workspace()
+        val session = session(ws.id, gatewayAgentId = null).copy(epoch = 4, generation = 2)
         every { sessions.findById(session.id) } returns session andThen
             session.beginGeneration(nextEpoch = 5).bindGatewayAgent("fresh")
         every { workspaces.findById(ws.id) } returns ws
-        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns false
-        every { gateway.isReady(any()) } returns true
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
+        every { gateway.isReady(ws) } returns true
         every {
             sessions.beginGeneration(
                 id = session.id,
@@ -148,33 +241,8 @@ class RunnerSessionBindingServiceTest {
             )
         } returns true
         every {
-            workspaces.beginRunnerSetupOperation(
-                ws.id,
-                ws.runnerSetupGeneration,
-                setup.definition.id,
-                setup.definition.version,
-                any(),
-                any(),
-            )
-        } returns true
-        every { orchestrator.scaleDown(any()) } returns Unit
-        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
-            AgentRunnerOrchestrator.RunnerHandle(
-                podName = "agent-runner-fresh001",
-                pvcName = "workspace-abcdef01",
-                gatewayEndpoint = "http://fresh:8090",
-            )
-        every { workspaces.save(any()) } answers { firstArg() }
-        every {
-            orchestrator.isReady(
-                match { it.gatewayEndpoint == "http://fresh:8090" },
-                setupSpec.identity(ws.runnerSetupGeneration + 1),
-            )
-        } returns true
-        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
-        every {
             gateway.spawnAgent(
-                workspace = any(),
+                workspace = ws,
                 kind = WorkspaceAgentKind.CLAUDE,
                 workspacePath = null,
                 stableSessionId = session.id,
@@ -203,6 +271,7 @@ class RunnerSessionBindingServiceTest {
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify { sessions.beginGeneration(session.id, 2, 5, any()) }
         verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 5, any()) }
+        verify(exactly = 0) { orchestrator.provision(any(), any(), any()) }
     }
 
     @Test

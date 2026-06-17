@@ -28,6 +28,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.UUID
 
 class IdleScaleDownSchedulerTest {
     private class RecordingTelemetry : AgentsApiTelemetry {
@@ -140,6 +141,19 @@ class IdleScaleDownSchedulerTest {
         verify(exactly = 0) { orchestrator.scaleDown(any()) }
         assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
         assertBoundedTelemetryLabels(ws.id.value.toString(), "gpu")
+    }
+
+    @Test
+    fun `sweep skips workspace with an active boot lease`() {
+        val ws =
+            workspace(updatedAt = now.minusSeconds(7_200))
+                .copy(runnerBootLeaseId = UUID.randomUUID())
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SKIPPED)
     }
 
     @Test
