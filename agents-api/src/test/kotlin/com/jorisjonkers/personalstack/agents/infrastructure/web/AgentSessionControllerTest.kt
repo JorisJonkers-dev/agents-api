@@ -1,11 +1,14 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
+import com.jorisjonkers.personalstack.agents.application.command.StartAgentSessionCommandHandler
 import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQueryService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
+import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.config.SpringCommandBus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
@@ -20,6 +23,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRe
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceAgentSessionResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
+import com.jorisjonkers.personalstack.common.web.GlobalExceptionHandler
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -252,6 +256,62 @@ class AgentSessionControllerTest {
         assertThat(running.currentSetup.id).isEqualTo("default")
         assertThat(running.currentSetup.version).isEqualTo(1)
         assertThat(idle.idle).isTrue()
+    }
+
+    @Test
+    fun `POST start with real command bus maps to 201 on Bound 503 on Unavailable and 503 not 409 on Conflict`() {
+        val localBinding = mockk<RunnerSessionBindingService>()
+        val handler = StartAgentSessionCommandHandler(localBinding)
+        val bus = SpringCommandBus(listOf(handler))
+        val mvc =
+            MockMvcBuilders
+                .standaloneSetup(
+                    AgentSessionController(bus, turnHistory, sessions, workspaces, gateway, restartAgentSession),
+                ).setControllerAdvice(GlobalExceptionHandler(), AgentRunnerUnavailableExceptionHandler())
+                .build()
+
+        // Bound → 201
+        every { localBinding.start(any()) } returns
+            RunnerSessionBindingResult.Bound(
+                workspace = workspace(),
+                session = agentSession(),
+                gatewayAgent =
+                    AgentGatewayClient.GatewayAgent(
+                        id = "abc",
+                        kind = WorkspaceAgentKind.CLAUDE,
+                        cwd = "/workspace",
+                    ),
+                provisioning = RunnerProvisioningResult.AlreadyReady,
+            )
+        mvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"kind":"CLAUDE"}"""),
+            ).andExpect(status().isCreated)
+
+        // Unavailable → 503
+        every { localBinding.start(any()) } returns
+            RunnerSessionBindingResult.Unavailable(
+                workspaceId = workspaceId,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+        mvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"kind":"CLAUDE"}"""),
+            ).andExpect(status().isServiceUnavailable)
+            .andExpect(jsonPath("$.runnerStatus").value(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label))
+
+        // Conflict → 503, never 409 (remapped defensively by StartAgentSessionCommandHandler)
+        every { localBinding.start(any()) } returns RunnerSessionBindingResult.Conflict(current = null)
+        mvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"kind":"CLAUDE"}"""),
+            ).andExpect(status().isServiceUnavailable)
     }
 
     private fun agentSession() =

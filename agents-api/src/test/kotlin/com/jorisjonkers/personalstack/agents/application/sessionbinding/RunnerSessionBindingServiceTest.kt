@@ -527,6 +527,84 @@ class RunnerSessionBindingServiceTest {
     }
 
     @Test
+    fun `start resolves Bound on first write with RUNNING state and never returns Conflict`() {
+        // Regression: the old flow saved a STARTING row then ran a bind CAS that could miss
+        // under concurrent load — returning Conflict to the client. New flow: spawn first,
+        // persist RUNNING+bound in one write, so Conflict is structurally impossible.
+        val ws = workspace()
+        val sessionId = WorkspaceAgentSessionId.random()
+        val saveSlot = slot<WorkspaceAgentSession>()
+        every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
+        every { gateway.isReady(ws) } returns true
+        every { sessions.save(capture(saveSlot)) } answers { saveSlot.captured }
+        every {
+            gateway.spawnAgent(
+                workspace = ws,
+                kind = WorkspaceAgentKind.CLAUDE,
+                workspacePath = null,
+                stableSessionId = sessionId,
+                epoch = 1,
+                continuation = null,
+            )
+        } returns gatewayAgent("abc12345", epoch = 1)
+
+        val result =
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
+        assertThat(result).isNotInstanceOf(RunnerSessionBindingResult.Conflict::class.java)
+        // Single write must be RUNNING+bound, never STARTING
+        assertThat(saveSlot.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(saveSlot.captured.gatewayAgentId).isEqualTo("abc12345")
+    }
+
+    @Test
+    fun `start returns Unavailable on persistence failure without creating a STARTING row`() {
+        // If the single RUNNING+bound save fails, we stop the spawned agent and return
+        // Unavailable — no orphaned STARTING row is left in the database.
+        val ws = workspace()
+        val sessionId = WorkspaceAgentSessionId.random()
+        val saveSlot = slot<WorkspaceAgentSession>()
+        every { workspaces.findById(ws.id) } returns ws
+        every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
+        every { gateway.isReady(ws) } returns true
+        every { sessions.save(capture(saveSlot)) } throws RuntimeException("DB unavailable")
+        every {
+            gateway.spawnAgent(
+                workspace = ws,
+                kind = WorkspaceAgentKind.CLAUDE,
+                workspacePath = null,
+                stableSessionId = sessionId,
+                epoch = 1,
+                continuation = null,
+            )
+        } returns gatewayAgent("abc12345", epoch = 1)
+        every { gateway.stopAgent(ws, "abc12345") } returns Unit
+
+        val result =
+            binder.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        // The attempted write was for RUNNING state — no STARTING row was ever created
+        assertThat(saveSlot.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(saveSlot.captured.gatewayAgentId).isEqualTo("abc12345")
+        verify { gateway.stopAgent(ws, "abc12345") }
+    }
+
+    @Test
     fun `beginGeneration suppresses status publication when generation CAS fails`() {
         val session = session(WorkspaceId.random(), gatewayAgentId = "old-agent").copy(epoch = 2, generation = 6)
         val starting = session.beginGeneration(nextEpoch = 3)

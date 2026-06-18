@@ -32,7 +32,12 @@ class StartAgentSessionCommandHandler(
                 )
         ) {
             is RunnerSessionBindingResult.Bound -> Unit
-            is RunnerSessionBindingResult.Conflict -> error("session generation conflict: ${command.sessionId.value}")
+            // Unreachable on the happy path after startInternal fix, but kept as a defensive 503 guard.
+            is RunnerSessionBindingResult.Conflict ->
+                throw AgentRunnerUnavailableException(
+                    workspaceId = command.workspaceId,
+                    runnerStatus = "SessionGenerationConflict",
+                )
             is RunnerSessionBindingResult.Unavailable ->
                 throw AgentRunnerUnavailableException(
                     workspaceId = result.workspaceId,

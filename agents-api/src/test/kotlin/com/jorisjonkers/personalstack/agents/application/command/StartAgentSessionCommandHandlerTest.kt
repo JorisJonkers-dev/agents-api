@@ -58,6 +58,22 @@ class StartAgentSessionCommandHandlerTest {
     }
 
     @Test
+    fun `handle remaps Conflict to AgentRunnerUnavailableException not IllegalStateException`() {
+        val command =
+            StartAgentSessionCommand(
+                sessionId = WorkspaceAgentSessionId.random(),
+                workspaceId = WorkspaceId.random(),
+                kind = WorkspaceAgentKind.CLAUDE,
+            )
+        every { binding.start(any()) } returns RunnerSessionBindingResult.Conflict(current = null)
+
+        val ex = assertThrows<AgentRunnerUnavailableException> { handler.handle(command) }
+
+        assertThat(ex).isNotInstanceOf(IllegalStateException::class.java)
+        assertThat(ex.workspaceId).isEqualTo(command.workspaceId)
+    }
+
+    @Test
     fun `handle throws AgentRunnerUnavailableException when binding returns Unavailable`() {
         val command =
             StartAgentSessionCommand(

@@ -60,13 +60,12 @@ class RunnerSessionBinder(
             startInternal(request)
         }
 
-    @Suppress("LongMethod")
     private fun startInternal(request: StartRunnerSessionBindingInput): RunnerSessionBindingResult {
         val workspace =
             workspaces.findById(request.workspaceId)
                 ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
         val target = resolveNewSessionSetup(workspace, request.kind, request.setupId, request.setupVersion)
-        // Validate readiness before persisting the session — no provisioning in interactive binding paths.
+        // Validate readiness before persisting — genuine cold-start returns Unavailable with no row created.
         checkBindingReadiness(workspace, target)?.let { return it }
         val now = Instant.now()
         val session =
@@ -84,12 +83,31 @@ class RunnerSessionBinder(
                 currentSetupId = target.entry.definition.id,
                 currentSetupVersion = target.entry.definition.version,
             )
-        val saved = sessions.save(session)
+        // Spawn before persisting so a gateway failure leaves no orphaned STARTING row.
+        val gatewayAgent = spawnAgentWithRetry(workspace, session, continuation = null)
+        // Persist as RUNNING+bound in one write — the UPSERT accepts this state directly.
+        val boundSession = session.bindGatewayAgent(gatewayAgent.id, gatewayAgent.cliSessionId)
+        val saved =
+            runCatching { sessions.save(boundSession) }
+                .getOrElse { ex ->
+                    log.warn(
+                        "session persistence failed for workspace {} session {} — stopping spawned agent {}",
+                        workspace.id.value,
+                        session.id.value,
+                        gatewayAgent.id,
+                        ex,
+                    )
+                    runCatching { gateway.stopAgent(workspace, gatewayAgent.id) }
+                    return RunnerSessionBindingResult.Unavailable(
+                        workspaceId = workspace.id,
+                        runnerStatus = "PersistenceFailed",
+                    )
+                }
         sessionStatus.publishStatus(saved)
-        return spawnAndBind(
-            workspace,
-            session,
-            continuation = null,
+        return RunnerSessionBindingResult.Bound(
+            workspace = workspace,
+            session = saved,
+            gatewayAgent = gatewayAgent,
             provisioning = RunnerProvisioningResult.AlreadyReady,
         )
     }
@@ -645,6 +663,8 @@ class RunnerSessionBindingTransactions(
     private val sessions: WorkspaceAgentSessionRepository,
     private val sessionStatus: SessionStatusPublisher,
 ) {
+    private val log = LoggerFactory.getLogger(RunnerSessionBindingTransactions::class.java)
+
     @Transactional
     fun beginGeneration(
         current: WorkspaceAgentSession,
@@ -700,6 +720,18 @@ class RunnerSessionBindingTransactions(
                 gatewayAgentId = gatewayAgent.id,
                 cliSessionId = gatewayAgent.cliSessionId,
             )
+        if (!changed) {
+            val current = sessions.findById(session.id)
+            log.warn(
+                "bind CAS miss for session {} expected generation {} — " +
+                    "current: generation={} status={} gatewayAgentId={}",
+                session.id.value,
+                session.generation,
+                current?.generation,
+                current?.status,
+                current?.gatewayAgentId,
+            )
+        }
         if (changed && promotePendingSetup) {
             val pendingId = requireNotNull(session.pendingSetupId) { "pending setup id is required" }
             val pendingVersion = requireNotNull(session.pendingSetupVersion) { "pending setup version is required" }
