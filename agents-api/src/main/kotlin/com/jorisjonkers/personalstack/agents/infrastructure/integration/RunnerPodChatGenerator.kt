@@ -93,6 +93,7 @@ class RunnerPodChatGenerator(
                         mapOf(
                             "kind" to props.runnerPodAgentKind,
                             "prompt" to prompt,
+                            "partialMessages" to true,
                         ),
                     ).retrieve()
                     .body(Map::class.java)
@@ -132,9 +133,11 @@ class RunnerPodChatGenerator(
 
     /**
      * Accumulates a Spring SSE stream (event:/data: line pairs). For `line`
-     * events it parses the claude stream-json payload, streams assistant text
-     * via [onChunk], and tracks the authoritative `result`. Other events and
-     * blank separators are ignored.
+     * events it parses the claude stream-json payload and streams text via
+     * [onChunk]. When token-level deltas are present (partial-messages mode)
+     * they are the source of truth and the whole `assistant` message is
+     * suppressed to avoid double-counting; otherwise the whole message is used.
+     * The `result` event is authoritative for the final return value.
      */
     private class SseChatAccumulator(
         private val onChunk: (String) -> Unit,
@@ -142,6 +145,7 @@ class RunnerPodChatGenerator(
         private val answer = StringBuilder()
         private var resultOverride: String? = null
         private var currentEvent: String? = null
+        private var sawDelta = false
 
         fun consume(line: String) {
             when {
@@ -153,12 +157,18 @@ class RunnerPodChatGenerator(
 
         private fun handleData(data: String) {
             if (currentEvent != SSE_EVENT_LINE) return
-            val (text, result) = parseStreamJsonLine(data)
-            text?.let {
-                answer.append(it)
-                onChunk(it)
+            val event = parseStreamJsonLine(data)
+            event.delta?.let {
+                sawDelta = true
+                emit(it)
             }
-            result?.let { resultOverride = it }
+            event.message?.let { if (!sawDelta) emit(it) }
+            event.result?.let { resultOverride = it }
+        }
+
+        private fun emit(text: String) {
+            answer.append(text)
+            onChunk(text)
         }
 
         fun answer(): String = resultOverride ?: answer.toString()
@@ -170,32 +180,47 @@ private const val SSE_DATA_PREFIX = "data:"
 private const val SSE_EVENT_LINE = "line"
 
 /**
- * Parses one NDJSON line from the claude stream-json format.
- *
- * Returns a pair of:
- * - extracted assistant text chunk (non-null when the line is an
- *   `assistant` message event with text content), and
- * - a result override string (non-null when the line is a
- *   `result/success` event).
- *
- * Any malformed or unrecognised line returns `(null, null)`. Never throws.
+ * One parsed claude stream-json line.
+ * - [delta]: an incremental token (partial-messages `content_block_delta`).
+ * - [message]: a whole `assistant` message (non-partial mode).
+ * - [result]: the authoritative final answer (`result/success`).
+ */
+internal data class StreamJsonEvent(
+    val delta: String? = null,
+    val message: String? = null,
+    val result: String? = null,
+)
+
+/**
+ * Parses one NDJSON line from the claude stream-json format. Recognises
+ * token deltas, whole assistant messages, and the result event. Any malformed
+ * or unrecognised line yields an empty [StreamJsonEvent]. Never throws.
  */
 internal fun parseStreamJsonLine(
     line: String,
     objectMapper: ObjectMapper = jacksonObjectMapper(),
-): Pair<String?, String?> {
-    if (line.isBlank()) return null to null
+): StreamJsonEvent {
+    if (line.isBlank()) return StreamJsonEvent()
     return runCatching {
         val parsed = objectMapper.readTree(line)
         // Tolerate a JSON-string-wrapped object (defensive against any SSE layer
         // that re-encodes the already-JSON line as a quoted string).
         val tree = if (parsed.isTextual) objectMapper.readTree(parsed.asText()) else parsed
         when (tree.path("type").asText(null)) {
-            "assistant" -> extractAssistantText(tree) to null
-            "result" -> null to extractResultText(tree)
-            else -> null to null
+            "assistant" -> StreamJsonEvent(message = extractAssistantText(tree))
+            "result" -> StreamJsonEvent(result = extractResultText(tree))
+            "stream_event" -> StreamJsonEvent(delta = extractDeltaText(tree))
+            else -> StreamJsonEvent()
         }
-    }.getOrElse { null to null }
+    }.getOrElse { StreamJsonEvent() }
+}
+
+private fun extractDeltaText(tree: JsonNode): String? {
+    val event = tree.path("event")
+    if (event.path("type").asText(null) != "content_block_delta") return null
+    val delta = event.path("delta")
+    if (delta.path("type").asText(null) != "text_delta") return null
+    return delta.path("text").asText(null)?.takeIf { it.isNotEmpty() }
 }
 
 private fun extractAssistantText(tree: JsonNode): String? {
