@@ -13,9 +13,9 @@ import org.springframework.stereotype.Component
  */
 @Component
 @ConditionalOnProperty(
-    prefix = "rag.sources.lightrag",
-    name = ["enabled"],
-    havingValue = "true",
+    prefix = "chat.generation",
+    name = ["backend"],
+    havingValue = "lightrag",
     matchIfMissing = true,
 )
 class LightRagChatGenerator(

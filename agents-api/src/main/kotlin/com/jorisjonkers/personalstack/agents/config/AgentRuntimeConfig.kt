@@ -10,7 +10,7 @@ import org.springframework.web.client.RestClient
 import java.time.Duration
 
 @Configuration
-@EnableConfigurationProperties(AgentRuntimeProperties::class, RagProperties::class)
+@EnableConfigurationProperties(AgentRuntimeProperties::class, RagProperties::class, ChatGenerationProperties::class)
 class AgentRuntimeConfig {
     /**
      * In-cluster mode by default — KubernetesClientBuilder picks up
