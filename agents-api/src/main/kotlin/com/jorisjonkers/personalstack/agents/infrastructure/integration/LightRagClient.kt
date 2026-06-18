@@ -6,6 +6,7 @@ import com.jorisjonkers.personalstack.agents.config.RagProperties
 import com.jorisjonkers.personalstack.agents.domain.port.RetrievalPort
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
@@ -17,8 +18,16 @@ import org.springframework.web.client.RestClient
  * one Snippet. The KB recall adapter complements this by returning
  * the per-note hits, which keeps the "raw snippets" channel useful
  * for the agent to expand on a specific source.
+ *
+ * Disabled via `rag.sources.lightrag.enabled=false`; default true.
  */
 @Component
+@ConditionalOnProperty(
+    prefix = "rag.sources.lightrag",
+    name = ["enabled"],
+    havingValue = "true",
+    matchIfMissing = true,
+)
 class LightRagClient(
     private val restClient: RestClient,
     private val props: RagProperties,
@@ -53,7 +62,7 @@ class LightRagClient(
         query: String,
         limit: Int,
     ): List<RetrievalPort.Snippet> {
-        if (!props.enabled) return emptyList()
+        if (!props.retrievalEnabled) return emptyList()
         return runCatching {
             val body =
                 restClient
@@ -92,7 +101,7 @@ class LightRagClient(
     ): String {
         val answer = StringBuilder()
         runCatching {
-            if (!props.enabled) return@runCatching ""
+            if (!props.retrievalEnabled) return@runCatching ""
             restClient
                 .post()
                 .uri("${props.lightragUrl}/query/stream")

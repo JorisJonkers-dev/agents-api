@@ -199,3 +199,18 @@ agent-runtime:
   github-app-token-url: ${GITHUB_APP_TOKEN_URL:http://agents-api.agents-system.svc.cluster.local:8082/api/v1/internal/github/installation-token}
   github-app-bearer-secret: ${GITHUB_APP_BEARER_SECRET:github-app}
   github-app-bearer-secret-key: ${GITHUB_APP_BEARER_SECRET_KEY:token-bearer}
+
+# RAG retrieval / capture configuration.
+# rag.enabled is a deprecated master toggle (false disables both retrieval and
+# capture); use the fine-grained flags below for independent control.
+rag:
+  enabled: true                     # deprecated master toggle — remove next release
+  retrieval:
+    enabled: true                   # rag.retrieval.enabled — gates ContextBuilder
+  capture:
+    enabled: true                   # rag.capture.enabled — gates LessonAutoCapture
+  sources:
+    knowledge:
+      enabled: true                 # rag.sources.knowledge.enabled — KB recall source
+    lightrag:
+      enabled: true                 # rag.sources.lightrag.enabled — LightRAG source

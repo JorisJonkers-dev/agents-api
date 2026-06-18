@@ -4,7 +4,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 
 @ConfigurationProperties(prefix = "rag")
 data class RagProperties(
+    /**
+     * @deprecated Master on/off toggle kept for one release as a rollback path.
+     * Use `rag.retrieval.enabled` and `rag.capture.enabled` for independent control.
+     * Will be removed in the release after 015-memory-seam-decoupling ships.
+     */
     val enabled: Boolean = true,
+    // Independent gates for retrieval and capture (relaxed-binding maps
+    // `rag.retrieval.enabled` / `rag.capture.enabled`). Both default true
+    // so the change is invisible in the all-enabled configuration.
+    val retrieval: RetrievalFlags = RetrievalFlags(),
+    val capture: CaptureFlags = CaptureFlags(),
     // Sensible cluster-default URLs make the integration-test boot
     // path work without needing every test class to wire dynamic
     // properties for the RAG feature. Production application.yml
@@ -27,4 +37,17 @@ data class RagProperties(
     val autoCaptureBucketRefillMinutes: Long = 15,
     val autoCaptureDedupeScore: Double = 0.86,
     val autoCaptureScopedMinConfidence: Double = 0.55,
-)
+) {
+    // Convenience accessors combining deprecated master toggle with the
+    // fine-grained flags so callers do not repeat the AND logic.
+    val retrievalEnabled: Boolean get() = enabled && retrieval.enabled
+    val captureEnabled: Boolean get() = enabled && capture.enabled
+
+    data class RetrievalFlags(
+        val enabled: Boolean = true,
+    )
+
+    data class CaptureFlags(
+        val enabled: Boolean = true,
+    )
+}

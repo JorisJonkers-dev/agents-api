@@ -11,6 +11,8 @@ class ContextBuilderTest {
 
     private fun props(
         enabled: Boolean = true,
+        retrievalEnabled: Boolean = true,
+        captureEnabled: Boolean = true,
         maxSnippets: Int = 5,
         maxContextChars: Int = 4_000,
         minScore: Double = 0.0,
@@ -18,6 +20,8 @@ class ContextBuilderTest {
     ): RagProperties =
         RagProperties(
             enabled = enabled,
+            retrieval = RagProperties.RetrievalFlags(enabled = retrievalEnabled),
+            capture = RagProperties.CaptureFlags(enabled = captureEnabled),
             knowledgeMcpUrl = "http://kb:8080",
             knowledgeMcpToken = "",
             lightragUrl = "http://lightrag:9621",
@@ -166,5 +170,60 @@ class ContextBuilderTest {
         builder.augment("q")
         assertThat(registry.counter("rag.hits.injected").count()).isEqualTo(1.0)
         assertThat(registry.counter("rag.chars.injected").count()).isGreaterThan(0.0)
+    }
+
+    // --- new tests for flag-split and per-source conditional ---
+
+    @Test
+    fun `augment returns plain prompt when retrieval flag is off regardless of capture flag`() {
+        val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "should not appear", 0.9)))
+        val builder = ContextBuilder(listOf(source), props(retrievalEnabled = false), registry)
+        assertThat(builder.augment("q")).isEqualTo("q")
+    }
+
+    @Test
+    fun `augment injects context when retrieval is on even if capture flag is off`() {
+        val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "snippet text", 0.9)))
+        val builder = ContextBuilder(listOf(source), props(captureEnabled = false), registry)
+        val out = builder.augment("q")
+        assertThat(out).contains("snippet text")
+    }
+
+    @Test
+    fun `augment returns plain prompt when sources list is empty (genuine NoOp)`() {
+        val builder = ContextBuilder(emptyList(), props(), registry)
+        assertThat(builder.augment("q")).isEqualTo("q")
+    }
+
+    @Test
+    fun `augment with score-1-0 source and genuinely-scored source both present`() {
+        // score-1.0 (LightRAG-style blob) sorts first by the existing score-desc rule.
+        // The genuinely-scored snippet still appears — score floor 0.3 is cleared.
+        val builder =
+            ContextBuilder(
+                listOf(
+                    FakeSource(listOf(RetrievalPort.Snippet("lightrag", "fused answer", 1.0))),
+                    FakeSource(listOf(RetrievalPort.Snippet("kb:a", "precise snippet", 0.82))),
+                ),
+                props(minScore = 0.3),
+                registry,
+            )
+        val out = builder.augment("q")
+        assertThat(out).contains("fused answer")
+        assertThat(out).contains("precise snippet")
+        // score-1.0 source sorts first (existing default ordering preserved)
+        assertThat(out.indexOf("fused answer")).isLessThan(out.indexOf("precise snippet"))
+    }
+
+    @Test
+    fun `augment with disabled source absent from merge`() {
+        // Simulate a source being disabled via @ConditionalOnProperty by simply not
+        // including it in the injected sources list — the conditional removes the bean
+        // entirely so ContextBuilder never sees it.
+        val onlySource = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "only this", 0.9)))
+        val builder = ContextBuilder(listOf(onlySource), props(), registry)
+        val out = builder.augment("q")
+        assertThat(out).contains("only this")
+        assertThat(out).doesNotContain("lightrag")
     }
 }

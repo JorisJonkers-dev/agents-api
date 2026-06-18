@@ -15,21 +15,48 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers.request
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.web.client.RestClient
 
+/**
+ * Tests for KnowledgeRecallClient and KnowledgeWriteClient via the shared
+ * KnowledgeMcpTransport. Preserves all assertions from the original
+ * KnowledgeMcpClient tests: structured-hits parsing, text-fallback parsing,
+ * capture args, dedup logic, and disabled-client behaviour.
+ */
 class KnowledgeMcpClientTest {
-    private fun props(enabled: Boolean = true) =
-        RagProperties(
-            enabled = enabled,
-            knowledgeMcpUrl = "http://kb",
-            knowledgeMcpToken = "token-123",
-            lightragUrl = "http://lightrag",
-            recallMode = "hybrid",
-        )
+    private fun props(
+        enabled: Boolean = true,
+        retrievalEnabled: Boolean = true,
+        captureEnabled: Boolean = true,
+    ) = RagProperties(
+        enabled = enabled,
+        retrieval = RagProperties.RetrievalFlags(enabled = retrievalEnabled),
+        capture = RagProperties.CaptureFlags(enabled = captureEnabled),
+        knowledgeMcpUrl = "http://kb",
+        knowledgeMcpToken = "token-123",
+        lightragUrl = "http://lightrag",
+        recallMode = "hybrid",
+    )
+
+    private fun recallClient(
+        restClient: RestClient,
+        props: RagProperties,
+    ): KnowledgeRecallClient {
+        val transport = KnowledgeMcpTransport(restClient, props)
+        return KnowledgeRecallClient(transport, props)
+    }
+
+    private fun writeClient(
+        restClient: RestClient,
+        props: RagProperties,
+    ): KnowledgeWriteClient {
+        val transport = KnowledgeMcpTransport(restClient, props)
+        return KnowledgeWriteClient(transport, props)
+    }
 
     @Test
     fun `retrieve calls canonical dot-form recall tool and parses structured hits`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = KnowledgeMcpClient(builder.build(), props())
+        val client = recallClient(builder.build(), props())
 
         server
             .expect(requestTo("http://kb/mcp"))
@@ -77,10 +104,48 @@ class KnowledgeMcpClientTest {
     }
 
     @Test
+    fun `retrieve falls back to text block when structuredContent is absent`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = recallClient(builder.build(), props())
+
+        server
+            .expect(requestTo("http://kb/mcp"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(
+                withSuccess(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "result": {
+                        "content": [
+                          {
+                            "text": "Lesson title\nSnippet body text.\n(score=0.75)"
+                          }
+                        ]
+                      }
+                    }
+                    """.trimIndent(),
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        val snippets = client.retrieve("some query", limit = 5)
+
+        assertThat(snippets).singleElement().satisfies({ snippet ->
+            assertThat(snippet.source).isEqualTo("kb:Lesson title")
+            assertThat(snippet.text).isEqualTo("Snippet body text.")
+            assertThat(snippet.score).isEqualTo(0.75)
+        })
+        server.verify()
+    }
+
+    @Test
     fun `ingestNote calls canonical dot-form capture tool`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = KnowledgeMcpClient(builder.build(), props())
+        val client = writeClient(builder.build(), props())
 
         server
             .expect(requestTo("http://kb/mcp"))
@@ -121,7 +186,7 @@ class KnowledgeMcpClientTest {
     fun `findDuplicateEvidence returns the top recall hit when it clears the threshold`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = KnowledgeMcpClient(builder.build(), props())
+        val client = writeClient(builder.build(), props())
 
         server
             .expect(requestTo("http://kb/mcp"))
@@ -164,13 +229,66 @@ class KnowledgeMcpClientTest {
     }
 
     @Test
-    fun `disabled client does not call the MCP endpoint`() {
+    fun `disabled recall client does not call the MCP endpoint`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = KnowledgeMcpClient(builder.build(), props(enabled = false))
+        // retrievalEnabled = false via master toggle
+        val client = recallClient(builder.build(), props(enabled = false))
 
         assertThat(client.retrieve("ignored", limit = 1)).isEmpty()
-        client.ingestNote("ignored", "ignored", "project:agents")
+
+        server.verify()
+    }
+
+    @Test
+    fun `retrieval flag off suppresses recall without affecting write`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val disabledRetrieval = props(retrievalEnabled = false)
+        val client = recallClient(builder.build(), disabledRetrieval)
+
+        assertThat(client.retrieve("ignored", limit = 1)).isEmpty()
+
+        server.verify()
+    }
+
+    @Test
+    fun `findDuplicateEvidence still calls transport even when retrievalEnabled is false`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        // retrievalEnabled=false must NOT suppress dedup recall (write-side concern)
+        val p = props(retrievalEnabled = false)
+        val client = writeClient(builder.build(), p)
+
+        server
+            .expect(requestTo("http://kb/mcp"))
+            .andExpect(jsonPath("$.params.name").value("knowledge.recall"))
+            .andRespond(
+                withSuccess(
+                    """{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"hits":[]}}}""",
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        val result = client.findDuplicateEvidence("some query", minScore = 0.86)
+        assertThat(result).isNull()
+        server.verify()
+    }
+
+    @Test
+    fun `disabled write client does not call capture endpoint`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = writeClient(builder.build(), props(enabled = false))
+
+        client.ingestNote(
+            KnowledgeWritePort.CaptureRequest(
+                title = "ignored",
+                body = "ignored",
+                scope = "project:agents",
+                tags = emptyList(),
+            ),
+        )
 
         server.verify()
     }

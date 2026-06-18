@@ -19,6 +19,15 @@ import org.springframework.stereotype.Component
  * we plug in has its own quirks for parsing user input. A single
  * fenced region with consistent markers is the cheapest "ignore if
  * you don't understand it" surface.
+ *
+ * Coexistence ranking (FR-005):
+ * The current sort is score-descending. LightRagClient returns a
+ * single blob at score 1.0 and therefore always sorts first — this
+ * is the documented two-source default ordering and is preserved as-is
+ * (spec FR-007 / FR-005). A future backend-swap feature (016+) that
+ * needs per-source caps or interleaving should replace `coexistenceRank`
+ * below with a proper implementation. That function is intentionally a
+ * passthrough today so the hook is visible without changing any behavior.
  */
 @Component
 class ContextBuilder(
@@ -30,7 +39,7 @@ class ContextBuilder(
     private val injectedChars = registry.counter("rag.chars.injected")
 
     fun augment(userPrompt: String): String {
-        if (!props.enabled || sources.isEmpty()) return userPrompt
+        if (!props.retrievalEnabled || sources.isEmpty()) return userPrompt
         val chunks = buildChunks(dedupedAndFiltered(userPrompt))
         // Empty when all snippets failed the score floor, the merged list was
         // empty, or the character budget was too tight for even the first chunk.
@@ -60,15 +69,30 @@ class ContextBuilder(
             append("</context>\n\n")
         }
 
+    /**
+     * Hook for the coexistence ranking rule (FR-005 / data-model.md).
+     *
+     * Current behaviour: passthrough — preserves the existing score-descending
+     * sort so the default two-source ordering (LightRAG blob at 1.0 first, then
+     * KB snippets) is unchanged. Feature 016+ should replace this with per-source
+     * caps so a fixed-score-1.0 source cannot crowd out genuinely-scored snippets
+     * when both sources are active.
+     *
+     * Note: leaving the implementation as a passthrough is an explicit decision
+     * recorded in data-model.md. Do not remove without implementing the cap logic.
+     */
+    private fun coexistenceRank(snippets: List<RetrievalPort.Snippet>): List<RetrievalPort.Snippet> = snippets
+
     private fun dedupedAndFiltered(query: String): List<RetrievalPort.Snippet> {
         val seenIds = mutableSetOf<String>()
         val seenTexts = mutableSetOf<String>()
-        return sources
-            .flatMap { it.retrieve(query, props.maxSnippets) }
-            .filter { it.score >= props.minScore }
-            .sortedByDescending { it.score }
-            .filter { s ->
-                if (s.id != null) seenIds.add(s.id) else seenTexts.add(s.text.trim())
-            }.take(props.maxSnippets)
+        return coexistenceRank(
+            sources
+                .flatMap { it.retrieve(query, props.maxSnippets) }
+                .filter { it.score >= props.minScore }
+                .sortedByDescending { it.score },
+        ).filter { s ->
+            if (s.id != null) seenIds.add(s.id) else seenTexts.add(s.text.trim())
+        }.take(props.maxSnippets)
     }
 }

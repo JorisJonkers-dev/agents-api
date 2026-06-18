@@ -45,7 +45,7 @@ open class LessonAutoCapture(
 
     @Async
     open fun capture(sessionId: WorkspaceAgentSessionId) {
-        if (!rag.enabled) return
+        if (!rag.captureEnabled) return
         val resolved = resolveSession(sessionId) ?: return
         val history = turns.findBySessionId(sessionId, limit = TURN_FETCH_LIMIT)
         val candidates = extractor.extract(resolved.workspace, history)

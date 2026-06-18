@@ -30,6 +30,8 @@ class LessonAutoCaptureTest {
     private val rag =
         RagProperties(
             enabled = true,
+            retrieval = RagProperties.RetrievalFlags(enabled = true),
+            capture = RagProperties.CaptureFlags(enabled = true),
             knowledgeMcpUrl = "http://kb",
             knowledgeMcpToken = "",
             lightragUrl = "http://lr",
@@ -78,9 +80,63 @@ class LessonAutoCaptureTest {
 
     @Test
     fun `capture is a no-op when RAG is disabled`() {
+        // Deprecated master toggle: rag.enabled=false disables both retrieval and capture.
         val disabledRag = rag.copy(enabled = false)
         val withDisabled = LessonAutoCapture(workspaces, sessions, turns, extractor, kbWrite, disabledRag)
         withDisabled.capture(WorkspaceAgentSessionId.random())
+        verify(exactly = 0) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
+    }
+
+    @Test
+    fun `capture is a no-op when captureEnabled is false`() {
+        val captureOffRag = rag.copy(capture = RagProperties.CaptureFlags(enabled = false))
+        val withCaptureOff = LessonAutoCapture(workspaces, sessions, turns, extractor, kbWrite, captureOffRag)
+        withCaptureOff.capture(WorkspaceAgentSessionId.random())
+        verify(exactly = 0) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
+    }
+
+    @Test
+    fun `capture runs normally when only retrievalEnabled is false`() {
+        // captureEnabled=true, retrievalEnabled=false: capture still writes lessons.
+        val retrievalOffRag = rag.copy(retrieval = RagProperties.RetrievalFlags(enabled = false))
+        val ws = workspace(repoUrl = "git@github.com:owner/agents.git")
+        val s = session(ws.id)
+        every { sessions.findById(s.id) } returns s
+        every { workspaces.findById(ws.id) } returns ws
+        every { kbWrite.findDuplicateEvidence(any(), any()) } returns null
+        every { turns.findBySessionId(s.id, any()) } returns
+            listOf(
+                turn(TurnRole.USER, "how does flannel work over tailscale?", 1, s.id),
+                turn(TurnRole.AGENT, "Lesson: It uses --flannel-iface=tailscale0. ".repeat(40), 2, s.id),
+            )
+
+        val withRetrievalOff = LessonAutoCapture(workspaces, sessions, turns, extractor, kbWrite, retrievalOffRag)
+        withRetrievalOff.capture(s.id)
+
+        verify(exactly = 1) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
+    }
+
+    @Test
+    fun `dedup at 0-86 still suppresses second write after the split`() {
+        val ws = workspace(repoUrl = "git@github.com:owner/agents.git")
+        val s = session(ws.id)
+        every { sessions.findById(s.id) } returns s
+        every { workspaces.findById(ws.id) } returns ws
+        // Score 0.86 exactly meets the threshold — treated as duplicate.
+        every { kbWrite.findDuplicateEvidence(any(), 0.86) } returns
+            KnowledgeWritePort.DuplicateEvidence(
+                id = "01KDUPLICATE",
+                source = "kb:project:agents:Near-dup",
+                score = 0.86,
+            )
+        every { turns.findBySessionId(s.id, any()) } returns
+            listOf(
+                turn(TurnRole.USER, "same question again?", 1, s.id),
+                turn(TurnRole.AGENT, "Lesson: same answer. ".repeat(40), 2, s.id),
+            )
+
+        capture.capture(s.id)
+
         verify(exactly = 0) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
     }
 
