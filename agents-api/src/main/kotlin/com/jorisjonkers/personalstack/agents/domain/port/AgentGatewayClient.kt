@@ -59,6 +59,7 @@ interface AgentGatewayClient {
         branch: String?,
     ): AccessVerification?
 
+    @Suppress("LongParameterList")
     fun spawnAgent(
         workspace: Workspace,
         kind: WorkspaceAgentKind,
@@ -66,6 +67,9 @@ interface AgentGatewayClient {
         stableSessionId: WorkspaceAgentSessionId? = null,
         epoch: Long? = null,
         continuation: ContinuationMetadata? = null,
+        // When set (session revival), the gateway resumes the prior CLI
+        // conversation (`--resume <id>`) instead of starting blank.
+        resumeCliSessionId: String? = null,
     ): GatewayAgent
 
     fun stopAgent(

@@ -248,6 +248,7 @@ class RunnerSessionBindingServiceTest {
                 stableSessionId = session.id,
                 epoch = 5,
                 continuation = AgentGatewayClient.ContinuationMetadata(reason = "rebind", previousEpoch = 4),
+                resumeCliSessionId = "native-old",
             )
         } returns gatewayAgent("fresh", epoch = 5)
         every {
@@ -270,7 +271,7 @@ class RunnerSessionBindingServiceTest {
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify { sessions.beginGeneration(session.id, 2, 5, any()) }
-        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 5, any()) }
+        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 5, any(), "native-old") }
         verify(exactly = 0) { orchestrator.provision(any(), any(), any()) }
     }
 
@@ -383,6 +384,7 @@ class RunnerSessionBindingServiceTest {
                 stableSessionId = session.id,
                 epoch = 3,
                 continuation = any(),
+                resumeCliSessionId = "native-old",
             )
         } returns gatewayAgent("fresh", epoch = 3)
         every {
@@ -416,7 +418,7 @@ class RunnerSessionBindingServiceTest {
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify(exactly = 1) { orchestrator.scaleDown(any()) }
         verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
-        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 3, any()) }
+        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 3, any(), "native-old") }
         assertThat(telemetry.reprovisions)
             .anySatisfy {
                 assertThat(it.outcome).isEqualTo(OutcomeLabel.SUCCESS)

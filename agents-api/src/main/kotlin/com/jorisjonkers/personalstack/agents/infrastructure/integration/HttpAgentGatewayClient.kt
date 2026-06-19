@@ -55,6 +55,7 @@ class HttpAgentGatewayClient(
         val stableSessionId: String? = null,
         val epoch: Long? = null,
         val continuation: ContinuationBody? = null,
+        val resumeCliSessionId: String? = null,
     )
 
     private data class ContinuationBody(
@@ -112,6 +113,7 @@ class HttpAgentGatewayClient(
     private fun endpoint(workspace: Workspace): String =
         workspace.gatewayEndpoint ?: error("workspace ${workspace.id} not yet provisioned with a gateway endpoint")
 
+    @Suppress("LongParameterList")
     override fun spawnAgent(
         workspace: Workspace,
         kind: WorkspaceAgentKind,
@@ -119,6 +121,7 @@ class HttpAgentGatewayClient(
         stableSessionId: WorkspaceAgentSessionId?,
         epoch: Long?,
         continuation: AgentGatewayClient.ContinuationMetadata?,
+        resumeCliSessionId: String?,
     ): AgentGatewayClient.GatewayAgent {
         val dto =
             restClient
@@ -131,6 +134,7 @@ class HttpAgentGatewayClient(
                         stableSessionId = stableSessionId?.value?.toString(),
                         epoch = epoch,
                         continuation = continuation?.toBody(),
+                        resumeCliSessionId = resumeCliSessionId,
                     ),
                 ).retrieve()
                 .body(GatewayAgentDto::class.java)

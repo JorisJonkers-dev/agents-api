@@ -62,6 +62,7 @@ class HttpAgentGatewayClientTest {
             .andExpect(jsonPath("$.kind").value("CLAUDE"))
             .andExpect(jsonPath("$.stableSessionId").value(sessionId.value.toString()))
             .andExpect(jsonPath("$.epoch").value(3))
+            .andExpect(jsonPath("$.resumeCliSessionId").value("native-old"))
             .andExpect(jsonPath("$.continuation.reason").value("restart"))
             .andExpect(jsonPath("$.continuation.previousEpoch").value(2))
             .andExpect(jsonPath("$.continuation.fromSetupLabel").value("Default runner"))
@@ -101,6 +102,7 @@ class HttpAgentGatewayClientTest {
                         fromSetupLabel = "Default runner",
                         toSetupLabel = "GPU runner",
                     ),
+                resumeCliSessionId = "native-old",
             )
 
         assertThat(spawned.id).isEqualTo("abc12345")

@@ -551,6 +551,10 @@ class RunnerSessionBinder(
                     stableSessionId = session.id,
                     epoch = session.epoch,
                     continuation = continuation,
+                    // Null on a fresh start; on revival this carries the prior
+                    // native CLI id so the gateway resumes that conversation
+                    // rather than spawning a blank one.
+                    resumeCliSessionId = session.cliSessionId,
                 )
             } catch (ex: ResourceAccessException) {
                 lastFailure = ex
