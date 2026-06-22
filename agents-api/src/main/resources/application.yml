@@ -199,6 +199,13 @@ agent-runtime:
   github-app-token-url: ${GITHUB_APP_TOKEN_URL:http://agents-api.agents-system.svc.cluster.local:8082/api/v1/internal/github/installation-token}
   github-app-bearer-secret: ${GITHUB_APP_BEARER_SECRET:github-app}
   github-app-bearer-secret-key: ${GITHUB_APP_BEARER_SECRET_KEY:token-bearer}
+  # Credential-worker proxy. The worker drives the Claude Code / Codex
+  # CLI `/login` flows and writes the captured OAuth bundle to Vault;
+  # agents-api only relays the operator's browser interactions to it.
+  # The token is the shared `x-internal-token` (sourced from
+  # INTERNAL_TOKEN); empty => the worker rejects every proxied call.
+  credential-worker-url: ${CREDENTIAL_WORKER_URL:http://agents-login-worker.agents-system.svc.cluster.local:8081}
+  credential-worker-token: ${INTERNAL_TOKEN:}
 
 # RAG retrieval / capture configuration.
 # rag.enabled is a deprecated master toggle (false disables both retrieval and

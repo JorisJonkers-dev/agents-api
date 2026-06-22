@@ -25,6 +25,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventReposi
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.GitHubAppInstallationTokenClient
+import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AdminRunnerController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentRunnerUnavailableExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSessionController
@@ -32,6 +33,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupContro
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ChatSessionController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.CredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.HealthController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalGitHubTokenController
@@ -75,6 +77,7 @@ import java.nio.file.Paths
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
+        CredentialController::class,
         GitController::class,
         HealthController::class,
         InternalGitHubTokenController::class,
@@ -106,6 +109,7 @@ import java.nio.file.Paths
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
+        CredentialController::class,
         GitController::class,
         HealthController::class,
         InternalGitHubTokenController::class,
@@ -213,6 +217,9 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun githubAppInstallationTokenClient(): GitHubAppInstallationTokenClient = mockk(relaxed = true)
+
+        @Bean
+        fun httpCredentialWorkerClient(): HttpCredentialWorkerClient = mockk(relaxed = true)
 
         @Bean
         fun githubLinkRepository(): GithubLinkRepository = mockk(relaxed = true)

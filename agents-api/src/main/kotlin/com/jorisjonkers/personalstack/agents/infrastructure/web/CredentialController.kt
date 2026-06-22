@@ -1,0 +1,84 @@
+package com.jorisjonkers.personalstack.agents.infrastructure.web
+
+import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialActionResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialSessionResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartCredentialSessionRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.SubmitRedirectUrlRequest
+import io.swagger.v3.oas.annotations.Operation
+import jakarta.validation.Valid
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.client.RestClientResponseException
+
+/**
+ * Browser-facing proxy onto the internal credential-worker. The whole
+ * agents surface already sits behind forward-auth (the AGENTS
+ * permission), so this controller adds no auth of its own beyond the
+ * standard `X-User-Id` identity the edge injects.
+ *
+ * Worker 4xx responses (409 busy, 400 bad input, 404 unknown session)
+ * are relayed back with the worker's own status and error body; any
+ * other failure falls through to the global handler.
+ */
+@RestController
+@RequestMapping("/api/v1/credentials")
+class CredentialController(
+    private val worker: HttpCredentialWorkerClient,
+) {
+    @PostMapping("/sessions")
+    @Operation(summary = "Start a CLI re-authentication session for Claude or Codex")
+    fun start(
+        @RequestHeader("X-User-Id") userId: String,
+        @Valid @RequestBody req: StartCredentialSessionRequest,
+    ): ResponseEntity<*> =
+        relay {
+            // updatedBy is the forward-auth identity, never client-chosen.
+            val status = worker.start(provider = req.provider, updatedBy = userId)
+            ResponseEntity.status(HttpStatus.CREATED).body(CredentialSessionResponse.of(status))
+        }
+
+    @GetMapping("/sessions/{id}")
+    @Operation(summary = "Get the current status of a re-authentication session")
+    fun status(
+        @PathVariable id: String,
+    ): ResponseEntity<*> =
+        relay {
+            ResponseEntity.ok(CredentialSessionResponse.of(worker.status(id)))
+        }
+
+    @PostMapping("/sessions/{id}/redirect")
+    @Operation(summary = "Submit the Claude post-approval redirect URL back to a session")
+    fun redirect(
+        @PathVariable id: String,
+        @Valid @RequestBody req: SubmitRedirectUrlRequest,
+    ): ResponseEntity<*> =
+        relay {
+            ResponseEntity.ok(CredentialActionResponse.of(worker.submitRedirect(id, req.url)))
+        }
+
+    @PostMapping("/sessions/{id}/cancel")
+    @Operation(summary = "Cancel an in-flight re-authentication session")
+    fun cancel(
+        @PathVariable id: String,
+    ): ResponseEntity<*> =
+        relay {
+            ResponseEntity.ok(CredentialActionResponse.of(worker.cancel(id)))
+        }
+
+    private inline fun relay(block: () -> ResponseEntity<*>): ResponseEntity<*> =
+        try {
+            block()
+        } catch (ex: RestClientResponseException) {
+            ResponseEntity
+                .status(ex.statusCode)
+                .body(ex.responseBodyAsString.ifBlank { """{"error":"credential worker request failed"}""" })
+        }
+}

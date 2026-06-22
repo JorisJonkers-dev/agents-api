@@ -100,6 +100,16 @@ data class AgentRuntimeProperties(
     val githubAppBearerSecretKey: String = "token-bearer",
     val durableSessionRetentionSeconds: Long = 604_800,
     val durableSessionCleanupBatchSize: Int = 25,
+    // In-cluster ClusterIP of the credential-worker that drives the
+    // Claude Code / Codex CLI `/login` flows and writes the resulting
+    // OAuth bundle to Vault. The worker is fronted by no edge route, so
+    // this address skips forward-auth entirely.
+    val credentialWorkerUrl: String = "http://agents-login-worker.agents-system.svc.cluster.local:8081",
+    // Shared internal token presented on every credential-worker call
+    // as the `x-internal-token` header. Sourced from the INTERNAL_TOKEN
+    // env var. Empty => the worker rejects every proxied request with a
+    // 401, so an unconfigured deployment never reaches the login flow.
+    val credentialWorkerToken: String = "",
     val setups: List<AgentSetupProperties> =
         listOf(
             AgentSetupProperties(

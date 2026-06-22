@@ -645,6 +645,107 @@
         "deprecated" : true
       }
     },
+    "/api/v1/credentials/sessions" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Start a CLI re-authentication session for Claude or Codex",
+        "operationId" : "start_1",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartCredentialSessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}/redirect" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Submit the Claude post-approval redirect URL back to a session",
+        "operationId" : "redirect",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SubmitRedirectUrlRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}/cancel" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Cancel an in-flight re-authentication session",
+        "operationId" : "cancel",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations" : {
       "get" : {
         "tags" : [ "conversation-controller" ],
@@ -1316,6 +1417,33 @@
                   "additionalProperties" : {
                     "type" : "string"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}" : {
+      "get" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Get the current status of a re-authentication session",
+        "operationId" : "status",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
                 }
               }
             }
@@ -2220,6 +2348,27 @@
           }
         },
         "required" : [ "createdAt", "defaultBranch", "id", "name", "projectId", "repoUrl", "updatedAt", "vaultKeyPath" ]
+      },
+      "StartCredentialSessionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "provider" : {
+            "type" : "string",
+            "minLength" : 1,
+            "pattern" : "claude|codex"
+          }
+        },
+        "required" : [ "provider" ]
+      },
+      "SubmitRedirectUrlRequest" : {
+        "type" : "object",
+        "properties" : {
+          "url" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        },
+        "required" : [ "url" ]
       },
       "CreateConversationRequest" : {
         "type" : "object",
