@@ -44,6 +44,13 @@ class CredentialController(
     // expose an ObjectMapper bean, so a constructor dependency would break it.
     private val objectMapper = ObjectMapper()
 
+    @GetMapping("/status")
+    @Operation(summary = "Report what credentials are currently stored in Vault for each provider")
+    fun storedStatus(): ResponseEntity<*> =
+        relay {
+            ResponseEntity.ok(worker.storedStatus())
+        }
+
     @PostMapping("/sessions")
     @Operation(summary = "Start a CLI re-authentication session for Claude or Codex")
     fun start(

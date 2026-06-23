@@ -221,6 +221,29 @@ class CredentialControllerTest {
     }
 
     @Test
+    fun `GET status returns the worker stored-credential summary`() {
+        every { worker.storedStatus() } returns
+            HttpCredentialWorkerClient.StoredStatus(
+                claude =
+                    HttpCredentialWorkerClient.CredentialStatus(
+                        exists = true,
+                        version = 3,
+                        updatedAt = "2026-06-23T10:00:00Z",
+                        updatedBy = "ExtraToast",
+                    ),
+                codex = HttpCredentialWorkerClient.CredentialStatus(exists = false, version = 0),
+            )
+
+        mockMvc
+            .perform(get("/api/v1/credentials/status").header("X-User-Id", "operator"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.claude.exists").value(true))
+            .andExpect(jsonPath("$.claude.version").value(3))
+            .andExpect(jsonPath("$.claude.updatedBy").value("ExtraToast"))
+            .andExpect(jsonPath("$.codex.exists").value(false))
+    }
+
+    @Test
     fun `POST cancel returns the worker ack`() {
         every { worker.cancel("sess-1") } returns HttpCredentialWorkerClient.OkResult(ok = true)
 

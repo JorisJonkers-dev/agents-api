@@ -1424,6 +1424,25 @@
         }
       }
     },
+    "/api/v1/credentials/status" : {
+      "get" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Report what credentials are currently stored in Vault for each provider",
+        "operationId" : "storedStatus",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/credentials/sessions/{id}" : {
       "get" : {
         "tags" : [ "credential-controller" ],

@@ -49,6 +49,21 @@ class HttpCredentialWorkerClient(
         val error: String? = null,
     )
 
+    /** Non-secret summary of one provider's stored credential. */
+    data class CredentialStatus(
+        val exists: Boolean = false,
+        val version: Int = 0,
+        val updatedAt: String? = null,
+        val updatedBy: String? = null,
+        val schemaVersion: String? = null,
+    )
+
+    /** Stored-credential status for both providers (worker GET /status). */
+    data class StoredStatus(
+        val claude: CredentialStatus = CredentialStatus(),
+        val codex: CredentialStatus = CredentialStatus(),
+    )
+
     fun start(
         provider: String,
         updatedBy: String,
@@ -61,6 +76,15 @@ class HttpCredentialWorkerClient(
             .retrieve()
             .body(SessionStatus::class.java)
             ?: error("empty response from credential worker /sessions")
+
+    fun storedStatus(): StoredStatus =
+        restClient
+            .get()
+            .uri("${base()}/status")
+            .header(INTERNAL_TOKEN_HEADER, props.credentialWorkerToken)
+            .retrieve()
+            .body(StoredStatus::class.java)
+            ?: error("empty response from credential worker /status")
 
     fun status(sessionId: String): SessionStatus =
         restClient
