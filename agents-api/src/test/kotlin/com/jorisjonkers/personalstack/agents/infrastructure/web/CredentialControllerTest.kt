@@ -110,7 +110,7 @@ class CredentialControllerTest {
     }
 
     @Test
-    fun `POST sessions relays a worker 409 busy response`() {
+    fun `POST sessions relays a worker 409 as problem+json carrying the worker message`() {
         every { worker.start(any(), any()) } throws
             HttpClientErrorException.create(
                 HttpStatus.CONFLICT,
@@ -127,6 +127,32 @@ class CredentialControllerTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("provider" to "claude"))),
             ).andExpect(status().isConflict)
+            // The browser client reads detail/title/status; a bare {"error":…}
+            // body rendered "HTTP undefined" and hid the real reason.
+            .andExpect(jsonPath("$.status").value(409))
+            .andExpect(jsonPath("$.title").value("Credential worker request failed"))
+            .andExpect(jsonPath("$.detail").value("a login session is already in progress"))
+    }
+
+    @Test
+    fun `POST sessions maps a blank worker error body to a generic detail`() {
+        every { worker.start(any(), any()) } throws
+            HttpClientErrorException.create(
+                HttpStatus.BAD_GATEWAY,
+                "Bad Gateway",
+                org.springframework.http.HttpHeaders.EMPTY,
+                ByteArray(0),
+                null,
+            )
+
+        mockMvc
+            .perform(
+                post("/api/v1/credentials/sessions")
+                    .header("X-User-Id", "operator")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("provider" to "claude"))),
+            ).andExpect(status().isBadGateway)
+            .andExpect(jsonPath("$.detail").value("credential worker request failed"))
     }
 
     @Test
@@ -162,6 +188,8 @@ class CredentialControllerTest {
         mockMvc
             .perform(get("/api/v1/credentials/sessions/nope").header("X-User-Id", "operator"))
             .andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.status").value(404))
+            .andExpect(jsonPath("$.detail").value("no matching session"))
     }
 
     @Test

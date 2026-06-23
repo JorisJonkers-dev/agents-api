@@ -1,10 +1,12 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialActionResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialSessionResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartCredentialSessionRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.SubmitRedirectUrlRequest
+import com.jorisjonkers.personalstack.common.web.ProblemDetail
 import io.swagger.v3.oas.annotations.Operation
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.client.RestClientResponseException
+import java.net.URI
 
 /**
  * Browser-facing proxy onto the internal credential-worker. The whole
@@ -25,14 +28,22 @@ import org.springframework.web.client.RestClientResponseException
  * standard `X-User-Id` identity the edge injects.
  *
  * Worker 4xx responses (409 busy, 400 bad input, 404 unknown session)
- * are relayed back with the worker's own status and error body; any
- * other failure falls through to the global handler.
+ * are relayed back with the worker's own status as an RFC 7807
+ * ProblemDetail whose `detail` carries the worker's message; any other
+ * failure falls through to the global handler. The worker emits a bare
+ * `{"error":"…"}` body — relaying that verbatim left the browser client
+ * (which reads `detail`/`title`/`status`) rendering an opaque
+ * "HTTP undefined", hiding the real reason a login could not start.
  */
 @RestController
 @RequestMapping("/api/v1/credentials")
 class CredentialController(
     private val worker: HttpCredentialWorkerClient,
 ) {
+    // Not injected: the OpenAPI web-mvc slice that exports the spec does not
+    // expose an ObjectMapper bean, so a constructor dependency would break it.
+    private val objectMapper = ObjectMapper()
+
     @PostMapping("/sessions")
     @Operation(summary = "Start a CLI re-authentication session for Claude or Codex")
     fun start(
@@ -79,6 +90,20 @@ class CredentialController(
         } catch (ex: RestClientResponseException) {
             ResponseEntity
                 .status(ex.statusCode)
-                .body(ex.responseBodyAsString.ifBlank { """{"error":"credential worker request failed"}""" })
+                .body(
+                    ProblemDetail(
+                        type = URI.create("https://jorisjonkers.dev/errors/credential-worker"),
+                        title = "Credential worker request failed",
+                        status = ex.statusCode.value(),
+                        detail = workerDetail(ex.responseBodyAsString),
+                        instance = null,
+                    ),
+                )
         }
+
+    /** Pull the worker's `{"error":"…"}` message out for the ProblemDetail `detail`. */
+    private fun workerDetail(body: String): String =
+        runCatching { objectMapper.readTree(body).path("error").asText("") }
+            .getOrDefault("")
+            .ifBlank { "credential worker request failed" }
 }
