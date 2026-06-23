@@ -522,6 +522,7 @@ class Fabric8AgentRunnerOrchestrator(
         addAll(dockerEnv(setup))
         addAll(knowledgeEnv(setup))
         addAll(githubAppTokenEnv())
+        addAll(claudeOauthEnv())
         // REPO_URL/REPO_BRANCH drive the entrypoint's boot-time clone
         // into /workspace/<repo-name>. Cloning in the runner removes the race that
         // left repo-backed workspaces empty: the old create-time
@@ -604,6 +605,25 @@ class Fabric8AgentRunnerOrchestrator(
                 .withNewSecretKeyRef()
                 .withName(props.githubAppBearerSecret)
                 .withKey(props.githubAppBearerSecretKey)
+                .withOptional(true)
+                .endSecretKeyRef()
+                .endValueFrom()
+                .build(),
+        )
+
+    // CLAUDE_CODE_OAUTH_TOKEN from the portal-managed Secret. `claude
+    // setup-token` produces this long-lived token, which Claude Code prefers
+    // over the mounted credential files, so a fresh runner picks up the latest
+    // portal sign-in. Optional ref: an absent Secret/key keeps the Pod starting
+    // and the runner falls back to the credential PVC.
+    private fun claudeOauthEnv() =
+        listOf(
+            EnvVarBuilder()
+                .withName("CLAUDE_CODE_OAUTH_TOKEN")
+                .withNewValueFrom()
+                .withNewSecretKeyRef()
+                .withName(props.claudeOauthSecret)
+                .withKey(props.claudeOauthSecretKey)
                 .withOptional(true)
                 .endSecretKeyRef()
                 .endValueFrom()

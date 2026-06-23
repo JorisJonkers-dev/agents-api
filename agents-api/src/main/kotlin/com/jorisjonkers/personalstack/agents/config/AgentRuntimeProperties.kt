@@ -110,6 +110,14 @@ data class AgentRuntimeProperties(
     // env var. Empty => the worker rejects every proxied request with a
     // 401, so an unconfigured deployment never reaches the login flow.
     val credentialWorkerToken: String = "",
+    // Secret (in the runner's namespace) projecting the Claude Code OAuth token
+    // the credential-login portal captures via `claude setup-token`. Injected as
+    // CLAUDE_CODE_OAUTH_TOKEN, which Claude Code prefers over the mounted
+    // credential files, so a runner picks up a portal re-auth on its next
+    // (re)start. optional => an absent Secret/key keeps the Pod starting and the
+    // runner falls back to the mounted credential PVC.
+    val claudeOauthSecret: String = "agents-claude-oauth",
+    val claudeOauthSecretKey: String = "oauth_token",
     val setups: List<AgentSetupProperties> =
         listOf(
             AgentSetupProperties(
