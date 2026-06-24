@@ -107,6 +107,26 @@ class WorkspaceRunnerLifecycleService(
         return provision(workspace, target, leaseId)
     }
 
+    data class RunnerImageStatus(
+        val digest: String?,
+        val upgradeAvailable: Boolean,
+    )
+
+    /**
+     * The workspace runner's current agent-runner image digest and whether a
+     * newer one is available (its digest is behind the freshest running
+     * runner). Best-effort: any cluster read failure degrades to
+     * `digest=null, upgradeAvailable=false` so it never blocks the response.
+     */
+    fun runnerImageStatus(workspace: Workspace): RunnerImageStatus {
+        val current = runCatching { orchestrator.runnerImageDigest(workspace) }.getOrNull()
+        val freshest = runCatching { orchestrator.freshestRunnerImageDigest() }.getOrNull()
+        return RunnerImageStatus(
+            digest = current,
+            upgradeAvailable = current != null && freshest != null && current != freshest,
+        )
+    }
+
     /**
      * Return a readiness snapshot from persisted state.  When a boot lease
      * is held the state is [RunnerReadinessState.Booting]; otherwise

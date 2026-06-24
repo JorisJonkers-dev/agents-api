@@ -20,6 +20,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CreateWorksp
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceConnectResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceDetailResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceRunnerImageResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
@@ -79,7 +80,15 @@ class WorkspaceController(
         @PathVariable id: UUID,
     ): ResponseEntity<WorkspaceDetailResponse> {
         val view = getQuery.get(WorkspaceId(id)) ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(WorkspaceDetailResponse.of(view.workspace, view.repositories, view.sessions))
+        val runnerImage = lifecycleService.runnerImageStatus(view.workspace)
+        return ResponseEntity.ok(
+            WorkspaceDetailResponse.of(
+                view.workspace,
+                view.repositories,
+                view.sessions,
+                WorkspaceRunnerImageResponse.of(runnerImage.digest, runnerImage.upgradeAvailable),
+            ),
+        )
     }
 
     @PostMapping("/{id}/connect")

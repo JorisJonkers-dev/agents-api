@@ -256,6 +256,11 @@ class WorkspaceControllerTest {
                     ),
                 ),
             )
+        every { lifecycleService.runnerImageStatus(w) } returns
+            WorkspaceRunnerLifecycleService.RunnerImageStatus(
+                digest = "sha256:0000000000000000000000000000000000000000000000000000aabbccddeeff",
+                upgradeAvailable = true,
+            )
         mockMvc
             .perform(get("/api/v1/workspaces/${w.id.value}"))
             .andExpect(status().isOk)
@@ -263,6 +268,9 @@ class WorkspaceControllerTest {
             .andExpect(jsonPath("$.workspace.repositories[0].id").value(r.id.value.toString()))
             .andExpect(jsonPath("$.workspace.repositories[0].name").value("agents"))
             .andExpect(jsonPath("$.workspace.repositories[0].isPrimary").value(true))
+            // Runner image surfaced for the operator: short digest + upgrade flag.
+            .andExpect(jsonPath("$.workspace.runnerImage.digest").value("aabbccddeeff"))
+            .andExpect(jsonPath("$.workspace.runnerImage.upgradeAvailable").value(true))
             .andExpect(jsonPath("$.sessions").isArray)
     }
 

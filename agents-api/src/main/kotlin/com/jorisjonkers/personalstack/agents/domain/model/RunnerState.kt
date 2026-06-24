@@ -13,6 +13,11 @@ data class RunnerState(
     // provisioned) used to detect a runner left behind on an old image after a
     // new release. Null on pods provisioned before this was introduced.
     val imageMarker: String? = null,
+    // The agent-runner image digest this pod actually resolved to at pull time
+    // (from the container status imageID). This is what lets us tell a runner
+    // is behind a newer agent-runner image, independent of the agents-api
+    // release marker above. Null until the container has pulled/started.
+    val runnerImageDigest: String? = null,
 ) {
     data class Identity(
         val setupId: AgentSetupId,

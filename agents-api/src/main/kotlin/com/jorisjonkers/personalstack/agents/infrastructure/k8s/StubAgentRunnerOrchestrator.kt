@@ -121,4 +121,8 @@ class StubAgentRunnerOrchestrator : AgentRunnerOrchestrator {
     // The stub never runs real pods, so it has no image to compare; treat
     // runners as always current.
     override fun isRunnerImageStale(workspace: Workspace): Boolean = false
+
+    override fun runnerImageDigest(workspace: Workspace): String? = runnerState(workspace)?.runnerImageDigest
+
+    override fun freshestRunnerImageDigest(): String? = null
 }

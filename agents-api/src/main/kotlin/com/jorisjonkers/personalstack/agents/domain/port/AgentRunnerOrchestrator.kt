@@ -58,6 +58,27 @@ interface AgentRunnerOrchestrator {
      * comes back on the new image, without waiting for the idle timer.
      * Returns false when the current release can't be determined or the
      * runner is absent, so an unknown never triggers a recycle.
+     *
+     * As of the runner-image-upgrade feature this is also true when the
+     * workspace runner's resolved agent-runner image digest is behind the
+     * freshest digest observed across running runners (see
+     * [runnerImageDigest] / [freshestRunnerImageDigest]).
      */
     fun isRunnerImageStale(workspace: Workspace): Boolean
+
+    /**
+     * The agent-runner image digest the workspace's runner Pod actually
+     * resolved to at pull time, or null when there is no running runner or the
+     * digest can't be read. Used to surface the runner image to the operator.
+     */
+    fun runnerImageDigest(workspace: Workspace): String?
+
+    /**
+     * The freshest agent-runner image digest observed among running runner
+     * Pods in the namespace — the de-facto current target, since the most
+     * recently provisioned runner pulled the current `:latest`. Null when no
+     * running runner exists. A workspace whose [runnerImageDigest] differs from
+     * this has an upgrade available.
+     */
+    fun freshestRunnerImageDigest(): String?
 }

@@ -180,11 +180,51 @@ class Fabric8AgentRunnerOrchestrator(
     }
 
     override fun isRunnerImageStale(workspace: Workspace): Boolean {
-        // Unknown current release → never recycle (fail safe toward not
-        // disrupting). A still-unstamped legacy runner counts as stale so the
-        // first sweep after this ships migrates it onto the marked image.
+        // Runner is behind a newer agent-runner image (digest differs from the
+        // freshest running runner) → stale. This is the case the operator hits
+        // after a runner-image bump; recycling re-pulls :latest.
+        if (runnerImageBehind(workspace)) return true
+        // Otherwise fall back to the agents-api release marker: an unstamped or
+        // older-release runner is recycled onto the current release on the next
+        // idle sweep. Unknown current release → never recycle (fail safe).
         val marker = currentReleaseMarker() ?: return false
         return runnerState(workspace)?.let { it.imageMarker != marker } ?: false
+    }
+
+    private fun runnerImageBehind(workspace: Workspace): Boolean {
+        val current = runnerImageDigest(workspace) ?: return false
+        val freshest = freshestRunnerImageDigest() ?: return false
+        return current != freshest
+    }
+
+    override fun runnerImageDigest(workspace: Workspace): String? = runnerState(workspace)?.runnerImageDigest
+
+    override fun freshestRunnerImageDigest(): String? {
+        val pods =
+            runCatching {
+                client
+                    .pods()
+                    .inNamespace(props.namespace)
+                    .withLabel("app.kubernetes.io/name", "agent-runner")
+                    .list()
+                    .items
+            }.getOrElse {
+                log.warn("could not list runner pods for freshest image digest: {}", it.message)
+                return null
+            }
+        return RunnerImageDigests.freshest(
+            pods
+                .filter { it.status?.phase == "Running" }
+                .map {
+                    it.status?.startTime to
+                        RunnerImageDigests.parse(
+                            it.status
+                                ?.containerStatuses
+                                ?.firstOrNull()
+                                ?.imageID,
+                        )
+                },
+        )
     }
 
     /**
@@ -255,6 +295,13 @@ class Fabric8AgentRunnerOrchestrator(
             phase = pod.status?.phase,
             containerReady = containerReady,
             imageMarker = annotations[RunnerState.ANNOTATION_IMAGE_MARKER],
+            runnerImageDigest =
+                RunnerImageDigests.parse(
+                    pod.status
+                        ?.containerStatuses
+                        ?.firstOrNull()
+                        ?.imageID,
+                ),
         )
     }
 
@@ -796,4 +843,30 @@ class Fabric8AgentRunnerOrchestrator(
         private const val READINESS_FAILURE_THRESHOLD = 60
         private const val LIVENESS_PERIOD_SECONDS = 10
     }
+}
+
+/**
+ * Pure helpers for agent-runner image-digest detection, extracted so the
+ * comparison logic is unit-testable without a Kubernetes cluster.
+ */
+internal object RunnerImageDigests {
+    /**
+     * The digest portion of a container `imageID` such as
+     * `ghcr.io/.../agent-runner@sha256:abc…` → `sha256:abc…`. Null when the
+     * imageID has no `@digest` suffix (e.g. not yet pulled) or is blank.
+     */
+    fun parse(imageId: String?): String? = imageId?.substringAfter("@", "")?.takeIf { it.isNotBlank() }
+
+    /**
+     * The freshest digest among `(podStartTime, digest)` observations — the
+     * digest of the most recently started runner, since it pulled the current
+     * `:latest`. Pod start times are ISO-8601 strings, which sort
+     * lexicographically. Observations with a null digest are ignored; null
+     * when none have a digest.
+     */
+    fun freshest(observed: List<Pair<String?, String?>>): String? =
+        observed
+            .filter { it.second != null }
+            .maxByOrNull { it.first.orEmpty() }
+            ?.second
 }

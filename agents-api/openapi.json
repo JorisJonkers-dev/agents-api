@@ -3006,6 +3006,18 @@
         },
         "required" : [ "attachedAt", "createdAt", "defaultBranch", "id", "isPrimary", "name", "repoUrl", "updatedAt", "vaultKeyPath" ]
       },
+      "WorkspaceRunnerImageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "digest" : {
+            "type" : [ "string", "null" ]
+          },
+          "upgradeAvailable" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "upgradeAvailable" ]
+      },
       "WorkspaceWithRepositoriesResponse" : {
         "type" : "object",
         "properties" : {
@@ -3054,6 +3066,13 @@
           },
           "runnerSetup" : {
             "$ref" : "#/components/schemas/WorkspaceRunnerSetupResponse"
+          },
+          "runnerImage" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/WorkspaceRunnerImageResponse"
+            }, {
+              "type" : "null"
+            } ]
           },
           "createdAt" : {
             "type" : "string",
