@@ -174,6 +174,21 @@ class RunnerSessionBinder(
             return RunnerSessionBindingResult.Conflict(current = sessions.findById(session.id))
         }
         val promotedWorkspace = ready.workspace.completeRunnerSetupRestart()
+        if (!ready.ready) {
+            // The runner reprovisioned but is not ready yet — a cold image pull
+            // onto a freshly-published version can take minutes, far longer than
+            // the synchronous readiness window (and any reverse-proxy timeout).
+            // Land the session RUNNING+unbound so the next WS attach resumes it
+            // via ensureBound once the runner is ready, instead of failing the
+            // restart and wedging the workspace while the pod is still booting.
+            if (!tx.markAwaitingRebind(starting)) {
+                return RunnerSessionBindingResult.Conflict(current = sessions.findById(starting.id))
+            }
+            return RunnerSessionBindingResult.Unavailable(
+                workspaceId = promotedWorkspace.id,
+                runnerStatus = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label,
+            )
+        }
         return spawnAndBind(
             workspace = promotedWorkspace,
             session = starting,
@@ -474,10 +489,10 @@ class RunnerSessionBinder(
                 )
             val saved = workspaces.save(repointed)
             log.info("re-provisioned runner for workspace {} as pod {}", workspace.id.value, handle.podName)
-            gateRunnerReadinessWithRetry(saved, target, runnerGeneration)
             val ready =
                 RunnerReady(
                     workspace = saved,
+                    ready = awaitRunnerReady(saved, target, runnerGeneration),
                     provisioning =
                         RunnerProvisioningResult.Provisioned(
                             podName = handle.podName,
@@ -518,23 +533,20 @@ class RunnerSessionBinder(
         }
     }
 
-    private fun gateRunnerReadinessWithRetry(
+    private fun awaitRunnerReady(
         workspace: Workspace,
         target: RunnerSetupTarget,
         runnerGeneration: Long,
-    ) {
+    ): Boolean {
         val identity = target.spec.identity(runnerGeneration)
         repeat(MAX_SPAWN_ATTEMPTS) { attempt ->
-            if (orchestrator.isReady(workspace, identity) && gateway.isReady(workspace)) return
+            if (orchestrator.isReady(workspace, identity) && gateway.isReady(workspace)) return true
             if (attempt < MAX_SPAWN_ATTEMPTS - 1) {
                 val sleepMs = backoffInitialMs * (attempt + 1)
                 if (sleepMs > 0) Thread.sleep(sleepMs)
             }
         }
-        throw AgentRunnerUnavailableException(
-            workspaceId = workspace.id,
-            runnerStatus = "NotReady",
-        )
+        return false
     }
 
     @Suppress("LongMethod")
@@ -658,6 +670,9 @@ class RunnerSessionBinder(
 
     private data class RunnerReady(
         val workspace: Workspace,
+        // The runner was reprovisioned; `ready` is whether it became ready within
+        // the synchronous window. When false the session is left awaiting rebind.
+        val ready: Boolean,
         val provisioning: RunnerProvisioningResult,
     )
 }
@@ -773,6 +788,29 @@ class RunnerSessionBindingTransactions(
             )
         }
         if (changed) sessionStatus.publishStatus(session.markFailed().clearPendingSetup())
+        return changed
+    }
+
+    @Transactional
+    fun markAwaitingRebind(session: WorkspaceAgentSession): Boolean {
+        val changed =
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                retainedUntil = null,
+                clearGatewayBinding = true,
+            )
+        if (changed && session.pendingSetupId != null && session.pendingSetupVersion != null) {
+            val promoted =
+                sessions.promotePendingSetupIfCurrent(
+                    id = session.id,
+                    expectedPendingSetupId = session.pendingSetupId,
+                    expectedPendingSetupVersion = session.pendingSetupVersion,
+                )
+            if (!promoted) throw BindingRaceException()
+        }
+        if (changed) sessionStatus.publishStatus(session.markAwaitingRebind())
         return changed
     }
 

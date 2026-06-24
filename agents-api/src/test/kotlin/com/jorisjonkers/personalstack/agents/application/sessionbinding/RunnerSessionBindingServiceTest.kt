@@ -433,6 +433,107 @@ class RunnerSessionBindingServiceTest {
     }
 
     @Test
+    fun `restart leaves session awaiting rebind when the reprovisioned runner is not ready yet`() {
+        telemetry.operations.clear()
+        telemetry.reprovisions.clear()
+        val ws = workspace()
+        val session =
+            session(ws.id, gatewayAgentId = "old-agent")
+                .copy(epoch = 2, generation = 6)
+        every { sessions.findById(session.id) } returns session
+        every { workspaces.findById(ws.id) } returns ws
+        every {
+            sessions.beginGeneration(id = session.id, expectedGeneration = 6, nextEpoch = 3, now = any())
+        } returns true
+        every {
+            sessions.setPendingSetupIfCurrent(
+                id = session.id,
+                expectedCurrentSetupId = session.currentSetupId,
+                expectedCurrentSetupVersion = session.currentSetupVersion,
+                pendingSetupId = setup.definition.id,
+                pendingSetupVersion = setup.definition.version,
+                now = any(),
+            )
+        } returns true
+        every {
+            workspaces.beginRunnerSetupOperation(
+                ws.id,
+                ws.runnerSetupGeneration,
+                setup.definition.id,
+                setup.definition.version,
+                any(),
+                any(),
+            )
+        } returns true
+        every { orchestrator.scaleDown(any()) } returns Unit
+        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
+            AgentRunnerOrchestrator.RunnerHandle(
+                podName = "agent-runner-fresh001",
+                pvcName = "workspace-abcdef01",
+                gatewayEndpoint = "http://fresh:8090",
+            )
+        every { workspaces.save(any()) } answers { firstArg() }
+        // The fresh runner is still booting (e.g. a cold image pull) within the window.
+        every {
+            orchestrator.isReady(
+                match { it.gatewayEndpoint == "http://fresh:8090" },
+                setupSpec.identity(ws.runnerSetupGeneration + 1),
+            )
+        } returns false
+        every { gateway.isReady(any()) } returns false
+        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
+        every {
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = 7,
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                retainedUntil = null,
+                clearGatewayBinding = true,
+                now = any(),
+            )
+        } returns true
+        every {
+            sessions.promotePendingSetupIfCurrent(
+                id = session.id,
+                expectedPendingSetupId = setup.definition.id,
+                expectedPendingSetupVersion = setup.definition.version,
+                now = any(),
+            )
+        } returns true
+
+        val result =
+            binder.restart(
+                RestartRunnerSessionBindingInput(
+                    workspaceId = ws.id,
+                    sessionId = session.id,
+                    expectedGeneration = 6,
+                    reason = "restart",
+                ),
+            )
+
+        // Provisioned a fresh runner but did not fail the session: it is left
+        // RUNNING+unbound so the next attach resumes it via ensureBound.
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
+        assertThat((result as RunnerSessionBindingResult.Unavailable).runnerStatus)
+            .isEqualTo(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION.label)
+        verify(exactly = 1) { orchestrator.scaleDown(any()) }
+        verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
+        verify(exactly = 1) {
+            sessions.markLifecycleIfGeneration(
+                id = session.id,
+                expectedGeneration = 7,
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                retainedUntil = null,
+                clearGatewayBinding = true,
+                now = any(),
+            )
+        }
+        // No spawn/bind happened — the resume is deferred to the next attach.
+        // (gateway.spawnAgent and sessions.bindIfGeneration are left unstubbed,
+        // so taking the spawn path would fail this test outright.)
+    }
+
+    @Test
     fun `spawn transport failure records bounded reason without raw exception message`() {
         telemetry.operations.clear()
         telemetry.reprovisions.clear()

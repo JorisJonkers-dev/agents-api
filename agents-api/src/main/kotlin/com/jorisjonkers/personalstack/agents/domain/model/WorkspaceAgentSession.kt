@@ -133,4 +133,22 @@ data class WorkspaceAgentSession(
 
     fun clearPendingSetup(now: Instant = Instant.now()): WorkspaceAgentSession =
         copy(pendingSetupId = null, pendingSetupVersion = null, updatedAt = now)
+
+    /**
+     * A fresh runner was provisioned but is not ready yet (e.g. a cold image
+     * pull). Mark the session RUNNING but unbound so the next WS attach rebinds
+     * and resumes it via [RunnerSessionBinder.ensureBound] once the runner is
+     * ready — instead of failing the restart while the pod is still booting.
+     * The pending setup is promoted (the provision is committed) and the
+     * resume identity (stableSessionId, cliSessionId, epoch) is preserved.
+     */
+    fun markAwaitingRebind(now: Instant = Instant.now()): WorkspaceAgentSession {
+        val promoted = if (pendingSetupId != null) promotePendingSetup(now) else this
+        return promoted.copy(
+            gatewayAgentId = null,
+            status = WorkspaceAgentSessionStatus.RUNNING,
+            gatewayBoundAt = null,
+            updatedAt = now,
+        )
+    }
 }
