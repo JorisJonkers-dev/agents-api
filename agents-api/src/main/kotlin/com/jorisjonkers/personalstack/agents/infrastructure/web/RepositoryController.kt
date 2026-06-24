@@ -1,14 +1,14 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
+import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationStatusService
 import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationService
-import com.jorisjonkers.personalstack.agents.application.command.AttachRepositoryDeployKeyCommand
 import com.jorisjonkers.personalstack.agents.application.command.CreateRepositoryCommand
 import com.jorisjonkers.personalstack.agents.application.command.DeleteRepositoryCommand
 import com.jorisjonkers.personalstack.agents.application.query.RepositoryQueryService
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AttachRepositoryDeployKeyRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CreateRepositoryRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ProjectResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RepositoryInstallationStatusResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RepositoryResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import jakarta.validation.Valid
@@ -29,6 +29,7 @@ class RepositoryController(
     private val commandBus: CommandBus,
     private val repositoryQuery: RepositoryQueryService,
     private val verificationService: RepositoryVerificationService,
+    private val installationStatusService: RepositoryInstallationStatusService,
 ) {
     @PostMapping
     fun create(
@@ -65,28 +66,25 @@ class RepositoryController(
         )
     }
 
-    @PostMapping("/{id}/key")
-    fun attachKey(
-        @PathVariable id: UUID,
-        @Valid @RequestBody req: AttachRepositoryDeployKeyRequest,
-    ): ResponseEntity<Void> {
-        commandBus.dispatch(
-            AttachRepositoryDeployKeyCommand(
-                repositoryId = RepositoryId(id),
-                privateKeyOpenssh = req.privateKeyOpenssh,
-                publicKeyOpenssh = req.publicKeyOpenssh,
-                knownHosts = req.knownHosts,
-            ),
-        )
-        return ResponseEntity.accepted().build()
-    }
-
     @PostMapping("/{id}/verify")
     fun verify(
         @PathVariable id: UUID,
     ): ResponseEntity<RepositoryResponse> {
         val updated = verificationService.reverify(RepositoryId(id)) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(RepositoryResponse.of(updated))
+    }
+
+    /**
+     * Live GitHub App install-status for the repo. Backs both the initial
+     * load and the manual "re-check" — it queries GitHub fresh and stores
+     * nothing, and never mints a token.
+     */
+    @GetMapping("/{id}/installation-status")
+    fun installationStatus(
+        @PathVariable id: UUID,
+    ): ResponseEntity<RepositoryInstallationStatusResponse> {
+        val status = installationStatusService.status(RepositoryId(id)) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(RepositoryInstallationStatusResponse.of(status))
     }
 
     @DeleteMapping("/{id}")

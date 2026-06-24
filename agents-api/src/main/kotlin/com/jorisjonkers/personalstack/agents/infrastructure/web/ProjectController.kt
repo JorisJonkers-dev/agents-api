@@ -1,7 +1,6 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.jorisjonkers.personalstack.agents.application.command.AddGithubLinkCommand
-import com.jorisjonkers.personalstack.agents.application.command.AttachDeployKeyCommand
 import com.jorisjonkers.personalstack.agents.application.command.CreateProjectCommand
 import com.jorisjonkers.personalstack.agents.application.command.LinkRepositoryToProjectCommand
 import com.jorisjonkers.personalstack.agents.application.command.RemoveGithubLinkCommand
@@ -12,7 +11,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AddGithubLinkRequest
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AttachDeployKeyRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CreateProjectRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.GithubLinkResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.LinkRepositoryRequest
@@ -128,24 +126,6 @@ class ProjectController(
                 ?.firstOrNull { it.id == linkId }
                 ?: error("link not visible after add")
         return ResponseEntity.status(HttpStatus.CREATED).body(GithubLinkResponse.of(link))
-    }
-
-    @PostMapping("/{projectId}/links/{linkId}/key")
-    @Suppress("UnusedParameter") // projectId carried in the URL only
-    fun attachKey(
-        @PathVariable projectId: UUID,
-        @PathVariable linkId: UUID,
-        @Valid @RequestBody req: AttachDeployKeyRequest,
-    ): ResponseEntity<Void> {
-        commandBus.dispatch(
-            AttachDeployKeyCommand(
-                linkId = GithubLinkId(linkId),
-                privateKeyOpenssh = req.privateKeyOpenssh,
-                publicKeyOpenssh = req.publicKeyOpenssh,
-                knownHosts = req.knownHosts,
-            ),
-        )
-        return ResponseEntity.accepted().build()
     }
 
     @DeleteMapping("/{projectId}/links/{linkId}")

@@ -17,15 +17,10 @@ value class GithubLinkId(
 }
 
 /**
- * A linked GitHub repository under a Project. The deploy key for
- * this single repo lives at `vaultKeyPath` (a full
- * `secret/data/agents/projects/<pid>/repos/<rid>` path); the
- * fingerprint is mirrored into the row so the UI can show it
- * without re-reading Vault.
- *
- * `deployKeyFingerprint` is nullable so a row can exist briefly in
- * a "key not yet attached" state while the operator is following
- * the setup guide.
+ * A legacy, read-only linked GitHub repository under a Project.
+ * Superseded by the first-class [Repository] model; retained so
+ * workspaces still bound to a link keep working. Access is granted by
+ * the installed GitHub App — links no longer carry a deploy key.
  */
 data class GithubLink(
     val id: GithubLinkId,
@@ -33,11 +28,6 @@ data class GithubLink(
     val name: String,
     val repoUrl: String,
     val defaultBranch: String,
-    val vaultKeyPath: String,
-    val deployKeyFingerprint: String?,
-    val deployKeyAddedAt: Instant?,
     val createdAt: Instant,
     val updatedAt: Instant,
-) {
-    val isKeyAttached: Boolean get() = deployKeyFingerprint != null
-}
+)

@@ -45,9 +45,6 @@ class JooqWorkspaceRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
             name = "r-${UUID.randomUUID()}",
             repoUrl = "git@github.com:o/r.git",
             defaultBranch = "main",
-            vaultKeyPath = "x",
-            deployKeyFingerprint = null,
-            deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         ).also(repositories::save)

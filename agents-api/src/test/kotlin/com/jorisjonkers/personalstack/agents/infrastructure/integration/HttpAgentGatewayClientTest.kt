@@ -13,7 +13,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionI
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import io.mockk.mockk
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpMethod
@@ -37,16 +36,6 @@ class HttpAgentGatewayClientTest {
             githubDeployKeySecret = "k",
             verifyGatewayBaseUrl = verifyBase,
         )
-
-    @Test
-    fun `verifyAccess returns null and never touches the gateway when no base URL is configured`() {
-        // A strict (non-relaxed) mock fails the test if any RestClient
-        // method is invoked, proving the empty-base short-circuit.
-        val restClient = mockk<RestClient>()
-        val client = HttpAgentGatewayClient(restClient, props(verifyBase = ""))
-
-        assertThat(client.verifyAccess("git@github.com:o/r.git", "main")).isNull()
-    }
 
     @Test
     fun `spawnAgent posts durable session metadata and maps response`() {

@@ -2,6 +2,8 @@ package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.port.GithubAppInstallationProbe
+import com.jorisjonkers.personalstack.agents.domain.port.GithubAppInstallationState
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpHeaders
 import org.springframework.stereotype.Component
@@ -39,11 +41,46 @@ import java.util.Base64
 class GitHubAppInstallationTokenClient(
     private val restClient: RestClient,
     private val props: AgentRuntimeProperties,
-) {
+) : GithubAppInstallationProbe {
     private val log = LoggerFactory.getLogger(GitHubAppInstallationTokenClient::class.java)
 
     val enabled: Boolean
         get() = props.githubAppId.isNotBlank() && props.githubAppPrivateKey.isNotBlank()
+
+    /**
+     * Live, token-free check of whether the App is installed for [repoUrl]'s
+     * repo. Reuses the same App-JWT + `GET /repos/{owner}/{repo}/installation`
+     * lookup that [mint] performs, but stops before requesting an access
+     * token — so it never returns or caches credentials. A 404 is the
+     * legitimate "not installed / repo excluded" answer; anything else
+     * inconclusive collapses to UNKNOWN.
+     */
+    override fun probe(repoUrl: String): GithubAppInstallationState {
+        if (!enabled) return GithubAppInstallationState.UNKNOWN
+        val slug = GitHubBranchProtectionClient.parseOwnerRepo(repoUrl) ?: return GithubAppInstallationState.UNKNOWN
+        val base = props.githubApiBaseUrl.trim().trimEnd('/')
+        return runCatching {
+            val jwt = appJwt()
+            if (installationId(base, slug, jwt) != null) {
+                GithubAppInstallationState.INSTALLED
+            } else {
+                GithubAppInstallationState.UNKNOWN
+            }
+        }.getOrElse { ex ->
+            if (ex is RestClientResponseException && ex.statusCode.value() == HTTP_NOT_FOUND) {
+                GithubAppInstallationState.NOT_INSTALLED
+            } else {
+                val detail = (ex as? RestClientResponseException)?.responseBodyAsString?.takeIf { it.isNotBlank() }
+                log.warn(
+                    "installation status probe for {} failed: {}{}",
+                    repoUrl,
+                    ex.message,
+                    detail?.let { " — $it" } ?: "",
+                )
+                GithubAppInstallationState.UNKNOWN
+            }
+        }
+    }
 
     data class InstallationToken(
         val token: String,
@@ -191,6 +228,7 @@ class GitHubAppInstallationTokenClient(
     companion object {
         private const val GH_API_VERSION_HEADER = "X-GitHub-Api-Version"
         private const val GH_API_VERSION = "2022-11-28"
+        private const val HTTP_NOT_FOUND = 404
 
         // The permissions a runner token carries: enough for git push,
         // gh pr create/comment, gh run rerun, authoring `.github/workflows`

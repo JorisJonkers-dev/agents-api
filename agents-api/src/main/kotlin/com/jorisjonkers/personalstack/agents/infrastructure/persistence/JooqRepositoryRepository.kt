@@ -17,11 +17,9 @@ import org.springframework.stereotype.Repository as SpringRepository
 class JooqRepositoryRepository(
     private val dsl: DSLContext,
 ) : RepositoryRepository {
-    @Suppress("LongMethod") // single fluent jOOQ upsert; see JooqWorkspaceRepository.save for the same shape
     override fun save(repository: Repository): Repository {
         val createdAt = repository.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = repository.updatedAt.atOffset(ZoneOffset.UTC)
-        val addedAt = repository.deployKeyAddedAt?.atOffset(ZoneOffset.UTC)
         val verifiedAt = repository.verification?.checkedAt?.atOffset(ZoneOffset.UTC)
         val messages = repository.verification?.messages?.joinToString("\n")
         dsl
@@ -30,11 +28,6 @@ class JooqRepositoryRepository(
             .set(NAME, repository.name)
             .set(REPO_URL, repository.repoUrl)
             .set(DEFAULT_BRANCH, repository.defaultBranch)
-            .set(VAULT_KEY_PATH, repository.vaultKeyPath)
-            .set(FINGERPRINT, repository.deployKeyFingerprint)
-            .set(KEY_ADDED_AT, addedAt)
-            .set(VERIFY_READ, repository.verification?.read)
-            .set(VERIFY_WRITE, repository.verification?.write)
             .set(VERIFY_PROTECTED, repository.verification?.defaultBranchProtected)
             .set(VERIFY_CHECKED_AT, verifiedAt)
             .set(VERIFY_MESSAGES, messages)
@@ -45,11 +38,6 @@ class JooqRepositoryRepository(
             .set(NAME, repository.name)
             .set(REPO_URL, repository.repoUrl)
             .set(DEFAULT_BRANCH, repository.defaultBranch)
-            .set(VAULT_KEY_PATH, repository.vaultKeyPath)
-            .set(FINGERPRINT, repository.deployKeyFingerprint)
-            .set(KEY_ADDED_AT, addedAt)
-            .set(VERIFY_READ, repository.verification?.read)
-            .set(VERIFY_WRITE, repository.verification?.write)
             .set(VERIFY_PROTECTED, repository.verification?.defaultBranchProtected)
             .set(VERIFY_CHECKED_AT, verifiedAt)
             .set(VERIFY_MESSAGES, messages)
@@ -86,11 +74,6 @@ class JooqRepositoryRepository(
                 NAME,
                 REPO_URL,
                 DEFAULT_BRANCH,
-                VAULT_KEY_PATH,
-                FINGERPRINT,
-                KEY_ADDED_AT,
-                VERIFY_READ,
-                VERIFY_WRITE,
                 VERIFY_PROTECTED,
                 VERIFY_CHECKED_AT,
                 VERIFY_MESSAGES,
@@ -114,9 +97,6 @@ class JooqRepositoryRepository(
             name = this[NAME],
             repoUrl = this[REPO_URL],
             defaultBranch = this[DEFAULT_BRANCH],
-            vaultKeyPath = this[VAULT_KEY_PATH],
-            deployKeyFingerprint = this[FINGERPRINT],
-            deployKeyAddedAt = this[KEY_ADDED_AT]?.toInstant(),
             createdAt = this[CREATED_AT].toInstant(),
             updatedAt = this[UPDATED_AT].toInstant(),
             verification = toVerification(),
@@ -124,18 +104,14 @@ class JooqRepositoryRepository(
 
     private fun Record.toVerification(): AccessVerification? {
         val checkedAt = this[VERIFY_CHECKED_AT]?.toInstant()
-        val read = this[VERIFY_READ]
-        val write = this[VERIFY_WRITE]
         val protected = this[VERIFY_PROTECTED]
-        // A row is "verified" once any probe has run. Pre-verify rows
-        // carry a null verification so the UI can distinguish "never
-        // checked" from "checked, all null".
-        val everChecked = listOf<Any?>(checkedAt, read, write, protected).any { it != null }
+        // A row is "verified" once the branch-protection check has run.
+        // Pre-verify rows carry a null verification so the UI can
+        // distinguish "never checked" from "checked, all null".
+        val everChecked = listOf<Any?>(checkedAt, protected).any { it != null }
         if (!everChecked) return null
         val messages = this[VERIFY_MESSAGES]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
         return AccessVerification(
-            read = read,
-            write = write,
             defaultBranchProtected = protected,
             checkedAt = checkedAt,
             messages = messages,
@@ -152,16 +128,6 @@ class JooqRepositoryRepository(
         @JvmStatic val REPO_URL = DSL.field("repo_url", String::class.java)
 
         @JvmStatic val DEFAULT_BRANCH = DSL.field("default_branch", String::class.java)
-
-        @JvmStatic val VAULT_KEY_PATH = DSL.field("vault_key_path", String::class.java)
-
-        @JvmStatic val FINGERPRINT = DSL.field("deploy_key_fingerprint", String::class.java)
-
-        @JvmStatic val KEY_ADDED_AT = DSL.field("deploy_key_added_at", OffsetDateTime::class.java)
-
-        @JvmStatic val VERIFY_READ = DSL.field("verify_read", Boolean::class.javaObjectType)
-
-        @JvmStatic val VERIFY_WRITE = DSL.field("verify_write", Boolean::class.javaObjectType)
 
         @JvmStatic val VERIFY_PROTECTED = DSL.field("verify_default_branch_protected", Boolean::class.javaObjectType)
 

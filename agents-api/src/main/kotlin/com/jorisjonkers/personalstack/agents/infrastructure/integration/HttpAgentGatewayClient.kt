@@ -99,17 +99,6 @@ class HttpAgentGatewayClient(
         val output: String,
     )
 
-    private data class VerifyBody(
-        val repoUrl: String,
-        val branch: String? = null,
-    )
-
-    private data class VerifyResult(
-        val read: Boolean = false,
-        val write: Boolean = false,
-        val detail: String = "",
-    )
-
     private fun endpoint(workspace: Workspace): String =
         workspace.gatewayEndpoint ?: error("workspace ${workspace.id} not yet provisioned with a gateway endpoint")
 
@@ -252,30 +241,6 @@ class HttpAgentGatewayClient(
                 .body(GitResult::class.java)
                 ?: error("empty response from gateway")
         return resp.output
-    }
-
-    override fun verifyAccess(
-        repoUrl: String,
-        branch: String?,
-    ): AgentGatewayClient.AccessVerification? {
-        val base = props.verifyGatewayBaseUrl.trim().trimEnd('/')
-        if (base.isEmpty()) {
-            log.info("verifyAccess skipped — no verify-gateway-base-url configured")
-            return null
-        }
-        return runCatching {
-            restClient
-                .post()
-                .uri("$base/git/verify")
-                .body(VerifyBody(repoUrl = repoUrl, branch = branch))
-                .retrieve()
-                .body(VerifyResult::class.java)
-                ?: error("empty response from gateway /git/verify")
-        }.map {
-            AgentGatewayClient.AccessVerification(read = it.read, write = it.write, detail = it.detail)
-        }.onFailure {
-            log.warn("verifyAccess for {} failed: {}", repoUrl, it.message)
-        }.getOrNull()
     }
 
     override fun isReady(workspace: Workspace): Boolean =

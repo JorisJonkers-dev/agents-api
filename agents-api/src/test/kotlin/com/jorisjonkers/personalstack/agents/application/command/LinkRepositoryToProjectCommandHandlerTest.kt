@@ -29,9 +29,6 @@ class LinkRepositoryToProjectCommandHandlerTest {
             name = "name",
             repoUrl = "url",
             defaultBranch = "main",
-            vaultKeyPath = "x",
-            deployKeyFingerprint = null,
-            deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )

@@ -21,9 +21,6 @@ class RepositoryVerificationServiceTest {
             name = "agents",
             repoUrl = "git@github.com:ExtraToast/agents.git",
             defaultBranch = "main",
-            vaultKeyPath = "x",
-            deployKeyFingerprint = "SHA256:abc",
-            deployKeyAddedAt = Instant.now(),
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )
@@ -33,8 +30,6 @@ class RepositoryVerificationServiceTest {
         every { repositories.findById(sample.id) } returns sample
         every { verifyAccess.verify(sample.repoUrl, sample.defaultBranch) } returns
             VerifyRepositoryAccess.Result(
-                read = true,
-                write = true,
                 defaultBranchProtected = false,
                 checkedAt = Instant.now(),
                 messages = listOf("default branch 'main' is NOT protected on GitHub"),
@@ -45,7 +40,6 @@ class RepositoryVerificationServiceTest {
         val result = service.reverify(sample.id)
 
         assertThat(result).isNotNull
-        assertThat(saved.captured.verification?.read).isTrue
         assertThat(saved.captured.verification?.defaultBranchProtected).isFalse
         assertThat(saved.captured.verification?.messages).anyMatch { it.contains("NOT protected") }
     }

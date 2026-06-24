@@ -1,7 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
-import com.jorisjonkers.personalstack.agents.application.exception.RepositoryAccessDeniedException
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
@@ -62,8 +61,6 @@ class CreateWorkspaceCommandHandlerTest {
             // tests don't have to opt in. Individual tests override.
             every { verify(any(), any()) } returns
                 VerifyRepositoryAccess.Result(
-                    read = true,
-                    write = true,
                     defaultBranchProtected = true,
                     checkedAt = Instant.now(),
                     messages = emptyList(),
@@ -146,9 +143,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/projects/x/repos/y",
-                deployKeyFingerprint = "SHA256:abcd",
-                deployKeyAddedAt = Instant.now(),
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -180,9 +174,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "trunk",
-                vaultKeyPath = "secret/data/agents/repositories/$repoId",
-                deployKeyFingerprint = "SHA256:abcd",
-                deployKeyAddedAt = Instant.now(),
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -197,9 +188,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = repository.repoUrl,
                 defaultBranch = repository.defaultBranch,
-                vaultKeyPath = repository.vaultKeyPath,
-                deployKeyFingerprint = repository.deployKeyFingerprint,
-                deployKeyAddedAt = repository.deployKeyAddedAt,
                 createdAt = repository.createdAt,
                 updatedAt = repository.updatedAt,
             )
@@ -231,9 +219,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/repositories/$repoId",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -271,9 +256,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/repositories/$primaryRepoId",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -360,9 +342,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/repositories/$repoId",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -396,9 +375,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/projects/x/repos/y",
-                deployKeyFingerprint = "SHA256:abcd",
-                deployKeyAddedAt = Instant.now(),
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -547,9 +523,6 @@ class CreateWorkspaceCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:ExtraToast/agents.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/repositories/$repoId",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -582,39 +555,34 @@ class CreateWorkspaceCommandHandlerTest {
     }
 
     @Test
-    fun `REPO_BACKED create fails with RepositoryAccessDeniedException when read is false`() {
+    fun `REPO_BACKED create proceeds even when verification is inconclusive (App grants access, not a key)`() {
+        // Access readiness is the GitHub App's concern (surfaced live via
+        // install-status), not enforced at create time — so an inconclusive
+        // branch-protection check never blocks the create.
         every { verifyAccess.verify(any(), any()) } returns
             VerifyRepositoryAccess.Result(
-                read = false,
-                write = false,
                 defaultBranchProtected = null,
                 checkedAt = Instant.now(),
-                messages = listOf("deploy key cannot read the repository: Permission denied (publickey)"),
+                messages = listOf("branch protection on 'main' could not be determined"),
             )
+        every { workspaces.save(any()) } answers { firstArg() }
 
-        val ex =
-            assertThrows<RepositoryAccessDeniedException> {
-                handler.handle(
-                    CreateWorkspaceCommand(
-                        workspaceId = WorkspaceId.random(),
-                        name = "demo",
-                        repoUrl = "git@github.com:owner/repo.git",
-                        branch = null,
-                    ),
-                )
-            }
-        assertThat(ex.message).contains("Permission denied")
-        // No workspace row, no boot — the create aborted before persist.
-        verify(exactly = 0) { workspaces.save(any()) }
-        verify(exactly = 0) { lifecycleService.boot(any(), any()) }
+        handler.handle(
+            CreateWorkspaceCommand(
+                workspaceId = WorkspaceId.random(),
+                name = "demo",
+                repoUrl = "git@github.com:owner/repo.git",
+                branch = null,
+            ),
+        )
+
+        verify { lifecycleService.boot(any(), any()) }
     }
 
     @Test
     fun `REPO_BACKED create proceeds when write is false (read-only key is a warning, not a block)`() {
         every { verifyAccess.verify(any(), any()) } returns
             VerifyRepositoryAccess.Result(
-                read = true,
-                write = false,
                 defaultBranchProtected = true,
                 checkedAt = Instant.now(),
                 messages = listOf("deploy key is read-only — agent commits/pushes will fail: denied"),
@@ -637,8 +605,6 @@ class CreateWorkspaceCommandHandlerTest {
     fun `REPO_BACKED create proceeds when default branch is unprotected (loud warning, not a block)`() {
         every { verifyAccess.verify(any(), any()) } returns
             VerifyRepositoryAccess.Result(
-                read = true,
-                write = true,
                 defaultBranchProtected = false,
                 checkedAt = Instant.now(),
                 messages = listOf("default branch 'main' is NOT protected on GitHub"),
@@ -661,8 +627,6 @@ class CreateWorkspaceCommandHandlerTest {
     fun `REPO_BACKED create proceeds when verify is inconclusive (read null, gateway unavailable)`() {
         every { verifyAccess.verify(any(), any()) } returns
             VerifyRepositoryAccess.Result(
-                read = null,
-                write = null,
                 defaultBranchProtected = null,
                 checkedAt = Instant.now(),
                 messages = listOf("deploy-key access could not be verified (verify gateway unavailable)"),
@@ -729,9 +693,6 @@ class CreateWorkspaceCommandHandlerTest {
         name = name,
         repoUrl = "git@github.com:ExtraToast/$name.git",
         defaultBranch = "main",
-        vaultKeyPath = "secret/data/agents/repositories/$id",
-        deployKeyFingerprint = null,
-        deployKeyAddedAt = null,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
     )

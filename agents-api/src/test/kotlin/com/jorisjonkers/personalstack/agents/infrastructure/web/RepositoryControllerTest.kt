@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationStatusService
 import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationService
 import com.jorisjonkers.personalstack.agents.application.query.RepositoryQueryService
 import com.jorisjonkers.personalstack.agents.domain.model.AccessVerification
@@ -28,12 +29,13 @@ class RepositoryControllerTest {
     private val commandBus = mockk<CommandBus>(relaxed = true)
     private val query = mockk<RepositoryQueryService>()
     private val verificationService = mockk<RepositoryVerificationService>()
+    private val installationStatusService = mockk<RepositoryInstallationStatusService>()
     private val objectMapper = ObjectMapper()
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
-        val controller = RepositoryController(commandBus, query, verificationService)
+        val controller = RepositoryController(commandBus, query, verificationService, installationStatusService)
         mockMvc =
             MockMvcBuilders
                 .standaloneSetup(controller)
@@ -49,9 +51,6 @@ class RepositoryControllerTest {
         name = "agents",
         repoUrl = "git@github.com:o/r.git",
         defaultBranch = "main",
-        vaultKeyPath = "x",
-        deployKeyFingerprint = null,
-        deployKeyAddedAt = null,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         verification = verification,
@@ -118,21 +117,20 @@ class RepositoryControllerTest {
             repo(
                 verification =
                     AccessVerification(
-                        read = true,
-                        write = false,
                         defaultBranchProtected = false,
                         checkedAt = Instant.now(),
-                        messages = listOf("deploy key is read-only"),
+                        messages = listOf("default branch 'main' is NOT protected on GitHub"),
                     ),
             )
         every { query.get(r.id) } returns RepositoryQueryService.RepositoryDetail(r, emptyList())
         mockMvc
             .perform(get("/api/v1/repositories/${r.id.value}"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.repository.verification.read").value(true))
-            .andExpect(jsonPath("$.repository.verification.write").value(false))
             .andExpect(jsonPath("$.repository.verification.defaultBranchProtected").value(false))
-            .andExpect(jsonPath("$.repository.verification.messages[0]").value("deploy key is read-only"))
+            .andExpect(
+                jsonPath("$.repository.verification.messages[0]")
+                    .value("default branch 'main' is NOT protected on GitHub"),
+            )
     }
 
     @Test
@@ -141,8 +139,6 @@ class RepositoryControllerTest {
             repo(
                 verification =
                     AccessVerification(
-                        read = true,
-                        write = true,
                         defaultBranchProtected = true,
                         checkedAt = Instant.now(),
                         messages = emptyList(),
@@ -152,8 +148,7 @@ class RepositoryControllerTest {
         mockMvc
             .perform(post("/api/v1/repositories/${r.id.value}/verify"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.verification.read").value(true))
-            .andExpect(jsonPath("$.verification.write").value(true))
+            .andExpect(jsonPath("$.verification.defaultBranchProtected").value(true))
         verify { verificationService.reverify(r.id) }
     }
 
@@ -171,26 +166,6 @@ class RepositoryControllerTest {
         mockMvc
             .perform(get("/api/v1/repositories/${UUID.randomUUID()}"))
             .andExpect(status().isNotFound)
-    }
-
-    @Test
-    fun `POST attach key returns 202`() {
-        mockMvc
-            .perform(
-                post("/api/v1/repositories/${UUID.randomUUID()}/key")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        objectMapper.writeValueAsString(
-                            mapOf(
-                                "privateKeyOpenssh" to
-                                    "-----BEGIN OPENSSH PRIVATE KEY-----\nx\n-----END OPENSSH PRIVATE KEY-----",
-                                "publicKeyOpenssh" to "ssh-ed25519 AAAAxxx me",
-                                "knownHosts" to null,
-                            ),
-                        ),
-                    ),
-            ).andExpect(status().isAccepted)
-        verify { commandBus.dispatch(any()) }
     }
 
     @Test

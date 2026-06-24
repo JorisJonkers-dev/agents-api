@@ -35,9 +35,6 @@ class CreateRepositoryCommandHandlerTest {
         assertThat(saved.captured.name).isEqualTo("agents")
         assertThat(saved.captured.repoUrl).isEqualTo("git@github.com:owner/repo.git")
         assertThat(saved.captured.defaultBranch).isEqualTo("main")
-        assertThat(saved.captured.vaultKeyPath).isEqualTo("secret/data/agents/repositories/$id")
-        assertThat(saved.captured.deployKeyFingerprint).isNull()
-        assertThat(saved.captured.deployKeyAddedAt).isNull()
     }
 
     @Test
@@ -68,9 +65,6 @@ class CreateRepositoryCommandHandlerTest {
                 name = "agents",
                 repoUrl = "git@github.com:other/repo.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/repositories/x",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )

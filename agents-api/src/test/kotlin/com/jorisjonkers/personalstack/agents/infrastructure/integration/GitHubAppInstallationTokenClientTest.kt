@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.port.GithubAppInstallationState
 import io.mockk.mockk
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -222,6 +223,63 @@ class GitHubAppInstallationTokenClientTest {
     fun `pkcs8Der passes a PKCS#8 key through unchanged`() {
         val der = GitHubAppInstallationTokenClient.pkcs8Der(pkcs8Pem())
         assertThat(der).isEqualTo(keyPair.private.encoded)
+    }
+
+    @Test
+    fun `probe returns INSTALLED on a 200 installation lookup and never requests a token`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = GitHubAppInstallationTokenClient(builder.build(), props())
+
+        // Only the installation lookup is expected — no access_tokens POST.
+        server
+            .expect(requestTo("https://api.github.com/repos/ExtraToast/agents/installation"))
+            .andExpect(method(HttpMethod.GET))
+            .andRespond(withSuccess("""{"id":777}""", MediaType.APPLICATION_JSON))
+
+        assertThat(client.probe("git@github.com:ExtraToast/agents.git"))
+            .isEqualTo(GithubAppInstallationState.INSTALLED)
+        server.verify()
+    }
+
+    @Test
+    fun `probe returns NOT_INSTALLED on a 404 installation lookup`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = GitHubAppInstallationTokenClient(builder.build(), props())
+
+        server
+            .expect(requestTo("https://api.github.com/repos/ExtraToast/agents/installation"))
+            .andRespond(withStatus(org.springframework.http.HttpStatus.NOT_FOUND))
+
+        assertThat(client.probe("git@github.com:ExtraToast/agents.git"))
+            .isEqualTo(GithubAppInstallationState.NOT_INSTALLED)
+        server.verify()
+    }
+
+    @Test
+    fun `probe returns UNKNOWN on a server error`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = GitHubAppInstallationTokenClient(builder.build(), props())
+
+        server
+            .expect(requestTo("https://api.github.com/repos/ExtraToast/agents/installation"))
+            .andRespond(withStatus(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR))
+
+        assertThat(client.probe("git@github.com:ExtraToast/agents.git"))
+            .isEqualTo(GithubAppInstallationState.UNKNOWN)
+        server.verify()
+    }
+
+    @Test
+    fun `probe returns UNKNOWN when disabled or the URL is unparseable, without any HTTP`() {
+        val rc = mockk<RestClient>() // must short-circuit before any HTTP
+        val disabled = GitHubAppInstallationTokenClient(rc, props(appId = ""))
+        assertThat(disabled.probe("git@github.com:ExtraToast/agents.git"))
+            .isEqualTo(GithubAppInstallationState.UNKNOWN)
+        assertThat(GitHubAppInstallationTokenClient(rc, props()).probe("not-a-url"))
+            .isEqualTo(GithubAppInstallationState.UNKNOWN)
     }
 
     companion object {

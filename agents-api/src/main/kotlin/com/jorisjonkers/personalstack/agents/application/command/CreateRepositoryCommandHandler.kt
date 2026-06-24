@@ -8,11 +8,9 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 /**
- * Creates the Repository row in "needs key" state. The Vault path
- * is pre-allocated under `secret/data/agents/repositories/<id>` so
- * the deploy-key wizard can deep-link to a stable URL even before
- * the operator pastes the key in. The fingerprint stays null until
- * [AttachRepositoryDeployKeyCommandHandler] runs.
+ * Creates the Repository row. Access is granted out-of-band by
+ * installing the GitHub App on the repository's owner — no per-repo
+ * credential is stored, so the row is ready to use immediately.
  */
 @Component
 class CreateRepositoryCommandHandler(
@@ -27,16 +25,12 @@ class CreateRepositoryCommandHandler(
             error("repository name already in use: ${command.name.trim()}")
         }
         val now = Instant.now()
-        val vaultPath = "secret/data/agents/repositories/${command.repositoryId}"
         repositories.save(
             Repository(
                 id = command.repositoryId,
                 name = command.name.trim(),
                 repoUrl = command.repoUrl.trim(),
                 defaultBranch = command.defaultBranch.ifBlank { "main" },
-                vaultKeyPath = vaultPath,
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = now,
                 updatedAt = now,
             ),

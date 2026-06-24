@@ -123,7 +123,6 @@ class AgentsApiContractIntegrationTest : IntegrationTestBase() {
             .andExpect(jsonPath("$.name").value("repo-$unique"))
             .andExpect(jsonPath("$.repoUrl").value("git@github.com:owner/repo-$unique.git"))
             .andExpect(jsonPath("$.defaultBranch").value("main"))
-            .andExpect(jsonPath("$.deployKeyFingerprint").isEmpty)
     }
 
     @Test

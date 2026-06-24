@@ -85,9 +85,6 @@ class WorkspaceControllerTest {
             name = "agents",
             repoUrl = "git@github.com:owner/agents.git",
             defaultBranch = "main",
-            vaultKeyPath = "secret/data/agents/repositories/${id.value}",
-            deployKeyFingerprint = null,
-            deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )

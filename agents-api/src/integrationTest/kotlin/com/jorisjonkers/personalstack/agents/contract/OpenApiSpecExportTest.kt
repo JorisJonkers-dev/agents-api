@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.contract
 
+import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationStatusService
 import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationService
 import com.jorisjonkers.personalstack.agents.application.chat.ChatAnswerStreamService
 import com.jorisjonkers.personalstack.agents.application.maintenance.RunnerMaintenanceService
@@ -15,7 +16,6 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartA
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusBroadcaster
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
-import com.jorisjonkers.personalstack.agents.application.setup.SetupGuideService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -43,7 +43,6 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.ProjectControlle
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryAccessDeniedExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.SessionStatusController
-import com.jorisjonkers.personalstack.agents.infrastructure.web.SetupGuideController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.WorkspaceController
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import com.jorisjonkers.personalstack.common.test.openapi.OpenApiSliceExporter
@@ -85,7 +84,6 @@ import java.nio.file.Paths
         ProjectController::class,
         RepositoryController::class,
         SessionStatusController::class,
-        SetupGuideController::class,
         WorkspaceController::class,
     ],
     properties = [
@@ -117,7 +115,6 @@ import java.nio.file.Paths
         ProjectController::class,
         RepositoryController::class,
         SessionStatusController::class,
-        SetupGuideController::class,
         WorkspaceController::class,
     ],
 )
@@ -237,6 +234,9 @@ class OpenApiSpecExportTest {
         fun repositoryVerificationService(): RepositoryVerificationService = mockk(relaxed = true)
 
         @Bean
+        fun repositoryInstallationStatusService(): RepositoryInstallationStatusService = mockk(relaxed = true)
+
+        @Bean
         fun restartAgentSessionService(): RestartAgentSessionService = mockk(relaxed = true)
 
         @Bean
@@ -244,9 +244,6 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun sessionStatusBroadcaster(): SessionStatusBroadcaster = mockk(relaxed = true)
-
-        @Bean
-        fun setupGuideService(): SetupGuideService = mockk(relaxed = true)
 
         @Bean
         fun setupRestartEventRepository(): SetupRestartEventRepository = mockk(relaxed = true)

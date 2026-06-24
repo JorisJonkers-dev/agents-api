@@ -19,7 +19,6 @@ class JooqGithubLinkRepository(
     override fun save(link: GithubLink): GithubLink {
         val createdAt = link.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = link.updatedAt.atOffset(ZoneOffset.UTC)
-        val addedAt = link.deployKeyAddedAt?.atOffset(ZoneOffset.UTC)
         dsl
             .insertInto(LINKS)
             .set(ID, link.id.value)
@@ -27,9 +26,6 @@ class JooqGithubLinkRepository(
             .set(NAME, link.name)
             .set(REPO_URL, link.repoUrl)
             .set(DEFAULT_BRANCH, link.defaultBranch)
-            .set(VAULT_KEY_PATH, link.vaultKeyPath)
-            .set(FINGERPRINT, link.deployKeyFingerprint)
-            .set(KEY_ADDED_AT, addedAt)
             .set(CREATED_AT, createdAt)
             .set(UPDATED_AT, updatedAt)
             .onConflict(ID)
@@ -37,9 +33,6 @@ class JooqGithubLinkRepository(
             .set(NAME, link.name)
             .set(REPO_URL, link.repoUrl)
             .set(DEFAULT_BRANCH, link.defaultBranch)
-            .set(VAULT_KEY_PATH, link.vaultKeyPath)
-            .set(FINGERPRINT, link.deployKeyFingerprint)
-            .set(KEY_ADDED_AT, addedAt)
             .set(UPDATED_AT, updatedAt)
             .execute()
         return link
@@ -71,9 +64,6 @@ class JooqGithubLinkRepository(
             name = this[NAME],
             repoUrl = this[REPO_URL],
             defaultBranch = this[DEFAULT_BRANCH],
-            vaultKeyPath = this[VAULT_KEY_PATH],
-            deployKeyFingerprint = this[FINGERPRINT],
-            deployKeyAddedAt = this[KEY_ADDED_AT]?.toInstant(),
             createdAt = this[CREATED_AT].toInstant(),
             updatedAt = this[UPDATED_AT].toInstant(),
         )
@@ -90,12 +80,6 @@ class JooqGithubLinkRepository(
         @JvmStatic val REPO_URL = DSL.field("repo_url", String::class.java)
 
         @JvmStatic val DEFAULT_BRANCH = DSL.field("default_branch", String::class.java)
-
-        @JvmStatic val VAULT_KEY_PATH = DSL.field("vault_key_path", String::class.java)
-
-        @JvmStatic val FINGERPRINT = DSL.field("deploy_key_fingerprint", String::class.java)
-
-        @JvmStatic val KEY_ADDED_AT = DSL.field("deploy_key_added_at", OffsetDateTime::class.java)
 
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 

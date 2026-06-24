@@ -50,9 +50,6 @@ class AddGithubLinkCommandHandlerTest {
         assertThat(saved.captured.id).isEqualTo(linkId)
         assertThat(saved.captured.name).isEqualTo("agents")
         assertThat(saved.captured.defaultBranch).isEqualTo("main")
-        assertThat(saved.captured.vaultKeyPath).isEqualTo("secret/data/agents/projects/${proj.id}/repos/$linkId")
-        assertThat(saved.captured.deployKeyFingerprint).isNull()
-        assertThat(saved.captured.deployKeyAddedAt).isNull()
     }
 
     @Test

@@ -3,8 +3,8 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLink
 import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
-import com.jorisjonkers.personalstack.agents.domain.port.DeployKeyStore
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
+import com.jorisjonkers.personalstack.common.vault.VaultKeyValueWriter
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -13,15 +13,15 @@ import java.time.Instant
 
 class RemoveGithubLinkCommandHandlerTest {
     private val links = mockk<GithubLinkRepository>(relaxed = true)
-    private val deployKeys = mockk<DeployKeyStore>(relaxed = true)
-    private val deployKeysProvider =
-        mockk<org.springframework.beans.factory.ObjectProvider<DeployKeyStore>> {
-            every { ifAvailable } returns deployKeys
+    private val vaultWriter = mockk<VaultKeyValueWriter>(relaxed = true)
+    private val vaultWriterProvider =
+        mockk<org.springframework.beans.factory.ObjectProvider<VaultKeyValueWriter>> {
+            every { ifAvailable } returns vaultWriter
         }
-    private val handler = RemoveGithubLinkCommandHandler(links, deployKeysProvider)
+    private val handler = RemoveGithubLinkCommandHandler(links, vaultWriterProvider)
 
     @Test
-    fun `handle removes vault key then deletes the link row`() {
+    fun `handle best-effort removes any leftover vault secret then deletes the link row`() {
         val link =
             GithubLink(
                 id = GithubLinkId.random(),
@@ -29,9 +29,6 @@ class RemoveGithubLinkCommandHandlerTest {
                 name = "x",
                 repoUrl = "git@github.com:o/r.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/projects/p/repos/l",
-                deployKeyFingerprint = "SHA256:abc",
-                deployKeyAddedAt = Instant.now(),
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
@@ -39,7 +36,7 @@ class RemoveGithubLinkCommandHandlerTest {
 
         handler.handle(RemoveGithubLinkCommand(link.id))
 
-        verify { deployKeys.remove(link.projectId, link.id) }
+        verify { vaultWriter.deleteSecret("secret/data/agents/projects/${link.projectId}/repos/${link.id}") }
         verify { links.delete(link.id) }
     }
 
@@ -48,7 +45,7 @@ class RemoveGithubLinkCommandHandlerTest {
         val id = GithubLinkId.random()
         every { links.findById(id) } returns null
         handler.handle(RemoveGithubLinkCommand(id))
-        verify(exactly = 0) { deployKeys.remove(any(), any()) }
+        verify(exactly = 0) { vaultWriter.deleteSecret(any()) }
         verify(exactly = 0) { links.delete(any()) }
     }
 
@@ -61,14 +58,11 @@ class RemoveGithubLinkCommandHandlerTest {
                 name = "x",
                 repoUrl = "git@github.com:o/r.git",
                 defaultBranch = "main",
-                vaultKeyPath = "secret/data/agents/projects/p/repos/l",
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
         every { links.findById(link.id) } returns link
-        every { deployKeys.remove(any(), any()) } throws RuntimeException("vault unreachable")
+        every { vaultWriter.deleteSecret(any()) } throws RuntimeException("vault unreachable")
 
         handler.handle(RemoveGithubLinkCommand(link.id))
 

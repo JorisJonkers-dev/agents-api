@@ -1,7 +1,6 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
-import com.jorisjonkers.personalstack.agents.application.exception.RepositoryAccessDeniedException
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
@@ -120,25 +119,16 @@ class CreateWorkspaceCommandHandler(
     private fun verifyOrFail(
         repoUrl: String,
         branch: String?,
-        repositoryId: RepositoryId?,
+        @Suppress("UNUSED_PARAMETER") repositoryId: RepositoryId?,
     ) {
         val effectiveBranch = branch?.takeIf { it.isNotBlank() } ?: "main"
         val result = verifyAccess.verify(repoUrl, effectiveBranch)
-        // read == false is an explicit "auth ok but no read" or an
-        // unauthenticated reject — either way the runner could never
-        // clone, so fail loudly instead of leaving a dead workspace.
-        // read == null (gateway unavailable) is NOT fatal: it degrades
-        // to a warning so a verify-gateway outage can't block the
-        // whole create flow.
-        if (result.read == false) {
-            throw RepositoryAccessDeniedException(
-                repositoryId = repositoryId ?: RepositoryId.random(),
-                reason = result.messages.joinToString("; ").ifBlank { "read access denied" },
-            )
-        }
-        // write == false / unprotected main / inconclusive checks are
-        // loud warnings only — the operator sets branch protection on
-        // GitHub, and a read-only key is recorded so the UI can prompt.
+        // Access readiness is the GitHub App's concern now, surfaced live
+        // via the repository install-status — it is not enforced at
+        // workspace-create time. The only check left here is branch
+        // protection on the default branch, which is advisory: an
+        // unprotected branch or an inconclusive lookup is a loud warning,
+        // never a hard create failure.
         result.messages.forEach { log.warn("workspace create verify warning [{}]: {}", repoUrl, it) }
     }
 

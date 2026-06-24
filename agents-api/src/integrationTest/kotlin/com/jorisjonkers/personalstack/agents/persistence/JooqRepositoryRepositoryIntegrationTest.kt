@@ -33,9 +33,6 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
             name = name,
             repoUrl = "git@github.com:owner/$name.git",
             defaultBranch = "main",
-            vaultKeyPath = "secret/data/agents/repositories/x",
-            deployKeyFingerprint = null,
-            deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )
@@ -67,15 +64,11 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
         repositories.save(r)
         val withKey =
             r.copy(
-                deployKeyFingerprint = "SHA256:abc",
-                deployKeyAddedAt = Instant.now(),
                 updatedAt = Instant.now(),
             )
         repositories.save(withKey)
 
         val loaded = repositories.findById(r.id)
-        assertThat(loaded!!.deployKeyFingerprint).isEqualTo("SHA256:abc")
-        assertThat(loaded.deployKeyAddedAt).isNotNull
     }
 
     @Test
@@ -121,14 +114,12 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
                 updatedAt = Instant.now(),
                 verification =
                     AccessVerification(
-                        read = true,
-                        write = false,
                         defaultBranchProtected = false,
                         checkedAt = checkedAt,
                         messages =
                             listOf(
-                                "deploy key is read-only — agent commits/pushes will fail: denied",
                                 "default branch 'main' is NOT protected on GitHub",
+                                "second line for the multi-line round-trip",
                             ),
                     ),
             )
@@ -136,13 +127,11 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
 
         val loaded = repositories.findById(r.id)!!.verification
         assertThat(loaded).isNotNull
-        assertThat(loaded!!.read).isTrue
-        assertThat(loaded.write).isFalse
-        assertThat(loaded.defaultBranchProtected).isFalse
+        assertThat(loaded!!.defaultBranchProtected).isFalse
         assertThat(loaded.checkedAt).isCloseTo(checkedAt, within(1, ChronoUnit.SECONDS))
         assertThat(loaded.messages).hasSize(2)
-        assertThat(loaded.messages).anyMatch { it.contains("read-only") }
         assertThat(loaded.messages).anyMatch { it.contains("NOT protected") }
+        assertThat(loaded.messages).anyMatch { it.contains("multi-line") }
     }
 
     @Test
@@ -154,8 +143,6 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
                 updatedAt = Instant.now(),
                 verification =
                     AccessVerification(
-                        read = null,
-                        write = null,
                         defaultBranchProtected = null,
                         checkedAt = Instant.now(),
                         messages = listOf("deploy-key access could not be verified (verify gateway unavailable)"),
@@ -165,9 +152,7 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
 
         val loaded = repositories.findById(r.id)!!.verification
         assertThat(loaded).isNotNull
-        assertThat(loaded!!.read).isNull()
-        assertThat(loaded.write).isNull()
-        assertThat(loaded.defaultBranchProtected).isNull()
+        assertThat(loaded!!.defaultBranchProtected).isNull()
         assertThat(loaded.messages).anyMatch { it.contains("could not be verified") }
     }
 

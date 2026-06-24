@@ -3,16 +3,11 @@ package com.jorisjonkers.personalstack.agents.k8s
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
-import com.jorisjonkers.personalstack.agents.domain.model.GithubLink
-import com.jorisjonkers.personalstack.agents.domain.model.GithubLinkId
-import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
-import com.jorisjonkers.personalstack.agents.domain.port.DeployKeyStore
-import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.k8s.Fabric8AgentRunnerOrchestrator
@@ -32,7 +27,6 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.k3s.K3sContainer
 import java.time.Instant
-import java.util.UUID
 
 /**
  * End-to-end exercise of [Fabric8AgentRunnerOrchestrator] against a
@@ -90,7 +84,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provision with production RBAC creates pvc pod service`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
 
         orchestrator.provision(workspace)
@@ -124,7 +118,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provisioned pod carries knowledge mcp env`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
 
         orchestrator.provision(workspace)
@@ -230,7 +224,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provision applies setup spec to pod env config labels and volumes`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         val setup = customSetupSpec()
 
@@ -285,11 +279,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
                 .single { it.name == "codex-credentials" }
                 .persistentVolumeClaim.claimName,
         ).isEqualTo("custom-codex-credentials")
-        assertThat(
-            pod.spec.volumes
-                .single { it.name == "github-deploy-key" }
-                .secret.secretName,
-        ).isEqualTo("custom-github-deploy-key")
+        assertThat(pod.spec.volumes.none { it.name == "github-deploy-key" }).isTrue()
         assertThat(
             pod.spec.volumes
                 .single { it.name == "mcp-config" }
@@ -321,7 +311,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `runnerState reads identity and readiness rejects mismatched generation`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val setup = customSetupSpec()
         val workspace =
             adHocWorkspace().copy(
@@ -346,7 +336,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provision with pre #372 restricted RBAC fails with patch forbidden on pvc`() {
         K3sTestSupport.applyPre372RestrictedRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
 
         assertThatThrownBy { orchestrator.provision(adHocWorkspace()) }
             .isInstanceOf(KubernetesClientException::class.java)
@@ -358,7 +348,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provision is idempotent`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
 
         orchestrator.provision(workspace)
@@ -378,7 +368,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `scaleDown removes pod and service but keeps the pvc`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         orchestrator.provision(workspace)
 
@@ -419,7 +409,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `destroy removes the four resources`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         orchestrator.provision(workspace)
 
@@ -483,51 +473,11 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     }
 
     @Test
-    @DisplayName("provision with project link stamps a workspace-scoped Secret")
-    fun `provision with project link stamps workspace scoped secret`() {
-        K3sTestSupport.applyProductionRbac(admin)
-        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-
-        val projectId = ProjectId(UUID.randomUUID())
-        val linkId = GithubLinkId.random()
-        val link =
-            GithubLink(
-                id = linkId,
-                projectId = projectId,
-                name = "test-repo",
-                repoUrl = "git@github.com:example/test-repo.git",
-                defaultBranch = "main",
-                vaultKeyPath = "secret/agents/projects/$projectId/repos/$linkId",
-                deployKeyFingerprint = "SHA256:test",
-                deployKeyAddedAt = Instant.now(),
-                createdAt = Instant.now(),
-                updatedAt = Instant.now(),
-            )
-        val keys = StaticDeployKeyStore(linkId, EXAMPLE_KEY_MATERIAL)
-        val links = SingleEntryGithubLinkRepo(link)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = wrap(keys), githubLinks = wrap(links))
-
-        val workspace = adHocWorkspace().copy(githubLinkId = linkId)
-        orchestrator.provision(workspace)
-
-        val short = workspace.id.short()
-        val secret =
-            admin
-                .secrets()
-                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
-                .withName("agent-runner-deploy-key-$short")
-                .get()
-        assertThat(secret).isNotNull
-        assertThat(secret.metadata.labels["agent-runner/github-link-id"]).isEqualTo(linkId.toString())
-        assertThat(secret.data).containsKeys("private_key", "public_key", "known_hosts", "fingerprint")
-    }
-
-    @Test
     @DisplayName("runnerState returns null when pod does not exist")
     fun `runnerState returns null when pod does not exist`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
 
         assertThat(orchestrator.runnerState(workspace)).isNull()
@@ -538,7 +488,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `isReady returns false when pod does not exist`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
 
         assertThat(orchestrator.isReady(workspace)).isFalse()
@@ -549,7 +499,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `isReady returns false while container is not yet ready`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         val handle = orchestrator.provision(workspace)
         val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
@@ -563,7 +513,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `isReady rejects mismatched setup identity`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val setup = customSetupSpec()
         val workspace =
             adHocWorkspace().copy(
@@ -599,7 +549,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `isRunnerImageStale returns false when pod does not exist`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace().let { it.copy(podName = "agent-runner-${it.id.short()}") }
 
         assertThat(orchestrator.isRunnerImageStale(workspace)).isFalse()
@@ -610,7 +560,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `runnerState reads runner image version`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         val handle = orchestrator.provision(workspace)
         val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
@@ -627,7 +577,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `scaleDown before provision does not throw`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
 
         // No pod has been provisioned yet — scaleDown must succeed without error
@@ -639,7 +589,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `scaleDown waits for the pod to be gone`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val workspace = adHocWorkspace()
         val handle = orchestrator.provision(workspace)
         markPodReady(handle.podName)
@@ -663,7 +613,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     fun `provision stamps new generation labels making prior boot lease identity stale`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
-        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val orchestrator = orchestrator(saScoped)
         val setup = customSetupSpec()
         val workspace =
             adHocWorkspace().copy(
@@ -697,16 +647,12 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
 
     private fun orchestrator(
         client: KubernetesClient,
-        deployKeysProvider: ObjectProvider<DeployKeyStore>,
-        githubLinks: ObjectProvider<GithubLinkRepository>,
         workspaceRepos: ObjectProvider<WorkspaceRepositoryRepository> = empty(),
         repositories: ObjectProvider<RepositoryRepository> = empty(),
     ): Fabric8AgentRunnerOrchestrator =
         Fabric8AgentRunnerOrchestrator(
             client = client,
             props = testProps(),
-            deployKeysProvider = deployKeysProvider,
-            githubLinks = githubLinks,
             workspaceRepos = workspaceRepos,
             repositories = repositories,
         )
@@ -790,65 +736,6 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
             }
     }
 
-    private class StaticDeployKeyStore(
-        private val linkId: GithubLinkId,
-        private val material: DeployKeyStore.KeyMaterial,
-    ) : DeployKeyStore {
-        override fun store(
-            projectId: ProjectId,
-            linkId: GithubLinkId,
-            privateKeyOpenssh: String,
-            publicKeyOpenssh: String,
-            knownHosts: String,
-        ): DeployKeyStore.StoredKey = error("not used in this test")
-
-        override fun remove(
-            projectId: ProjectId,
-            linkId: GithubLinkId,
-        ) = error("not used in this test")
-
-        override fun readPublicKey(
-            projectId: ProjectId,
-            linkId: GithubLinkId,
-        ): String? = material.publicKey
-
-        override fun loadKey(
-            projectId: ProjectId,
-            linkId: GithubLinkId,
-        ): DeployKeyStore.KeyMaterial? = if (linkId == this.linkId) material else null
-
-        override fun store(
-            repositoryId: com.jorisjonkers.personalstack.agents.domain.model.RepositoryId,
-            privateKeyOpenssh: String,
-            publicKeyOpenssh: String,
-            knownHosts: String,
-        ): DeployKeyStore.StoredKey = error("not used in this test")
-
-        override fun remove(repositoryId: com.jorisjonkers.personalstack.agents.domain.model.RepositoryId) =
-            error("not used in this test")
-
-        override fun readPublicKey(
-            repositoryId: com.jorisjonkers.personalstack.agents.domain.model.RepositoryId,
-        ): String? = material.publicKey
-
-        override fun loadKey(
-            repositoryId: com.jorisjonkers.personalstack.agents.domain.model.RepositoryId,
-        ): DeployKeyStore.KeyMaterial? = if (repositoryId.value == linkId.value) material else null
-    }
-
-    private class SingleEntryGithubLinkRepo(
-        private val link: GithubLink,
-    ) : GithubLinkRepository {
-        override fun save(link: GithubLink): GithubLink = error("not used in this test")
-
-        override fun findById(id: GithubLinkId): GithubLink? = if (id == link.id) link else null
-
-        override fun findAllByProjectId(projectId: ProjectId): List<GithubLink> =
-            if (projectId == link.projectId) listOf(link) else emptyList()
-
-        override fun delete(id: GithubLinkId) = error("not used in this test")
-    }
-
     /**
      * Minimal `ObjectProvider` impl. The orchestrator only ever
      * reads `.ifAvailable`, so the unused defaults are fine — but
@@ -873,8 +760,6 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
 
     private fun <T : Any> empty(): ObjectProvider<T> = SingleValueObjectProvider(null)
 
-    private fun <T : Any> wrap(value: T): ObjectProvider<T> = SingleValueObjectProvider(value)
-
     companion object {
         // Singleton k3s container per test class. `@JvmStatic` lets the
         // Testcontainers JUnit-Jupiter extension recognise it as a
@@ -886,17 +771,5 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
 
         private const val POLL_ATTEMPTS = 20
         private const val POLL_INTERVAL_MS = 50L
-
-        // Synthetic key material — the orchestrator never parses it,
-        // just base64-encodes the bytes into a k8s Secret. The
-        // explicit "NOT-A-REAL-KEY" string keeps secret scanners
-        // from flagging the file.
-        private val EXAMPLE_KEY_MATERIAL =
-            DeployKeyStore.KeyMaterial(
-                privateKey = "TEST-PRIVATE-KEY-NOT-A-REAL-KEY",
-                publicKey = "TEST-PUBLIC-KEY-NOT-A-REAL-KEY",
-                knownHosts = "github.com ssh-rsa AAAA-test-only",
-                fingerprint = "SHA256:test",
-            )
     }
 }

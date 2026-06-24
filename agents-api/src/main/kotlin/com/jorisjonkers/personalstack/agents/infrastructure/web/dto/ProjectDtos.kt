@@ -47,9 +47,6 @@ data class GithubLinkResponse(
     val name: String,
     val repoUrl: String,
     val defaultBranch: String,
-    val vaultKeyPath: String,
-    val deployKeyFingerprint: String?,
-    val deployKeyAddedAt: Instant?,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -61,17 +58,8 @@ data class GithubLinkResponse(
                 name = l.name,
                 repoUrl = l.repoUrl,
                 defaultBranch = l.defaultBranch,
-                vaultKeyPath = l.vaultKeyPath,
-                deployKeyFingerprint = l.deployKeyFingerprint,
-                deployKeyAddedAt = l.deployKeyAddedAt,
                 createdAt = l.createdAt,
                 updatedAt = l.updatedAt,
             )
     }
 }
-
-data class AttachDeployKeyRequest(
-    @field:NotBlank val privateKeyOpenssh: String,
-    @field:NotBlank val publicKeyOpenssh: String,
-    val knownHosts: String? = null,
-)

@@ -127,7 +127,7 @@ class AgentSetupValidationServiceTest {
     }
 
     @Test
-    fun `validates repository allowlist deploy key and project binding`() {
+    fun `validates repository allowlist and project binding`() {
         val repositoryId = RepositoryId.random()
         val allowedRepositoryId = RepositoryId.random()
         val projectId = ProjectId.random()
@@ -153,7 +153,7 @@ class AgentSetupValidationServiceTest {
             )
         } returns definition()
         every { workspaceRepositories.findAllByWorkspaceId(request.workspace.id) } returns emptyList()
-        every { repositories.findById(repositoryId) } returns repository(repositoryId, keyAttached = false)
+        every { repositories.findById(repositoryId) } returns repository(repositoryId)
         every { projectRepositories.exists(projectId, repositoryId) } returns false
 
         val result = service.validate(request)
@@ -161,8 +161,10 @@ class AgentSetupValidationServiceTest {
         assertThat(result.valid).isFalse()
         assertThat(result.issues.map { it.code }).contains(
             AgentSetupValidationIssueCode.REPOSITORY_NOT_ALLOWED,
-            AgentSetupValidationIssueCode.DEPLOY_KEY_MISSING,
             AgentSetupValidationIssueCode.REPOSITORY_NOT_LINKED_TO_PROJECT,
+        )
+        assertThat(result.issues.map { it.code }).doesNotContain(
+            AgentSetupValidationIssueCode.DEPLOY_KEY_MISSING,
         )
     }
 
@@ -344,25 +346,17 @@ class AgentSetupValidationServiceTest {
         )
     }
 
-    private fun repository(
-        id: RepositoryId,
-        keyAttached: Boolean,
-    ): Repository {
+    private fun repository(id: RepositoryId): Repository {
         val now = Instant.parse("2026-06-12T00:00:00Z")
         return Repository(
             id = id,
             name = "example",
             repoUrl = "git@github.com:ExtraToast/example.git",
             defaultBranch = "main",
-            vaultKeyPath = "secret/data/example",
-            deployKeyFingerprint = if (keyAttached) "SHA256:abc" else null,
-            deployKeyAddedAt = if (keyAttached) now else null,
             createdAt = now,
             updatedAt = now,
             verification =
                 AccessVerification(
-                    read = true,
-                    write = true,
                     defaultBranchProtected = true,
                     checkedAt = now,
                     messages = emptyList(),

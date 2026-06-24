@@ -9,12 +9,9 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 /**
- * Creates the GithubLink row without yet attaching a deploy key —
- * the link is in "needs key" state until the operator follows the
- * setup guide and POSTs the keypair via AttachDeployKey. The Vault
- * path is pre-allocated so the setup guide can deep-link to it
- * (and so a partial flow doesn't ship a link without a planned
- * home for its key).
+ * Creates a (legacy) GithubLink row. Access is granted by installing
+ * the GitHub App on the repository's owner — links carry no deploy
+ * key, so the row is ready to use as soon as it is created.
  */
 @Component
 class AddGithubLinkCommandHandler(
@@ -29,7 +26,6 @@ class AddGithubLinkCommandHandler(
         require(command.name.isNotBlank()) { "link name must not be blank" }
         require(command.repoUrl.isNotBlank()) { "repo URL must not be blank" }
         val now = Instant.now()
-        val vaultPath = "secret/data/agents/projects/${project.id}/repos/${command.linkId}"
         links.save(
             GithubLink(
                 id = command.linkId,
@@ -37,9 +33,6 @@ class AddGithubLinkCommandHandler(
                 name = command.name.trim(),
                 repoUrl = command.repoUrl.trim(),
                 defaultBranch = command.defaultBranch.ifBlank { "main" },
-                vaultKeyPath = vaultPath,
-                deployKeyFingerprint = null,
-                deployKeyAddedAt = null,
                 createdAt = now,
                 updatedAt = now,
             ),

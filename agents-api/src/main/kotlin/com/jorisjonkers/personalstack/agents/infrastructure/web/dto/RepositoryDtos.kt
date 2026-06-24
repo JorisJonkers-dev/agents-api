@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web.dto
 
+import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationStatusService
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
@@ -13,8 +14,6 @@ data class CreateRepositoryRequest(
 )
 
 data class AccessVerificationResponse(
-    val read: Boolean?,
-    val write: Boolean?,
     val defaultBranchProtected: Boolean?,
     val checkedAt: Instant?,
     val messages: List<String>,
@@ -22,8 +21,6 @@ data class AccessVerificationResponse(
     companion object {
         fun of(v: com.jorisjonkers.personalstack.agents.domain.model.AccessVerification) =
             AccessVerificationResponse(
-                read = v.read,
-                write = v.write,
                 defaultBranchProtected = v.defaultBranchProtected,
                 checkedAt = v.checkedAt,
                 messages = v.messages,
@@ -36,9 +33,6 @@ data class RepositoryResponse(
     val name: String,
     val repoUrl: String,
     val defaultBranch: String,
-    val vaultKeyPath: String,
-    val deployKeyFingerprint: String?,
-    val deployKeyAddedAt: Instant?,
     val createdAt: Instant,
     val updatedAt: Instant,
     val verification: AccessVerificationResponse?,
@@ -50,9 +44,6 @@ data class RepositoryResponse(
                 name = r.name,
                 repoUrl = r.repoUrl,
                 defaultBranch = r.defaultBranch,
-                vaultKeyPath = r.vaultKeyPath,
-                deployKeyFingerprint = r.deployKeyFingerprint,
-                deployKeyAddedAt = r.deployKeyAddedAt,
                 createdAt = r.createdAt,
                 updatedAt = r.updatedAt,
                 verification = r.verification?.let(AccessVerificationResponse::of),
@@ -60,12 +51,26 @@ data class RepositoryResponse(
     }
 }
 
-data class AttachRepositoryDeployKeyRequest(
-    @field:NotBlank val privateKeyOpenssh: String,
-    @field:NotBlank val publicKeyOpenssh: String,
-    val knownHosts: String? = null,
-)
-
 data class LinkRepositoryRequest(
     val repositoryId: UUID,
 )
+
+/**
+ * Live GitHub App installation status for a repository. `state` is one
+ * of INSTALLED / NOT_INSTALLED / UNKNOWN; the UI builds the install link
+ * from the repository's URL. No token is ever returned.
+ */
+data class RepositoryInstallationStatusResponse(
+    val state: String,
+    val checkedAt: Instant,
+    val detail: String?,
+) {
+    companion object {
+        fun of(s: RepositoryInstallationStatusService.Status) =
+            RepositoryInstallationStatusResponse(
+                state = s.state.name,
+                checkedAt = s.checkedAt,
+                detail = s.detail,
+            )
+    }
+}

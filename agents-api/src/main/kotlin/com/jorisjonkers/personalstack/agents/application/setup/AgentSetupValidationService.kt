@@ -169,14 +169,6 @@ class AgentSetupValidationService(
             )
             return
         }
-        if (!repository.isKeyAttached) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.DEPLOY_KEY_MISSING,
-                    message = "repository ${repository.id.value} has no deploy key attached",
-                ),
-            )
-        }
         if (projectId != null && !projectRepositories.exists(projectId, repository.id)) {
             issues.add(
                 AgentSetupValidationIssue(

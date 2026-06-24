@@ -103,9 +103,6 @@ class AttachWorkspaceRepositoryCommandHandlerTest {
             name = "website",
             repoUrl = "git@github.com:o/website.git",
             defaultBranch = "main",
-            vaultKeyPath = "secret/data/agents/repositories/${repositoryId.value}",
-            deployKeyFingerprint = null,
-            deployKeyAddedAt = null,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )
