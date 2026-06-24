@@ -635,6 +635,30 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     }
 
     @Test
+    @DisplayName("scaleDown blocks until the runner pod is fully terminated")
+    fun `scaleDown waits for the pod to be gone`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
+        val workspace = adHocWorkspace()
+        val handle = orchestrator.provision(workspace)
+        markPodReady(handle.podName)
+
+        orchestrator.scaleDown(workspace)
+
+        // scaleDown returns only once the pod is gone, so a back-to-back
+        // provision recreates on a clean slate — no Terminating pod still
+        // holding the ReadWriteOnce workspace PVC.
+        val pod =
+            admin
+                .pods()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName(handle.podName)
+                .get()
+        assertThat(pod).isNull()
+    }
+
+    @Test
     @DisplayName("re-provision with a newer generation re-stamps pod labels so prior-generation identity is rejected")
     fun `provision stamps new generation labels making prior boot lease identity stale`() {
         K3sTestSupport.applyProductionRbac(admin)

@@ -459,6 +459,7 @@ class RunnerSessionBinder(
                     orchestrator.scaleDown(workspace)
                     orchestrator.provision(workspace, target.spec, runnerGeneration)
                 }.getOrElse { ex ->
+                    log.warn("reprovision of workspace {} failed during scaleDown/provision", workspace.id.value, ex)
                     throw AgentRunnerUnavailableException(
                         workspaceId = workspace.id,
                         runnerStatus = "ReprovisionFailed",

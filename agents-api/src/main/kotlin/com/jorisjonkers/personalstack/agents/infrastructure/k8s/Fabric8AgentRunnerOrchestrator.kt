@@ -31,6 +31,7 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 
 /**
  * Owns the entire lifecycle of one workspace's runner Pod. The shape
@@ -127,16 +128,32 @@ class Fabric8AgentRunnerOrchestrator(
 
     override fun scaleDown(workspace: Workspace) {
         val short = workspace.id.short()
+        val podName = "agent-runner-$short"
         client
             .pods()
             .inNamespace(props.namespace)
-            .withName("agent-runner-$short")
+            .withName(podName)
             .delete()
         client
             .services()
             .inNamespace(props.namespace)
-            .withName("agent-runner-$short")
+            .withName(podName)
             .delete()
+        // Block until the Pod is fully gone before returning. A reprovision
+        // (restart / "Update runner") calls scaleDown then provision back to
+        // back; recreating the same-named Pod while the old one is still
+        // Terminating — and still holding the ReadWriteOnce workspace PVC —
+        // left the new runner unschedulable and the reprovision failing. The
+        // first-provision path has no old Pod, which is why it always worked.
+        runCatching {
+            client
+                .pods()
+                .inNamespace(props.namespace)
+                .withName(podName)
+                .waitUntilCondition({ it == null }, POD_TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        }.onFailure {
+            log.warn("runner pod {} still terminating after timeout: {}", podName, it.message)
+        }
         log.info("scaled down runner pod for workspace {} (PVC preserved)", workspace.id)
     }
 
@@ -759,6 +776,11 @@ class Fabric8AgentRunnerOrchestrator(
         private const val RUN_AS_GID = 1000L
         private const val FS_GROUP = 1000L
         private const val DOCKER_SOCKET_VOLUME = "docker-socket"
+
+        // How long scaleDown waits for the old runner Pod to fully terminate
+        // (and release the ReadWriteOnce workspace PVC) before returning, so a
+        // back-to-back provision recreates it on a clean slate.
+        private const val POD_TERMINATION_TIMEOUT_SECONDS = 90L
 
         // Resource sizing. One Pod hosts the gateway JVM, the agent CLIs
         // (Claude Code, Codex) and the workspace's own processes in a
