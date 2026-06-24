@@ -86,7 +86,7 @@ class WorkspaceController(
                 view.workspace,
                 view.repositories,
                 view.sessions,
-                WorkspaceRunnerImageResponse.of(runnerImage.digest, runnerImage.upgradeAvailable),
+                WorkspaceRunnerImageResponse.of(runnerImage.version, runnerImage.upgradeAvailable),
             ),
         )
     }

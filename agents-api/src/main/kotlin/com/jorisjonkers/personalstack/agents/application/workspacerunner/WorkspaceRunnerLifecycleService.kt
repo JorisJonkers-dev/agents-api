@@ -108,22 +108,22 @@ class WorkspaceRunnerLifecycleService(
     }
 
     data class RunnerImageStatus(
-        val digest: String?,
+        val version: String?,
         val upgradeAvailable: Boolean,
     )
 
     /**
-     * The workspace runner's current agent-runner image digest and whether a
-     * newer one is available (its digest is behind the freshest running
-     * runner). Best-effort: any cluster read failure degrades to
-     * `digest=null, upgradeAvailable=false` so it never blocks the response.
+     * The workspace runner's current agent-runner release version and whether a
+     * newer one is available (the runner is behind the release agents-api is
+     * on). Best-effort: any cluster read failure degrades to
+     * `version=null, upgradeAvailable=false` so it never blocks the response.
      */
     fun runnerImageStatus(workspace: Workspace): RunnerImageStatus {
-        val current = runCatching { orchestrator.runnerImageDigest(workspace) }.getOrNull()
-        val freshest = runCatching { orchestrator.freshestRunnerImageDigest() }.getOrNull()
+        val current = runCatching { orchestrator.runnerImageVersion(workspace) }.getOrNull()
+        val target = runCatching { orchestrator.targetRunnerImageVersion() }.getOrNull()
         return RunnerImageStatus(
-            digest = current,
-            upgradeAvailable = current != null && freshest != null && current != freshest,
+            version = current,
+            upgradeAvailable = current != null && target != null && current != target,
         )
     }
 

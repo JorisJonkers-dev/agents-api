@@ -9,15 +9,11 @@ data class RunnerState(
     val runnerGeneration: Long?,
     val phase: String?,
     val containerReady: Boolean,
-    // Release marker (the agents-api image digest in force when this pod was
-    // provisioned) used to detect a runner left behind on an old image after a
-    // new release. Null on pods provisioned before this was introduced.
-    val imageMarker: String? = null,
-    // The agent-runner image digest this pod actually resolved to at pull time
-    // (from the container status imageID). This is what lets us tell a runner
-    // is behind a newer agent-runner image, independent of the agents-api
-    // release marker above. Null until the container has pulled/started.
-    val runnerImageDigest: String? = null,
+    // The agent-runner release version this pod is running — the version tag its
+    // image is pinned to at provision (e.g. "v0.12.0"), read back from the Pod
+    // spec. Lets us tell a runner is behind a newer agent-runner release. Null
+    // when the image carries no version tag (e.g. a dev `:latest` build).
+    val runnerImageVersion: String? = null,
 ) {
     data class Identity(
         val setupId: AgentSetupId,
@@ -52,6 +48,5 @@ data class RunnerState(
         const val LABEL_SETUP_VERSION = "agent-runner/setup-version"
         const val LABEL_RUNNER_GENERATION = "agent-runner/runner-generation"
         const val ANNOTATION_SETUP_HASH = "agent-runner/setup-hash"
-        const val ANNOTATION_IMAGE_MARKER = "agent-runner/image-marker"
     }
 }

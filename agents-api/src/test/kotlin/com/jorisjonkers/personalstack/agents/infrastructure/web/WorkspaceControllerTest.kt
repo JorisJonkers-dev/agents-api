@@ -258,7 +258,7 @@ class WorkspaceControllerTest {
             )
         every { lifecycleService.runnerImageStatus(w) } returns
             WorkspaceRunnerLifecycleService.RunnerImageStatus(
-                digest = "sha256:0000000000000000000000000000000000000000000000000000aabbccddeeff",
+                version = "v0.12.0",
                 upgradeAvailable = true,
             )
         mockMvc
@@ -268,8 +268,8 @@ class WorkspaceControllerTest {
             .andExpect(jsonPath("$.workspace.repositories[0].id").value(r.id.value.toString()))
             .andExpect(jsonPath("$.workspace.repositories[0].name").value("agents"))
             .andExpect(jsonPath("$.workspace.repositories[0].isPrimary").value(true))
-            // Runner image surfaced for the operator: short digest + upgrade flag.
-            .andExpect(jsonPath("$.workspace.runnerImage.digest").value("aabbccddeeff"))
+            // Runner image surfaced for the operator: release version (v-stripped) + upgrade flag.
+            .andExpect(jsonPath("$.workspace.runnerImage.version").value("0.12.0"))
             .andExpect(jsonPath("$.workspace.runnerImage.upgradeAvailable").value(true))
             .andExpect(jsonPath("$.sessions").isArray)
     }

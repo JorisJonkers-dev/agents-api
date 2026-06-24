@@ -56,29 +56,30 @@ interface AgentRunnerOrchestrator {
      * was rebuilt and redeployed since the runner was provisioned). The
      * idle sweep uses this to recycle a disconnected stale runner so it
      * comes back on the new image, without waiting for the idle timer.
-     * Returns false when the current release can't be determined or the
+     * Returns false when the target version can't be determined or the
      * runner is absent, so an unknown never triggers a recycle.
      *
-     * As of the runner-image-upgrade feature this is also true when the
-     * workspace runner's resolved agent-runner image digest is behind the
-     * freshest digest observed across running runners (see
-     * [runnerImageDigest] / [freshestRunnerImageDigest]).
+     * Staleness is by agent-runner release version: a runner is stale when the
+     * version tag its Pod is pinned to ([runnerImageVersion]) differs from the
+     * current [targetRunnerImageVersion].
      */
     fun isRunnerImageStale(workspace: Workspace): Boolean
 
     /**
-     * The agent-runner image digest the workspace's runner Pod actually
-     * resolved to at pull time, or null when there is no running runner or the
-     * digest can't be read. Used to surface the runner image to the operator.
+     * The agent-runner release version the workspace's runner Pod is running
+     * (the version tag its image is pinned to, e.g. "v0.12.0"), or null when
+     * there is no runner or its image carries no version tag. Surfaced to the
+     * operator as the runner image version.
      */
-    fun runnerImageDigest(workspace: Workspace): String?
+    fun runnerImageVersion(workspace: Workspace): String?
 
     /**
-     * The freshest agent-runner image digest observed among running runner
-     * Pods in the namespace — the de-facto current target, since the most
-     * recently provisioned runner pulled the current `:latest`. Null when no
-     * running runner exists. A workspace whose [runnerImageDigest] differs from
-     * this has an upgrade available.
+     * The current target agent-runner release version — the release agents-api
+     * itself is running, since the whole suite is built and published in
+     * lockstep from one release-please version. New runners are pinned to this.
+     * Null when the running release can't be determined (e.g. a local build),
+     * in which case no upgrade is ever offered. A workspace whose
+     * [runnerImageVersion] differs from this has an upgrade available.
      */
-    fun freshestRunnerImageDigest(): String?
+    fun targetRunnerImageVersion(): String?
 }

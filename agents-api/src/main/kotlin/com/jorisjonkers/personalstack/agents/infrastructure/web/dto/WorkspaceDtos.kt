@@ -173,10 +173,9 @@ data class WorkspaceWithRepositoriesResponse(
     val githubLinkId: UUID?,
     val repositories: List<WorkspaceRepositoryResponse>,
     val runnerSetup: WorkspaceRunnerSetupResponse,
-    // The agent-runner image the runner is on and whether a newer one is
+    // The agent-runner release the runner is on and whether a newer one is
     // available. Null when the runner-image status was not resolved (e.g. no
-    // running runner). This is the operator-facing runner status; runnerSetup
-    // (setup id/version/generation) is internal detail.
+    // running runner). This is the operator-facing runner status.
     val runnerImage: WorkspaceRunnerImageResponse? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -208,21 +207,19 @@ data class WorkspaceWithRepositoriesResponse(
 }
 
 data class WorkspaceRunnerImageResponse(
-    // Short, operator-readable form of the agent-runner image digest (the
-    // last 12 hex of the sha256), or null when no running runner.
-    val digest: String?,
+    // Operator-readable agent-runner release version (e.g. "0.12.0"), or null
+    // when there is no running runner / no version tag.
+    val version: String?,
     val upgradeAvailable: Boolean,
 ) {
     companion object {
         fun of(
-            digest: String?,
+            version: String?,
             upgradeAvailable: Boolean,
         ) = WorkspaceRunnerImageResponse(
-            digest = digest?.substringAfter("sha256:", digest)?.takeLast(SHORT_DIGEST_LEN)?.takeIf { it.isNotBlank() },
+            version = version?.removePrefix("v")?.takeIf { it.isNotBlank() },
             upgradeAvailable = upgradeAvailable,
         )
-
-        private const val SHORT_DIGEST_LEN = 12
     }
 }
 

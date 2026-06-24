@@ -122,7 +122,7 @@ class StubAgentRunnerOrchestrator : AgentRunnerOrchestrator {
     // runners as always current.
     override fun isRunnerImageStale(workspace: Workspace): Boolean = false
 
-    override fun runnerImageDigest(workspace: Workspace): String? = runnerState(workspace)?.runnerImageDigest
+    override fun runnerImageVersion(workspace: Workspace): String? = runnerState(workspace)?.runnerImageVersion
 
-    override fun freshestRunnerImageDigest(): String? = null
+    override fun targetRunnerImageVersion(): String? = null
 }

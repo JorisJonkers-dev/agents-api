@@ -3009,7 +3009,7 @@
       "WorkspaceRunnerImageResponse" : {
         "type" : "object",
         "properties" : {
-          "digest" : {
+          "version" : {
             "type" : [ "string", "null" ]
           },
           "upgradeAvailable" : {

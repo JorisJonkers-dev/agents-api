@@ -606,8 +606,8 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     }
 
     @Test
-    @DisplayName("runnerState reads image marker annotation — null when release marker not available in test env")
-    fun `runnerState reads image marker annotation`() {
+    @DisplayName("runnerState reads the runner image version from the pinned image tag")
+    fun `runnerState reads runner image version`() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
         val orchestrator = orchestrator(saScoped, deployKeysProvider = empty(), githubLinks = empty())
@@ -615,11 +615,11 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         val handle = orchestrator.provision(workspace)
         val bound = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
 
-        // HOSTNAME is not set to a real agents-api pod in the integration test env,
-        // so currentReleaseMarker() returns null and no ANNOTATION_IMAGE_MARKER is stamped.
+        // The Pod's image carries a tag (the configured `:latest`, or a pinned
+        // release version when SERVICE_VERSION is set), so the version reads back.
         val state = orchestrator.runnerState(bound)
         assertThat(state).isNotNull
-        assertThat(state!!.imageMarker).isNull()
+        assertThat(state!!.runnerImageVersion).isNotNull()
     }
 
     @Test

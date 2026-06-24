@@ -180,83 +180,26 @@ class Fabric8AgentRunnerOrchestrator(
     }
 
     override fun isRunnerImageStale(workspace: Workspace): Boolean {
-        // Runner is behind a newer agent-runner image (digest differs from the
-        // freshest running runner) → stale. This is the case the operator hits
-        // after a runner-image bump; recycling re-pulls :latest.
-        if (runnerImageBehind(workspace)) return true
-        // Otherwise fall back to the agents-api release marker: an unstamped or
-        // older-release runner is recycled onto the current release on the next
-        // idle sweep. Unknown current release → never recycle (fail safe).
-        val marker = currentReleaseMarker() ?: return false
-        return runnerState(workspace)?.let { it.imageMarker != marker } ?: false
+        // Stale when the runner's pinned version differs from the release
+        // agents-api itself is on. Unknown on either side → never recycle.
+        val current = runnerImageVersion(workspace) ?: return false
+        val target = targetRunnerImageVersion() ?: return false
+        return current != target
     }
 
-    private fun runnerImageBehind(workspace: Workspace): Boolean {
-        val current = runnerImageDigest(workspace) ?: return false
-        val freshest = freshestRunnerImageDigest() ?: return false
-        return current != freshest
-    }
+    override fun runnerImageVersion(workspace: Workspace): String? = runnerState(workspace)?.runnerImageVersion
 
-    override fun runnerImageDigest(workspace: Workspace): String? = runnerState(workspace)?.runnerImageDigest
-
-    override fun freshestRunnerImageDigest(): String? {
-        val pods =
-            runCatching {
-                client
-                    .pods()
-                    .inNamespace(props.namespace)
-                    .withLabel("app.kubernetes.io/name", "agent-runner")
-                    .list()
-                    .items
-            }.getOrElse {
-                log.warn("could not list runner pods for freshest image digest: {}", it.message)
-                return null
-            }
-        return RunnerImageDigests.freshest(
-            pods
-                .filter { it.status?.phase == "Running" }
-                .map {
-                    it.status?.startTime to
-                        RunnerImageDigests.parse(
-                            it.status
-                                ?.containerStatuses
-                                ?.firstOrNull()
-                                ?.imageID,
-                        )
-                },
-        )
-    }
+    override fun targetRunnerImageVersion(): String? = ownReleaseVersion()
 
     /**
-     * The agents-api image digest this process is running, used as the
-     * "current release" marker. Resolved once from our own Pod (HOSTNAME is
-     * the Pod name in Kubernetes) and cached: it cannot change within a
-     * process lifetime because a new release replaces the process. A new
-     * release therefore yields a new marker, which is what makes runners
-     * provisioned under the previous release look stale.
+     * The release version this agents-api process is running, baked into the
+     * image as `SERVICE_VERSION` (= the release-please tag, e.g. "v0.12.0").
+     * The whole suite is published in lockstep, so this is also the target
+     * agent-runner version. Null on a local/dev build where it is unset or
+     * "unknown", which disables upgrade detection rather than guessing.
      */
-    private val releaseMarker: String? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { computeReleaseMarker() }
-
-    private fun currentReleaseMarker(): String? = releaseMarker
-
-    private fun computeReleaseMarker(): String? {
-        val host = System.getenv("HOSTNAME")?.takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            client
-                .pods()
-                .inNamespace(props.namespace)
-                .withName(host)
-                .get()
-                ?.status
-                ?.containerStatuses
-                ?.firstOrNull()
-                ?.imageID
-                ?.takeIf { it.isNotBlank() }
-        }.getOrElse {
-            log.warn("could not resolve agents-api image marker from pod {}: {}", host, it.message)
-            null
-        }
-    }
+    private fun ownReleaseVersion(): String? =
+        System.getenv("SERVICE_VERSION")?.takeIf { it.isNotBlank() && it != "unknown" }
 
     override fun isReady(workspace: Workspace): Boolean {
         val state = runnerState(workspace) ?: return false
@@ -294,13 +237,12 @@ class Fabric8AgentRunnerOrchestrator(
             runnerGeneration = labels[RunnerState.LABEL_RUNNER_GENERATION]?.toLongOrNull(),
             phase = pod.status?.phase,
             containerReady = containerReady,
-            imageMarker = annotations[RunnerState.ANNOTATION_IMAGE_MARKER],
-            runnerImageDigest =
-                RunnerImageDigests.parse(
-                    pod.status
-                        ?.containerStatuses
+            runnerImageVersion =
+                RunnerImageVersions.tagOf(
+                    pod.spec
+                        ?.containers
                         ?.firstOrNull()
-                        ?.imageID,
+                        ?.image,
                 ),
         )
     }
@@ -452,7 +394,9 @@ class Fabric8AgentRunnerOrchestrator(
             .endSecurityContext()
             .addNewContainer()
             .withName("agent-runner")
-            .withImage(setup.image)
+            // Pin to the release agents-api itself is on so the running
+            // version is a verifiable fact in the Pod spec, not :latest.
+            .withImage(RunnerImageVersions.pin(setup.image, ownReleaseVersion()))
             .withImagePullPolicy(setup.imagePullPolicy)
             .withPorts(ContainerPortBuilder().withName("gateway").withContainerPort(setup.gatewayPort).build())
             .withEnv(podEnv(workspace, setup, runnerGeneration))
@@ -510,10 +454,7 @@ class Fabric8AgentRunnerOrchestrator(
         )
 
     private fun podAnnotations(setup: RunnerSetupProvisioningSpec): Map<String, String> =
-        buildMap {
-            put(RunnerState.ANNOTATION_SETUP_HASH, setup.setupHash)
-            currentReleaseMarker()?.let { put(RunnerState.ANNOTATION_IMAGE_MARKER, it) }
-        }
+        mapOf(RunnerState.ANNOTATION_SETUP_HASH to setup.setupHash)
 
     @Suppress("LongMethod")
     private fun podEnv(
@@ -846,27 +787,31 @@ class Fabric8AgentRunnerOrchestrator(
 }
 
 /**
- * Pure helpers for agent-runner image-digest detection, extracted so the
- * comparison logic is unit-testable without a Kubernetes cluster.
+ * Pure helpers for agent-runner image-version handling, extracted so the
+ * tag parsing and pinning logic is unit-testable without a Kubernetes cluster.
  */
-internal object RunnerImageDigests {
+internal object RunnerImageVersions {
     /**
-     * The digest portion of a container `imageID` such as
-     * `ghcr.io/.../agent-runner@sha256:abc…` → `sha256:abc…`. Null when the
-     * imageID has no `@digest` suffix (e.g. not yet pulled) or is blank.
+     * The tag portion of an image reference such as
+     * `ghcr.io/.../agent-runner:v0.12.0` → `v0.12.0`. Null when the reference
+     * has no tag, is digest-pinned (`…@sha256:…`), or is blank.
      */
-    fun parse(imageId: String?): String? = imageId?.substringAfter("@", "")?.takeIf { it.isNotBlank() }
+    fun tagOf(image: String?): String? {
+        if (image.isNullOrBlank() || image.contains("@")) return null
+        return image.substringAfterLast(":", "").takeIf { it.isNotBlank() && it != image }
+    }
 
     /**
-     * The freshest digest among `(podStartTime, digest)` observations — the
-     * digest of the most recently started runner, since it pulled the current
-     * `:latest`. Pod start times are ISO-8601 strings, which sort
-     * lexicographically. Observations with a null digest are ignored; null
-     * when none have a digest.
+     * Pin a configured image reference to [version] so the running version is
+     * an explicit fact in the Pod spec. Returns the reference unchanged when no
+     * version is known (local/dev) or it is already digest-pinned.
      */
-    fun freshest(observed: List<Pair<String?, String?>>): String? =
-        observed
-            .filter { it.second != null }
-            .maxByOrNull { it.first.orEmpty() }
-            ?.second
+    fun pin(
+        configured: String,
+        version: String?,
+    ): String {
+        if (version.isNullOrBlank() || configured.contains("@")) return configured
+        val repo = configured.substringBeforeLast(":", configured)
+        return "$repo:$version"
+    }
 }
