@@ -150,6 +150,7 @@ class CreateWorkspaceCommandHandler(
                 status = WorkspaceStatus.PENDING,
                 createdAt = now,
                 updatedAt = now,
+                ownerUserId = command.ownerUserId,
                 repositoryId = resolved.repositoryId,
                 projectId = command.projectId,
                 kind = command.kind,

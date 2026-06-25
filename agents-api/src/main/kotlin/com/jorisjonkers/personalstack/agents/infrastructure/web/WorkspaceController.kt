@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
@@ -47,8 +48,10 @@ class WorkspaceController(
     @Suppress("DEPRECATION")
     @PostMapping
     fun create(
+        @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: CreateWorkspaceRequest,
     ): ResponseEntity<WorkspaceResponse> {
+        val ownerUserId = userId.trim().also { require(it.isNotBlank()) { "X-User-Id is required" } }
         val id = WorkspaceId.random()
         val primaryRepositoryId = primaryRepositoryId(req)
         commandBus.dispatch(
@@ -57,6 +60,7 @@ class WorkspaceController(
                 name = req.name,
                 repoUrl = req.repoUrl,
                 branch = req.branch,
+                ownerUserId = ownerUserId,
                 kind = req.kind,
                 projectId = req.projectId?.let { ProjectId(it) },
                 repositoryId = primaryRepositoryId?.let { RepositoryId(it) },

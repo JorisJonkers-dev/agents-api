@@ -51,7 +51,7 @@ class MessageFlowIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
-    fun `send message without X-User-Id returns 500`() {
+    fun `send message without X-User-Id returns 400`() {
         val userId = UUID.randomUUID().toString()
         val conversationId = createConversation(userId, "No Auth Msg")
 
@@ -60,7 +60,7 @@ class MessageFlowIntegrationTest : IntegrationTestBase() {
                 post("/api/v1/conversations/$conversationId/messages")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("content" to "Should fail"))),
-            ).andExpect(status().isInternalServerError)
+            ).andExpect(status().isBadRequest)
     }
 
     @Test

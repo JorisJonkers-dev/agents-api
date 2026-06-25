@@ -53,7 +53,7 @@ class WorkspaceControllerTest {
         mockMvc =
             MockMvcBuilders
                 .standaloneSetup(controller)
-                .setControllerAdvice(GlobalExceptionHandler())
+                .setControllerAdvice(GlobalExceptionHandler(), MissingRequestHeaderExceptionHandler())
                 .build()
     }
 
@@ -61,6 +61,7 @@ class WorkspaceControllerTest {
         id: WorkspaceId = WorkspaceId.random(),
         kind: WorkspaceKind = WorkspaceKind.REPO_BACKED,
         repositoryId: RepositoryId? = null,
+        ownerUserId: String? = null,
     ): Workspace {
         val now = Instant.now()
         return Workspace(
@@ -76,6 +77,7 @@ class WorkspaceControllerTest {
             updatedAt = now,
             kind = kind,
             repositoryId = repositoryId,
+            ownerUserId = ownerUserId,
         )
     }
 
@@ -134,6 +136,7 @@ class WorkspaceControllerTest {
         mockMvc
             .perform(
                 post("/api/v1/workspaces")
+                    .header("X-User-Id", "user-123")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         objectMapper.writeValueAsString(
@@ -153,6 +156,55 @@ class WorkspaceControllerTest {
     }
 
     @Test
+    fun `POST creates a workspace owned by the X-User-Id header`() {
+        val repositoryId = RepositoryId.random()
+        val w =
+            workspace(
+                kind = WorkspaceKind.REPO_BACKED,
+                repositoryId = repositoryId,
+                ownerUserId = "user-123",
+            )
+        every { getQuery.getSummary(any()) } returns w
+
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces")
+                    .header("X-User-Id", " user-123 ")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "name" to "demo",
+                                "kind" to "REPO_BACKED",
+                                "repositoryId" to repositoryId.value.toString(),
+                            ),
+                        ),
+                    ),
+            ).andExpect(status().isCreated)
+            .andExpect(jsonPath("$.ownerUserId").value("user-123"))
+
+        verify {
+            commandBus.dispatch(
+                match<CreateWorkspaceCommand> {
+                    it.ownerUserId == "user-123"
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `POST rejects workspace create without user header`() {
+        mockMvc
+            .perform(
+                post("/api/v1/workspaces")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("name" to "demo"))),
+            ).andExpect(status().isBadRequest)
+
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
+    @Test
     fun `POST creates a workspace with primary and extra repository ids`() {
         val primaryRepositoryId = RepositoryId.random()
         val extraRepositoryId = RepositoryId.random()
@@ -162,6 +214,7 @@ class WorkspaceControllerTest {
         mockMvc
             .perform(
                 post("/api/v1/workspaces")
+                    .header("X-User-Id", "user-123")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         objectMapper.writeValueAsString(
@@ -196,6 +249,7 @@ class WorkspaceControllerTest {
         mockMvc
             .perform(
                 post("/api/v1/workspaces")
+                    .header("X-User-Id", "user-123")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         objectMapper.writeValueAsString(
@@ -216,6 +270,7 @@ class WorkspaceControllerTest {
         mockMvc
             .perform(
                 post("/api/v1/workspaces")
+                    .header("X-User-Id", "user-123")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("name" to ""))),
             ).andExpect { result ->

@@ -18,12 +18,14 @@ import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffSer
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
+import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
+import com.jorisjonkers.personalstack.agents.infrastructure.credentials.CredentialValidator
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.GitHubAppInstallationTokenClient
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AdminRunnerController
@@ -36,6 +38,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationCont
 import com.jorisjonkers.personalstack.agents.infrastructure.web.CredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.HealthController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalCredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalGitHubTokenController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.KubernetesExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.MessageController
@@ -79,6 +82,7 @@ import java.nio.file.Paths
         CredentialController::class,
         GitController::class,
         HealthController::class,
+        InternalCredentialController::class,
         InternalGitHubTokenController::class,
         MessageController::class,
         ProjectController::class,
@@ -110,6 +114,7 @@ import java.nio.file.Paths
         CredentialController::class,
         GitController::class,
         HealthController::class,
+        InternalCredentialController::class,
         InternalGitHubTokenController::class,
         MessageController::class,
         ProjectController::class,
@@ -132,6 +137,14 @@ class OpenApiSpecExportTest {
         mockMvc
             .perform(get("/api/v1/api-docs"))
             .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
+    }
+
+    @Test
+    fun `internal credential endpoint is hidden while browser credential status remains exported`() {
+        mockMvc
+            .perform(get("/api/v1/api-docs"))
+            .andExpect(jsonPath("$['paths']['/api/v1/internal/credentials']").doesNotExist())
+            .andExpect(jsonPath("$['paths']['/api/v1/credentials/status']").exists())
     }
 
     @Test
@@ -183,6 +196,9 @@ class OpenApiSpecExportTest {
         fun agentGatewayClient(): AgentGatewayClient = mockk(relaxed = true)
 
         @Bean
+        fun agentCredentialRepository(): AgentCredentialRepository = mockk(relaxed = true)
+
+        @Bean
         fun agentSetupDiffService(): AgentSetupDiffService = mockk(relaxed = true)
 
         @Bean
@@ -199,6 +215,9 @@ class OpenApiSpecExportTest {
 
         @Bean
         fun commandBus(): CommandBus = mockk(relaxed = true)
+
+        @Bean
+        fun credentialValidator(): CredentialValidator = mockk(relaxed = true)
 
         @Bean
         fun getConversationQueryService(): GetConversationQueryService = mockk(relaxed = true)

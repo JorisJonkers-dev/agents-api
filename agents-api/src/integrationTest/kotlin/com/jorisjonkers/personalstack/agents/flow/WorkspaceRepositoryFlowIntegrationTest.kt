@@ -68,6 +68,7 @@ class WorkspaceRepositoryFlowIntegrationTest : IntegrationTestBase() {
             mockMvc
                 .perform(
                     post("/api/v1/workspaces")
+                        .header("X-User-Id", "flow-user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
                             objectMapper.writeValueAsString(
@@ -202,6 +203,7 @@ class WorkspaceRepositoryFlowIntegrationTest : IntegrationTestBase() {
             mockMvc
                 .perform(
                     post("/api/v1/workspaces")
+                        .header("X-User-Id", "flow-user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)),
                 ).andExpect(status().isCreated)

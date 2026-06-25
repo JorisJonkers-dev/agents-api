@@ -1,10 +1,12 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialActionResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.CredentialSessionResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartCredentialSessionRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StoredCredentialStatusResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.SubmitRedirectUrlRequest
 import com.jorisjonkers.personalstack.common.web.ProblemDetail
 import io.swagger.v3.oas.annotations.Operation
@@ -39,17 +41,18 @@ import java.net.URI
 @RequestMapping("/api/v1/credentials")
 class CredentialController(
     private val worker: HttpCredentialWorkerClient,
+    private val credentials: AgentCredentialRepository,
 ) {
     // Not injected: the OpenAPI web-mvc slice that exports the spec does not
     // expose an ObjectMapper bean, so a constructor dependency would break it.
     private val objectMapper = ObjectMapper()
 
     @GetMapping("/status")
-    @Operation(summary = "Report what credentials are currently stored in Vault for each provider")
-    fun storedStatus(): ResponseEntity<*> =
-        relay {
-            ResponseEntity.ok(worker.storedStatus())
-        }
+    @Operation(summary = "Report what credentials are currently stored for each provider")
+    fun storedStatus(
+        @RequestHeader("X-User-Id") userId: String,
+    ): ResponseEntity<StoredCredentialStatusResponse> =
+        ResponseEntity.ok(StoredCredentialStatusResponse.of(credentials.statusFor(userId)))
 
     @PostMapping("/sessions")
     @Operation(summary = "Start a CLI re-authentication session for Claude or Codex")

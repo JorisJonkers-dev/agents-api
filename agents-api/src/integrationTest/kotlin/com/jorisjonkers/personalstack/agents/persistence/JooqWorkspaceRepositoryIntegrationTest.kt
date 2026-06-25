@@ -64,6 +64,7 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
         kind: WorkspaceKind = WorkspaceKind.REPO_BACKED,
         repositoryId: RepositoryId? = null,
         projectId: ProjectId? = null,
+        ownerUserId: String? = null,
     ): Workspace {
         val now = Instant.now()
         return Workspace(
@@ -80,11 +81,12 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
             kind = kind,
             repositoryId = repositoryId,
             projectId = projectId,
+            ownerUserId = ownerUserId,
         )
     }
 
     @Test
-    fun `save and findById round-trips kind, repositoryId, projectId`() {
+    fun `save and findById round-trips kind, ownerUserId, repositoryId, projectId`() {
         val repo = freshRepository()
         val project = freshProject()
         val w =
@@ -92,14 +94,27 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
                 kind = WorkspaceKind.SCRATCH,
                 repositoryId = repo.id,
                 projectId = project.id,
+                ownerUserId = "user-123",
             )
         workspaces.save(w)
 
         val loaded = workspaces.findById(w.id)
         assertThat(loaded).isNotNull
         assertThat(loaded!!.kind).isEqualTo(WorkspaceKind.SCRATCH)
+        assertThat(loaded.ownerUserId).isEqualTo("user-123")
         assertThat(loaded.repositoryId).isEqualTo(repo.id)
         assertThat(loaded.projectId).isEqualTo(project.id)
+    }
+
+    @Test
+    fun `save and findById accepts legacy null owner rows`() {
+        val w = newWorkspace(ownerUserId = null)
+        workspaces.save(w)
+
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(loaded).isNotNull
+        assertThat(loaded!!.ownerUserId).isNull()
     }
 
     @Test
@@ -118,6 +133,26 @@ class JooqWorkspaceRepositoryIntegrationTest : IntegrationTestBase() {
 
         val loaded = workspaces.findById(w.id)
         assertThat(loaded!!.podName).isEqualTo("agent-runner-x")
+        assertThat(loaded.status).isEqualTo(WorkspaceStatus.STARTING)
+    }
+
+    @Test
+    fun `save preserves existing owner on unrelated conflict update`() {
+        val w = newWorkspace(ownerUserId = "user-123")
+        workspaces.save(w)
+        val staleUpdate =
+            w.copy(
+                ownerUserId = null,
+                podName = "agent-runner-x",
+                status = WorkspaceStatus.STARTING,
+                updatedAt = Instant.now(),
+            )
+        workspaces.save(staleUpdate)
+
+        val loaded = workspaces.findById(w.id)
+
+        assertThat(loaded!!.ownerUserId).isEqualTo("user-123")
+        assertThat(loaded.podName).isEqualTo("agent-runner-x")
         assertThat(loaded.status).isEqualTo(WorkspaceStatus.STARTING)
     }
 

@@ -38,6 +38,11 @@ class WorkspaceTest {
     }
 
     @Test
+    fun `owner defaults to null for legacy workspaces`() {
+        assertThat(base().ownerUserId).isNull()
+    }
+
+    @Test
     fun `runner setup restart stages target, promotes it, and tracks generation`() {
         val startedAt = Instant.parse("2026-06-12T10:00:00Z")
         val completedAt = Instant.parse("2026-06-12T10:05:00Z")

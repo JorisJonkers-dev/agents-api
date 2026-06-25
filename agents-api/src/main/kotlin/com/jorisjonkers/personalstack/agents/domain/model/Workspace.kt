@@ -37,6 +37,7 @@ data class Workspace(
     val status: WorkspaceStatus,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val ownerUserId: String? = null,
     val repositoryId: RepositoryId? = null,
     val projectId: ProjectId? = null,
     val kind: WorkspaceKind = WorkspaceKind.REPO_BACKED,

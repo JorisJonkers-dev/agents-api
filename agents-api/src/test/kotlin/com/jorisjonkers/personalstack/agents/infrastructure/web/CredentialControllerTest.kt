@@ -1,6 +1,8 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.jorisjonkers.personalstack.agents.domain.model.AgentCredentialProvider
+import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.common.web.GlobalExceptionHandler
 import io.mockk.every
@@ -18,9 +20,11 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.client.HttpClientErrorException
+import java.time.Instant
 
 class CredentialControllerTest {
     private val worker = mockk<HttpCredentialWorkerClient>()
+    private val credentials = mockk<AgentCredentialRepository>()
     private val objectMapper = ObjectMapper()
     private lateinit var mockMvc: MockMvc
 
@@ -28,7 +32,7 @@ class CredentialControllerTest {
     fun setUp() {
         mockMvc =
             MockMvcBuilders
-                .standaloneSetup(CredentialController(worker))
+                .standaloneSetup(CredentialController(worker, credentials))
                 .setControllerAdvice(GlobalExceptionHandler())
                 .build()
     }
@@ -221,26 +225,38 @@ class CredentialControllerTest {
     }
 
     @Test
-    fun `GET status returns the worker stored-credential summary`() {
-        every { worker.storedStatus() } returns
-            HttpCredentialWorkerClient.StoredStatus(
-                claude =
-                    HttpCredentialWorkerClient.CredentialStatus(
-                        exists = true,
-                        version = 3,
-                        updatedAt = "2026-06-23T10:00:00Z",
-                        updatedBy = "ExtraToast",
-                    ),
-                codex = HttpCredentialWorkerClient.CredentialStatus(exists = false, version = 0),
+    fun `GET status returns browser-safe stored-credential summary scoped to the user`() {
+        every { credentials.statusFor("operator") } returns
+            listOf(
+                AgentCredentialRepository.CredentialStatus(
+                    provider = AgentCredentialProvider.CLAUDE,
+                    stored = true,
+                    valid = null,
+                    validatedAt = null,
+                    updatedAt = Instant.parse("2026-06-23T10:00:00Z"),
+                ),
+                AgentCredentialRepository.CredentialStatus(
+                    provider = AgentCredentialProvider.CODEX,
+                    stored = true,
+                    valid = false,
+                    validatedAt = Instant.parse("2026-06-23T11:00:00Z"),
+                    updatedAt = Instant.parse("2026-06-23T09:00:00Z"),
+                ),
             )
 
         mockMvc
             .perform(get("/api/v1/credentials/status").header("X-User-Id", "operator"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.claude.exists").value(true))
-            .andExpect(jsonPath("$.claude.version").value(3))
-            .andExpect(jsonPath("$.claude.updatedBy").value("ExtraToast"))
-            .andExpect(jsonPath("$.codex.exists").value(false))
+            .andExpect(jsonPath("$.claude.state").value("unvalidated"))
+            .andExpect(jsonPath("$.claude.valid").doesNotExist())
+            .andExpect(jsonPath("$.claude.updatedAt").value("2026-06-23T10:00:00Z"))
+            .andExpect(jsonPath("$.codex.exists").value(true))
+            .andExpect(jsonPath("$.codex.state").value("invalid"))
+            .andExpect(jsonPath("$.codex.valid").value(false))
+
+        verify { credentials.statusFor("operator") }
+        verify(exactly = 0) { worker.storedStatus() }
     }
 
     @Test

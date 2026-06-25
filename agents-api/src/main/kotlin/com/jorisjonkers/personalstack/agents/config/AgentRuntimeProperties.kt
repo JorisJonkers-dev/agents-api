@@ -98,6 +98,10 @@ data class AgentRuntimeProperties(
     // starting with the `gh` wrapper degrading to a no-op.
     val githubAppBearerSecret: String = "github-app",
     val githubAppBearerSecretKey: String = "token-bearer",
+    // Shared bearer for the internal credential-ingest callback. Kept
+    // separate from githubAppTokenBearer so the login worker cannot mint
+    // GitHub App tokens if one secret is exposed.
+    val credentialIngestBearer: String = "",
     val durableSessionRetentionSeconds: Long = 604_800,
     val durableSessionCleanupBatchSize: Int = 25,
     // In-cluster ClusterIP of the credential-worker that drives the
@@ -110,14 +114,6 @@ data class AgentRuntimeProperties(
     // env var. Empty => the worker rejects every proxied request with a
     // 401, so an unconfigured deployment never reaches the login flow.
     val credentialWorkerToken: String = "",
-    // Secret (in the runner's namespace) projecting the Claude Code OAuth token
-    // the credential-login portal captures via `claude setup-token`. Injected as
-    // CLAUDE_CODE_OAUTH_TOKEN, which Claude Code prefers over the mounted
-    // credential files, so a runner picks up a portal re-auth on its next
-    // (re)start. optional => an absent Secret/key keeps the Pod starting and the
-    // runner falls back to the mounted credential PVC.
-    val claudeOauthSecret: String = "agents-claude-oauth",
-    val claudeOauthSecretKey: String = "oauth_token",
     val setups: List<AgentSetupProperties> =
         listOf(
             AgentSetupProperties(

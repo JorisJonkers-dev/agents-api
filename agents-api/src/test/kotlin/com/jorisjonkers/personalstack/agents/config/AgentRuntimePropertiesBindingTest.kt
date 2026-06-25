@@ -131,11 +131,13 @@ class AgentRuntimePropertiesBindingTest {
                     mapOf(
                         "agent-runtime.durable-session-retention-seconds" to "3600",
                         "agent-runtime.durable-session-cleanup-batch-size" to "7",
+                        "agent-runtime.credential-ingest-bearer" to "credential-secret",
                     ),
             )
 
         assertThat(props.durableSessionRetentionSeconds).isEqualTo(3600)
         assertThat(props.durableSessionCleanupBatchSize).isEqualTo(7)
+        assertThat(props.credentialIngestBearer).isEqualTo("credential-secret")
     }
 
     @Test

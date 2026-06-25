@@ -53,13 +53,13 @@ class ConversationFlowIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
-    fun `create conversation without X-User-Id returns 500`() {
+    fun `create conversation without X-User-Id returns 400`() {
         mockMvc
             .perform(
                 post("/api/v1/conversations")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("title" to "No Auth"))),
-            ).andExpect(status().isInternalServerError)
+            ).andExpect(status().isBadRequest)
     }
 
     @Test

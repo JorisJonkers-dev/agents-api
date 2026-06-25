@@ -239,6 +239,7 @@ class AgentsApiContractIntegrationTest : IntegrationTestBase() {
         mockMvc
             .perform(
                 post("/api/v1/workspaces")
+                    .header("X-User-Id", "contract-user")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         objectMapper.writeValueAsString(

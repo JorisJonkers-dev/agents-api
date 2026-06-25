@@ -1,8 +1,11 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web.dto
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentCredentialProvider
+import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Pattern
+import java.time.Instant
 
 /** Start a CLI re-authentication session for one provider. */
 data class StartCredentialSessionRequest(
@@ -58,5 +61,66 @@ data class CredentialActionResponse(
 ) {
     companion object {
         fun of(r: HttpCredentialWorkerClient.OkResult) = CredentialActionResponse(ok = r.ok, error = r.error)
+    }
+}
+
+data class InternalCredentialIngestRequest(
+    @field:NotBlank val userId: String,
+    @field:NotBlank val provider: String,
+    val payload: Map<String, String> = emptyMap(),
+    @field:NotBlank val updatedBy: String,
+)
+
+data class InternalCredentialIngestResponse(
+    val provider: String,
+    val status: String,
+)
+
+data class StoredCredentialStatusResponse(
+    val claude: StoredProviderCredentialStatus,
+    val codex: StoredProviderCredentialStatus,
+) {
+    companion object {
+        fun of(statuses: List<AgentCredentialRepository.CredentialStatus>): StoredCredentialStatusResponse {
+            val byProvider = statuses.associateBy { it.provider }
+            return StoredCredentialStatusResponse(
+                claude = StoredProviderCredentialStatus.of(byProvider[AgentCredentialProvider.CLAUDE]),
+                codex = StoredProviderCredentialStatus.of(byProvider[AgentCredentialProvider.CODEX]),
+            )
+        }
+    }
+}
+
+data class StoredProviderCredentialStatus(
+    val exists: Boolean,
+    val state: String,
+    val valid: Boolean?,
+    val validatedAt: Instant?,
+    val updatedAt: Instant?,
+) {
+    companion object {
+        fun of(status: AgentCredentialRepository.CredentialStatus?): StoredProviderCredentialStatus {
+            if (status == null || !status.stored) {
+                return StoredProviderCredentialStatus(
+                    exists = false,
+                    state = "absent",
+                    valid = null,
+                    validatedAt = null,
+                    updatedAt = null,
+                )
+            }
+            return StoredProviderCredentialStatus(
+                exists = true,
+                state =
+                    when (status.valid) {
+                        true -> "usable"
+                        false -> "invalid"
+                        null -> "unvalidated"
+                    },
+                valid = status.valid,
+                validatedAt = status.validatedAt,
+                updatedAt = status.updatedAt,
+            )
+        }
     }
 }

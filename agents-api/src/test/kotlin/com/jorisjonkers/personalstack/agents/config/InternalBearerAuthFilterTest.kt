@@ -47,4 +47,27 @@ class InternalBearerAuthFilterTest {
         assertThat(response.status).isEqualTo(HttpServletResponse.SC_OK)
         assertThat(chain.request).isNotNull()
     }
+
+    @Test
+    fun `internal credential ingest and GitHub token routes use separate bearer registrations`() {
+        val props =
+            AgentRuntimeProperties(
+                namespace = "agents-system",
+                image = "runner",
+                serviceAccount = "agent-runner",
+                claudeCredentialsPvc = "claude-credentials",
+                codexCredentialsPvc = "codex-credentials",
+                githubDeployKeySecret = "github-deploy-key",
+                githubAppTokenBearer = "github-bearer",
+                credentialIngestBearer = "credential-bearer",
+            )
+        val config = SecurityConfig()
+
+        val github = config.githubInternalBearerFilterRegistration(props)
+        val credentials = config.credentialInternalBearerFilterRegistration(props)
+
+        assertThat(github.urlPatterns).containsExactly("/api/v1/internal/github/*")
+        assertThat(credentials.urlPatterns).containsExactly("/api/v1/internal/credentials")
+        assertThat(github.filter).isNotSameAs(credentials.filter)
+    }
 }

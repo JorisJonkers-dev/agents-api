@@ -20,11 +20,20 @@ class SecurityConfig {
         }
 
     @Bean
-    fun internalBearerFilterRegistration(
+    fun githubInternalBearerFilterRegistration(
         props: AgentRuntimeProperties,
     ): FilterRegistrationBean<InternalBearerAuthFilter> =
         FilterRegistrationBean(InternalBearerAuthFilter(props.githubAppTokenBearer)).apply {
-            addUrlPatterns("/api/v1/internal/*")
+            addUrlPatterns("/api/v1/internal/github/*")
+            order = 0
+        }
+
+    @Bean
+    fun credentialInternalBearerFilterRegistration(
+        props: AgentRuntimeProperties,
+    ): FilterRegistrationBean<InternalBearerAuthFilter> =
+        FilterRegistrationBean(InternalBearerAuthFilter(props.credentialIngestBearer)).apply {
+            addUrlPatterns("/api/v1/internal/credentials")
             order = 0
         }
 }

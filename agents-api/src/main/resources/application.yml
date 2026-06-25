@@ -128,11 +128,8 @@ agent-runtime:
   docker-socket-enabled: ${AGENT_RUNTIME_DOCKER_SOCKET_ENABLED:true}
   docker-socket-path: ${AGENT_RUNTIME_DOCKER_SOCKET_PATH:/var/run/docker.sock}
   docker-socket-supplemental-groups: ${AGENT_RUNTIME_DOCKER_SOCKET_SUPPLEMENTAL_GROUPS:131}
-  # Pinning to a single node is mandatory because the shared
-  # credential PVCs (claude-credentials / codex-credentials) are
-  # backed by local-path RWO — every runner Pod must land on the
-  # node that owns the PV. Provision the credential PVCs on the same
-  # node as the runner workload.
+  # Pinning to a single node keeps the runner workspace PVCs local to the
+  # node that owns their local-path PVs.
   # Spring Boot's `@ConfigurationProperties` relaxed binding lowercases
   # map keys and strips special chars (`-`, `/`, `.`) unless the key
   # is bracket-escaped. Without the brackets, `personal-stack/node`
@@ -145,10 +142,10 @@ agent-runtime:
     '[personal-stack/node]': ${AGENT_RUNTIME_NODE:enschede-gtx-960m-1}
     '[personal-stack/capability-docker-socket]': ${AGENT_RUNTIME_DOCKER_SOCKET_CAPABILITY:true}
   # Idle scale-down. A workspace whose last observed activity is
-  # older than `idle-after-seconds` gets its Pod + Service + per-
-  # workspace Secret deleted; the workspace PVC survives so a
-  # future wake-up can re-mount the same disk. The sweep runs at
-  # `idle-sweep-period-ms` intervals.
+  # older than `idle-after-seconds` gets its Pod + Service deleted;
+  # the workspace PVC and per-workspace credential Secret survive so
+  # a future wake-up can re-mount the same disk and credentials. The
+  # sweep runs at `idle-sweep-period-ms` intervals.
   idle-after-seconds: ${AGENT_RUNTIME_IDLE_AFTER_SECONDS:1800}
   idle-sweep-period-ms: ${AGENT_RUNTIME_IDLE_SWEEP_PERIOD_MS:300000}
   # Stale runner-setup-lease reaper. A `start`/`restart` holds the
@@ -199,6 +196,7 @@ agent-runtime:
   github-app-token-url: ${GITHUB_APP_TOKEN_URL:http://agents-api.agents-system.svc.cluster.local:8082/api/v1/internal/github/installation-token}
   github-app-bearer-secret: ${GITHUB_APP_BEARER_SECRET:github-app}
   github-app-bearer-secret-key: ${GITHUB_APP_BEARER_SECRET_KEY:token-bearer}
+  credential-ingest-bearer: ${CREDENTIAL_INGEST_BEARER:}
   # Credential-worker proxy. The worker drives the Claude Code / Codex
   # CLI `/login` flows and writes the captured OAuth bundle to Vault;
   # agents-api only relays the operator's browser interactions to it.

@@ -33,6 +33,7 @@ data class CreateWorkspaceCommand(
     val name: String,
     val repoUrl: String?,
     val branch: String?,
+    val ownerUserId: String? = null,
     val kind: WorkspaceKind = WorkspaceKind.REPO_BACKED,
     val projectId: ProjectId? = null,
     val repositoryId: RepositoryId? = null,
