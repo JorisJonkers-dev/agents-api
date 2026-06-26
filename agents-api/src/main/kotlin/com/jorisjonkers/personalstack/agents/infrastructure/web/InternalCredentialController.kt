@@ -45,7 +45,10 @@ class InternalCredentialController(
                 valid = null,
                 validatedAt = null,
                 updatedAt = Instant.now(),
-                updatedBy = request.updatedBy,
+                // The credential owner is the only legitimate updater on this
+                // internal ingest path; a client-supplied updatedBy would let a
+                // caller forge authorship, so derive it from the owner identity.
+                updatedBy = request.userId,
             ),
         )
 

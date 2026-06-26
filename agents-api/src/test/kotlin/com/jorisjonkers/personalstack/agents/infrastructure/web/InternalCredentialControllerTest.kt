@@ -42,7 +42,7 @@ class InternalCredentialControllerTest {
     }
 
     @Test
-    fun `POST credentials ingests claude payload and leaves fresh validity unknown`() {
+    fun `POST credentials derives updatedBy from the owner userId, never the request body`() {
         val captured = slot<AgentOauthCredential>()
         every { store.upsert(capture(captured)) } answers { captured.captured }
         every { validator.validate(any(), any()) } returns CredentialValidationResult.UNKNOWN
@@ -58,7 +58,9 @@ class InternalCredentialControllerTest {
                                     "userId" to "u-1",
                                     "provider" to "CLAUDE",
                                     "payload" to mapOf("oauth_token" to "sk-ant-secret"),
-                                    "updatedBy" to "worker",
+                                    // A caller cannot forge authorship: any updatedBy in the
+                                    // body is ignored and the stored value tracks the owner.
+                                    "updatedBy" to "attacker",
                                 ),
                             ),
                         ),
@@ -68,6 +70,7 @@ class InternalCredentialControllerTest {
                 .andReturn()
 
         assertThat(captured.captured.userId).isEqualTo("u-1")
+        assertThat(captured.captured.updatedBy).isEqualTo("u-1")
         assertThat(captured.captured.provider).isEqualTo(AgentCredentialProvider.CLAUDE)
         assertThat(captured.captured.valid).isNull()
         assertThat(captured.captured.validatedAt).isNull()

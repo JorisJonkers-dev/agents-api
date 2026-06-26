@@ -68,7 +68,6 @@ data class InternalCredentialIngestRequest(
     @field:NotBlank val userId: String,
     @field:NotBlank val provider: String,
     val payload: Map<String, String> = emptyMap(),
-    @field:NotBlank val updatedBy: String,
 )
 
 data class InternalCredentialIngestResponse(
