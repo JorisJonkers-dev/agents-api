@@ -531,6 +531,61 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     }
 
     @Test
+    @DisplayName("provision injects full Claude credential files without OAuth env override")
+    fun `provision injects full claude credentials without oauth env override`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val owner = "user-full-claude"
+        val orchestrator =
+            orchestrator(
+                saScoped,
+                credentials =
+                    wrap(
+                        StaticAgentCredentialRepository(
+                            owner = owner,
+                            claude = "legacy-token",
+                            claudeCredentialsJson =
+                                """{"claudeAiOauth":{"accessToken":"current","refreshToken":"refresh"}}""",
+                            claudeAccountJson = """{"billingType":"subscription","seatTier":"max"}""",
+                        ),
+                    ),
+            )
+        val workspace = adHocWorkspace().copy(ownerUserId = owner)
+
+        orchestrator.provision(workspace)
+
+        val short = workspace.id.short()
+        val secret =
+            admin
+                .secrets()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-credentials-$short")
+                .get()
+        assertThat(secret).isNotNull
+        assertThat(secret.data).containsKeys(
+            "claude_oauth_token",
+            "claude_credentials_json",
+            "claude_account_json",
+        )
+        val pod =
+            admin
+                .pods()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-$short")
+                .get()
+        val container = pod.spec.containers.single()
+        val env = container.env.associateBy { it.name }
+        assertThat(env["AGENT_CLAUDE_CREDENTIALS_FILE"]?.value)
+            .isEqualTo("/var/run/secrets/agents/credentials/claude_credentials_json")
+        assertThat(env["AGENT_CLAUDE_ACCOUNT_FILE"]?.value)
+            .isEqualTo("/var/run/secrets/agents/credentials/claude_account_json")
+        assertThat(env).doesNotContainKey("CLAUDE_CODE_OAUTH_TOKEN")
+        val mount = container.volumeMounts.single { it.name == "agent-credentials" }
+        assertThat(mount.mountPath).isEqualTo("/var/run/secrets/agents/credentials")
+        assertThat(mount.readOnly).isTrue()
+    }
+
+    @Test
     @DisplayName("provision injects owner Claude and Codex credentials through a per-workspace Secret")
     fun `provision injects owner credentials through workspace secret`() {
         K3sTestSupport.applyProductionRbac(admin)
@@ -993,6 +1048,8 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     private class StaticAgentCredentialRepository(
         private val owner: String,
         var claude: String? = null,
+        var claudeCredentialsJson: String? = null,
+        var claudeAccountJson: String? = null,
         var codexAuthJson: String? = null,
         var codexConfigToml: String? = null,
         private val valid: Boolean? = true,
@@ -1007,7 +1064,11 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
             val payload =
                 when (provider) {
                     AgentCredentialProvider.CLAUDE ->
-                        claude?.let { mapOf("oauth_token" to it) }
+                        buildMap {
+                            claude?.let { put("oauth_token", it) }
+                            claudeCredentialsJson?.let { put("credentials_json", it) }
+                            claudeAccountJson?.let { put("account_json", it) }
+                        }.takeIf { it.isNotEmpty() }
                     AgentCredentialProvider.CODEX ->
                         buildMap {
                             codexAuthJson?.let { put("auth_json", it) }

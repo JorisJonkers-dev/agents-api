@@ -79,6 +79,36 @@ class InternalCredentialControllerTest {
     }
 
     @Test
+    fun `POST credentials accepts Claude credentials json without legacy oauth token`() {
+        every { store.upsert(any()) } answers { arg<AgentOauthCredential>(0) }
+        every { validator.validate(AgentCredentialProvider.CLAUDE, any()) } returns CredentialValidationResult.UNKNOWN
+
+        mockMvc
+            .perform(
+                post("/api/v1/internal/credentials")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        objectMapper.writeValueAsString(
+                            mapOf(
+                                "userId" to "u-credentials-json",
+                                "provider" to "CLAUDE",
+                                "payload" to
+                                    mapOf(
+                                        "credentials_json" to """{"claudeAiOauth":{"accessToken":"secret"}}""",
+                                    ),
+                                "updatedBy" to "worker",
+                            ),
+                        ),
+                    ),
+            ).andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.provider").value("CLAUDE"))
+            .andExpect(jsonPath("$.status").value("UNKNOWN"))
+            .andExpect(content().string(not(containsString("accessToken"))))
+
+        verify(exactly = 0) { store.markValidity(any(), any(), any()) }
+    }
+
+    @Test
     fun `POST credentials ingests codex payload and marks verified success only when validator succeeds`() {
         every { store.upsert(any()) } answers { arg<AgentOauthCredential>(0) }
         every { validator.validate(AgentCredentialProvider.CODEX, any()) } returns CredentialValidationResult.VALID

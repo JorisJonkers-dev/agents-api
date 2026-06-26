@@ -71,7 +71,8 @@ class InternalCredentialController(
         payload: Map<String, String>,
     ): Boolean =
         when (provider) {
-            AgentCredentialProvider.CLAUDE -> payload["oauth_token"].isPresent()
+            AgentCredentialProvider.CLAUDE ->
+                payload["credentials_json"].isPresent() || payload["oauth_token"].isPresent()
             AgentCredentialProvider.CODEX ->
                 payload["auth_json"].isPresent() && payload["config_toml"].isPresent()
         }

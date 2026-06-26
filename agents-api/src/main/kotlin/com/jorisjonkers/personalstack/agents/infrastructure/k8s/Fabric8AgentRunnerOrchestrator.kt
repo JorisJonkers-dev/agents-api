@@ -265,6 +265,8 @@ class Fabric8AgentRunnerOrchestrator(
     private data class CredentialSecret(
         val name: String,
         val hasClaude: Boolean,
+        val hasClaudeCredentialsJson: Boolean,
+        val hasClaudeAccountJson: Boolean,
         val hasCodex: Boolean,
     )
 
@@ -305,6 +307,8 @@ class Fabric8AgentRunnerOrchestrator(
         return CredentialSecret(
             name = name,
             hasClaude = data.containsKey("claude_oauth_token"),
+            hasClaudeCredentialsJson = data.containsKey("claude_credentials_json"),
+            hasClaudeAccountJson = data.containsKey("claude_account_json"),
             hasCodex = data.containsKey("codex_auth_json") && data.containsKey("codex_config_toml"),
         )
     }
@@ -317,6 +321,12 @@ class Fabric8AgentRunnerOrchestrator(
                 val claude = loadCredential(store, owner, AgentCredentialProvider.CLAUDE)
                 claude?.payload?.get("oauth_token")?.takeIf { it.isNotBlank() }?.let {
                     put("claude_oauth_token", b64(it))
+                }
+                claude?.payload?.get("credentials_json")?.takeIf { it.isNotBlank() }?.let {
+                    put("claude_credentials_json", b64(it))
+                }
+                claude?.payload?.get("account_json")?.takeIf { it.isNotBlank() }?.let {
+                    put("claude_account_json", b64(it))
                 }
                 val codex = loadCredential(store, owner, AgentCredentialProvider.CODEX)
                 val codexAuth = codex?.payload?.get("auth_json")?.takeIf { it.isNotBlank() }
@@ -608,7 +618,23 @@ class Fabric8AgentRunnerOrchestrator(
             emptyList()
         } else {
             buildList {
-                if (credentialSecret.hasClaude) {
+                if (credentialSecret.hasClaudeCredentialsJson) {
+                    add(
+                        EnvVarBuilder()
+                            .withName("AGENT_CLAUDE_CREDENTIALS_FILE")
+                            .withValue("$AGENT_CREDENTIALS_MOUNT/claude_credentials_json")
+                            .build(),
+                    )
+                }
+                if (credentialSecret.hasClaudeAccountJson) {
+                    add(
+                        EnvVarBuilder()
+                            .withName("AGENT_CLAUDE_ACCOUNT_FILE")
+                            .withValue("$AGENT_CREDENTIALS_MOUNT/claude_account_json")
+                            .build(),
+                    )
+                }
+                if (credentialSecret.hasClaude && !credentialSecret.hasClaudeCredentialsJson) {
                     add(
                         EnvVarBuilder()
                             .withName("CLAUDE_CODE_OAUTH_TOKEN")
