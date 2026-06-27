@@ -269,6 +269,7 @@ class Fabric8AgentRunnerOrchestrator(
         val hasClaudeCredentialsJson: Boolean,
         val hasClaudeAccountJson: Boolean,
         val hasCodex: Boolean,
+        val hasCodexConfig: Boolean,
     )
 
     @Suppress("LongMethod")
@@ -310,7 +311,8 @@ class Fabric8AgentRunnerOrchestrator(
             hasClaude = data.containsKey("claude_oauth_token"),
             hasClaudeCredentialsJson = data.containsKey("claude_credentials_json"),
             hasClaudeAccountJson = data.containsKey("claude_account_json"),
-            hasCodex = data.containsKey("codex_auth_json") && data.containsKey("codex_config_toml"),
+            hasCodex = data.containsKey("codex_auth_json"),
+            hasCodexConfig = data.containsKey("codex_config_toml"),
         )
     }
 
@@ -332,9 +334,10 @@ class Fabric8AgentRunnerOrchestrator(
                 val codex = loadCredential(store, owner, AgentCredentialProvider.CODEX)
                 val codexAuth = codex?.payload?.get("auth_json")?.takeIf { it.isNotBlank() }
                 val codexConfig = codex?.payload?.get("config_toml")?.takeIf { it.isNotBlank() }
-                if (codexAuth != null && codexConfig != null) {
+                if (codexAuth != null) {
                     put("codex_auth_json", b64(codexAuth))
-                    put("codex_config_toml", b64(codexConfig))
+                    // config_toml is optional; the runner self-provisions one when absent.
+                    codexConfig?.let { put("codex_config_toml", b64(it)) }
                 }
             }
         return data.takeIf { it.isNotEmpty() }
@@ -656,6 +659,8 @@ class Fabric8AgentRunnerOrchestrator(
                             .withValue("$AGENT_CREDENTIALS_MOUNT/codex_auth_json")
                             .build(),
                     )
+                }
+                if (credentialSecret.hasCodexConfig) {
                     add(
                         EnvVarBuilder()
                             .withName("AGENT_CODEX_CONFIG_TOML_FILE")

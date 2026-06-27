@@ -73,8 +73,9 @@ class InternalCredentialController(
         when (provider) {
             AgentCredentialProvider.CLAUDE ->
                 payload["credentials_json"].isPresent() || payload["oauth_token"].isPresent()
-            AgentCredentialProvider.CODEX ->
-                payload["auth_json"].isPresent() && payload["config_toml"].isPresent()
+            // config_toml is optional: `codex login` only writes auth.json, and the
+            // runner self-provisions a config.toml when none is injected.
+            AgentCredentialProvider.CODEX -> payload["auth_json"].isPresent()
         }
 
     private fun String?.isPresent(): Boolean = !isNullOrBlank()

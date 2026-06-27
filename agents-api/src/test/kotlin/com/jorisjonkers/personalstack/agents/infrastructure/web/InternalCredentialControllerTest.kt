@@ -199,7 +199,8 @@ class InternalCredentialControllerTest {
                             mapOf(
                                 "userId" to "u-5",
                                 "provider" to "CODEX",
-                                "payload" to mapOf("auth_json" to "{}"),
+                                // codex requires auth_json; config_toml alone is incomplete.
+                                "payload" to mapOf("config_toml" to "model=\"x\""),
                                 "updatedBy" to "worker",
                             ),
                         ),

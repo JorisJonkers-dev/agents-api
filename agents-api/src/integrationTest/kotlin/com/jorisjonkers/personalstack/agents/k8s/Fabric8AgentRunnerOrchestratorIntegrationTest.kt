@@ -643,6 +643,47 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
     }
 
     @Test
+    @DisplayName("provision injects a codex credential with only auth.json (config.toml optional)")
+    fun `provision injects codex credential without config toml`() {
+        K3sTestSupport.applyProductionRbac(admin)
+        saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s, admin)
+        val owner = "user-codex-auth-only"
+        val orchestrator =
+            orchestrator(
+                saScoped,
+                // `codex login` writes auth.json but not config.toml; the credential must
+                // still be injected (the runner self-provisions a config.toml when absent).
+                credentials = wrap(StaticAgentCredentialRepository(owner, codexAuthJson = """{"tokens":"current"}""")),
+            )
+        val workspace = adHocWorkspace().copy(ownerUserId = owner)
+
+        orchestrator.provision(workspace)
+
+        val short = workspace.id.short()
+        val secret =
+            admin
+                .secrets()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-credentials-$short")
+                .get()
+        assertThat(secret).isNotNull
+        assertThat(secret.data).containsKey("codex_auth_json")
+        assertThat(secret.data).doesNotContainKey("codex_config_toml")
+        val container =
+            admin
+                .pods()
+                .inNamespace(K3sTestSupport.AGENTS_NAMESPACE)
+                .withName("agent-runner-$short")
+                .get()
+                .spec.containers
+                .single()
+        val env = container.env.associateBy { it.name }
+        assertThat(env["AGENT_CODEX_AUTH_JSON_FILE"]?.value)
+            .isEqualTo("/var/run/secrets/agents/credentials/codex_auth_json")
+        assertThat(env).doesNotContainKey("AGENT_CODEX_CONFIG_TOML_FILE")
+    }
+
+    @Test
     @DisplayName("provision skips workspace credential Secret when owner or required payload is missing")
     fun `provision skips credential secret when owner or credential missing`() {
         K3sTestSupport.applyProductionRbac(admin)
@@ -651,7 +692,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         val orchestrator =
             orchestrator(
                 saScoped,
-                credentials = wrap(StaticAgentCredentialRepository(owner, codexAuthJson = """{"tokens":"partial"}""")),
+                credentials = wrap(StaticAgentCredentialRepository(owner)),
             )
         val noOwner = adHocWorkspace()
         val missingPayload = adHocWorkspace().copy(ownerUserId = owner)
