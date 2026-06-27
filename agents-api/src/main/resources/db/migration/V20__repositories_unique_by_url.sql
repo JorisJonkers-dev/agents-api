@@ -1,0 +1,18 @@
+-- A repository is identified by its URL, not its short name. During the
+-- GitHub org migration the same short name (e.g. ".github") must be able to
+-- exist for both the old and the new org, each pointing at a distinct URL.
+--
+-- Drop the global UNIQUE(name) introduced in V9. Identity / dedup now lives
+-- on repo_url and is enforced at the application layer
+-- (CreateRepositoryCommandHandler.findByRepoUrl). A DB-level UNIQUE on
+-- repo_url is intentionally NOT added here: repo_url is TEXT, and jOOQ's
+-- codegen DDLDatabase (H2) cannot put a unique index on a CLOB.
+--
+-- Portability: this statement must parse under both Postgres (runtime) and
+-- H2 (jOOQ DDLDatabase at codegen). Postgres auto-names the V9 inline
+-- single-column unique `repositories_name_key`, so the drop hits it there.
+-- On H2 the constraint carries a different generated name, so IF EXISTS makes
+-- this a harmless no-op at codegen time; the leftover codegen-only unique is
+-- irrelevant because the app addresses this table via DSL.field(), not
+-- generated records, and never relies on generated uniqueness.
+ALTER TABLE repositories DROP CONSTRAINT IF EXISTS repositories_name_key;

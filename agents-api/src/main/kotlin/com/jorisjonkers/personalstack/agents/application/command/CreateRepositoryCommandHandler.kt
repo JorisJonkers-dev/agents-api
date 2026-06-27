@@ -20,9 +20,12 @@ class CreateRepositoryCommandHandler(
     override fun handle(command: CreateRepositoryCommand) {
         require(command.name.isNotBlank()) { "repository name must not be blank" }
         require(command.repoUrl.isNotBlank()) { "repo URL must not be blank" }
-        val existing = repositories.findByName(command.name.trim())
+        // Identity is the clone URL, not the short name: the same name may be
+        // registered more than once (e.g. `.github` for two GitHub orgs during
+        // a migration). Dedup on the URL instead.
+        val existing = repositories.findByRepoUrl(command.repoUrl.trim())
         if (existing != null && existing.id != command.repositoryId) {
-            error("repository name already in use: ${command.name.trim()}")
+            error("repository url already registered: ${command.repoUrl.trim()}")
         }
         val now = Instant.now()
         repositories.save(

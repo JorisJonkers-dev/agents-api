@@ -18,6 +18,14 @@ interface RepositoryRepository {
 
     fun findByName(name: String): Repository?
 
+    /**
+     * Looks up a repository by its clone URL. A repository's identity is its
+     * URL, not its short name: the same name may appear more than once (e.g.
+     * `.github` under two different GitHub orgs during a migration), so name
+     * is no longer unique. Used to dedup on create.
+     */
+    fun findByRepoUrl(repoUrl: String): Repository?
+
     fun findAll(): List<Repository>
 
     fun findAllByProjectId(projectId: ProjectId): List<Repository>

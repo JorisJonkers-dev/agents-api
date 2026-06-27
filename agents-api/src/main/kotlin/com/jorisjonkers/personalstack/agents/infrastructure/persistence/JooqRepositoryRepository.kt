@@ -57,7 +57,16 @@ class JooqRepositoryRepository(
         dsl
             .selectFrom(REPOSITORIES)
             .where(NAME.eq(name))
-            .fetchOne()
+            // name is no longer unique (see V20): tolerate duplicates instead
+            // of throwing, returning the first match.
+            .fetchAny()
+            ?.toRepository()
+
+    override fun findByRepoUrl(repoUrl: String): Repository? =
+        dsl
+            .selectFrom(REPOSITORIES)
+            .where(REPO_URL.eq(repoUrl))
+            .fetchAny()
             ?.toRepository()
 
     override fun findAll(): List<Repository> =

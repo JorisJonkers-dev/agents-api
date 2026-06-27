@@ -49,11 +49,46 @@ class JooqRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
     }
 
     @Test
-    fun `findByName returns the repository by globally-unique name`() {
+    fun `findByName returns a repository by name`() {
         val r = newRepository(name = "lookup-by-name-${UUID.randomUUID()}")
         repositories.save(r)
 
         val loaded = repositories.findByName(r.name)
+        assertThat(loaded).isNotNull
+        assertThat(loaded!!.id).isEqualTo(r.id)
+    }
+
+    @Test
+    fun `the same name can be saved twice with different urls (V20)`() {
+        // Migration window: ".github" exists for both the old and new org.
+        val name = "dup-name-${UUID.randomUUID()}"
+        val old =
+            Repository(
+                id = RepositoryId.random(),
+                name = name,
+                repoUrl = "git@github.com:ExtraToast/$name.git",
+                defaultBranch = "main",
+                createdAt = Instant.now(),
+                updatedAt = Instant.now(),
+            )
+        val new =
+            old.copy(
+                id = RepositoryId.random(),
+                repoUrl = "https://github.com/JorisJonkers-dev/$name",
+            )
+        repositories.save(old)
+        repositories.save(new)
+
+        assertThat(repositories.findById(old.id)).isNotNull
+        assertThat(repositories.findById(new.id)).isNotNull
+    }
+
+    @Test
+    fun `findByRepoUrl returns the repository by its url`() {
+        val r = newRepository(name = "lookup-by-url-${UUID.randomUUID()}")
+        repositories.save(r)
+
+        val loaded = repositories.findByRepoUrl(r.repoUrl)
         assertThat(loaded).isNotNull
         assertThat(loaded!!.id).isEqualTo(r.id)
     }
