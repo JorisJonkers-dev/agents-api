@@ -11,6 +11,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialReposito
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
+import io.fabric8.kubernetes.api.model.ContainerBuilder
 import io.fabric8.kubernetes.api.model.ContainerPortBuilder
 import io.fabric8.kubernetes.api.model.EnvVarBuilder
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim
@@ -404,6 +405,7 @@ class Fabric8AgentRunnerOrchestrator(
             .withFsGroup(FS_GROUP)
             .withSupplementalGroups(podSupplementalGroups(setup))
             .endSecurityContext()
+            .withInitContainers(agentStateInitContainer(setup))
             .addNewContainer()
             .withName("agent-runner")
             // Pin to the release agents-api itself is on so the running
@@ -670,6 +672,7 @@ class Fabric8AgentRunnerOrchestrator(
         credentialSecret: CredentialSecret?,
     ) = buildList {
         add(VolumeMountBuilder().withName("workspace").withMountPath("/workspace").build())
+        addAll(agentStateVolumeMounts())
         if (credentialSecret != null) {
             add(
                 VolumeMountBuilder()
@@ -698,6 +701,59 @@ class Fabric8AgentRunnerOrchestrator(
                 .build(),
         )
     }
+
+    private fun agentStateInitContainer(setup: RunnerSetupProvisioningSpec) =
+        ContainerBuilder()
+            .withName("agent-state-init")
+            .withImage(RunnerImageVersions.pin(setup.image, ownReleaseVersion()))
+            .withImagePullPolicy(setup.imagePullPolicy)
+            .withCommand("/bin/sh", "-c")
+            .withArgs(
+                "mkdir -p /workspace/.agent-state/claude/projects " +
+                    "/workspace/.agent-state/claude/backups " +
+                    "/workspace/.agent-state/claude/todos " +
+                    "/workspace/.agent-state/claude/shell-snapshots " +
+                    "/workspace/.agent-state/codex/session-homes && " +
+                    "chown -R 1000:1000 /workspace/.agent-state",
+            ).withVolumeMounts(VolumeMountBuilder().withName("workspace").withMountPath("/workspace").build())
+            .withNewSecurityContext()
+            .withRunAsUser(0L)
+            .withRunAsGroup(0L)
+            .endSecurityContext()
+            .build()
+
+    private fun agentStateVolumeMounts() =
+        listOf(
+            agentStateVolumeMount(
+                mountPath = "/home/agent/.claude/projects",
+                subPath = ".agent-state/claude/projects",
+            ),
+            agentStateVolumeMount(
+                mountPath = "/home/agent/.claude/backups",
+                subPath = ".agent-state/claude/backups",
+            ),
+            agentStateVolumeMount(
+                mountPath = "/home/agent/.claude/todos",
+                subPath = ".agent-state/claude/todos",
+            ),
+            agentStateVolumeMount(
+                mountPath = "/home/agent/.claude/shell-snapshots",
+                subPath = ".agent-state/claude/shell-snapshots",
+            ),
+            agentStateVolumeMount(
+                mountPath = "/home/agent/.codex/session-homes",
+                subPath = ".agent-state/codex/session-homes",
+            ),
+        )
+
+    private fun agentStateVolumeMount(
+        mountPath: String,
+        subPath: String,
+    ) = VolumeMountBuilder()
+        .withName("workspace")
+        .withMountPath(mountPath)
+        .withSubPath(subPath)
+        .build()
 
     private fun podVolumes(
         workspacePvc: String,

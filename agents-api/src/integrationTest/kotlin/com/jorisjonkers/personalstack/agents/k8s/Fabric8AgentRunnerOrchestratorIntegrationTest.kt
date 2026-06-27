@@ -15,6 +15,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.k8s.Fabric8AgentRunnerOrchestrator
 import io.fabric8.kubernetes.api.model.ContainerStatusBuilder
+import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.api.model.PodBuilder
 import io.fabric8.kubernetes.client.KubernetesClient
 import io.fabric8.kubernetes.client.KubernetesClientException
@@ -279,12 +280,9 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         assertThat(pod.spec.securityContext.supplementalGroups).contains(44L)
         assertThat(pod.spec.volumes.map { it.name })
             .doesNotContain("claude-credentials", "codex-credentials", "agent-credentials")
+        assertAgentStatePersistence(pod)
         assertThat(container.volumeMounts.map { it.mountPath })
-            .doesNotContain(
-                "/home/agent/.claude",
-                "/home/agent/.codex",
-                "/var/run/secrets/agents/credentials",
-            )
+            .doesNotContain("/var/run/secrets/agents/credentials")
         assertThat(
             pod.spec.volumes
                 .single { it.name == "mcp-config" }
@@ -636,8 +634,7 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         val mount = container.volumeMounts.single { it.name == "agent-credentials" }
         assertThat(mount.mountPath).isEqualTo("/var/run/secrets/agents/credentials")
         assertThat(mount.readOnly).isTrue()
-        assertThat(container.volumeMounts.map { it.mountPath })
-            .doesNotContain("/home/agent/.claude", "/home/agent/.codex")
+        assertAgentStatePersistence(pod)
         assertThat(
             pod.spec.volumes
                 .single { it.name == "agent-credentials" }
@@ -950,6 +947,44 @@ class Fabric8AgentRunnerOrchestratorIntegrationTest {
         assertThat(state?.runnerGeneration).isEqualTo(8)
         assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 7))).isFalse()
         assertThat(orchestrator.isReady(bound, setup.identity(runnerGeneration = 8))).isTrue()
+    }
+
+    private fun assertAgentStatePersistence(pod: Pod) {
+        assertThat(pod.spec.securityContext.fsGroup).isEqualTo(1000L)
+
+        val container = pod.spec.containers.single()
+        val mountsByPath = container.volumeMounts.associateBy { it.mountPath }
+        val expectedMounts =
+            mapOf(
+                "/home/agent/.claude/projects" to ".agent-state/claude/projects",
+                "/home/agent/.claude/backups" to ".agent-state/claude/backups",
+                "/home/agent/.claude/todos" to ".agent-state/claude/todos",
+                "/home/agent/.claude/shell-snapshots" to ".agent-state/claude/shell-snapshots",
+                "/home/agent/.codex/session-homes" to ".agent-state/codex/session-homes",
+            )
+
+        expectedMounts.forEach { (mountPath, subPath) ->
+            val mount = mountsByPath[mountPath]
+            assertThat(mount).describedAs("state mount $mountPath").isNotNull
+            assertThat(mount?.name).isEqualTo("workspace")
+            assertThat(mount?.subPath).isEqualTo(subPath)
+        }
+        assertThat(container.volumeMounts.map { it.mountPath })
+            .doesNotContain("/home/agent/.claude", "/home/agent/.codex")
+
+        val init = pod.spec.initContainers.single { it.name == "agent-state-init" }
+        val initMount = init.volumeMounts.single { it.name == "workspace" }
+        assertThat(initMount.mountPath).isEqualTo("/workspace")
+        assertThat(init.command).containsExactly("/bin/sh", "-c")
+        assertThat(init.args.joinToString(" "))
+            .contains(
+                "mkdir -p /workspace/.agent-state/claude/projects",
+                "/workspace/.agent-state/claude/backups",
+                "/workspace/.agent-state/claude/todos",
+                "/workspace/.agent-state/claude/shell-snapshots",
+                "/workspace/.agent-state/codex/session-homes",
+                "chown -R 1000:1000 /workspace/.agent-state",
+            )
     }
 
     private fun orchestrator(
