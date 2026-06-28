@@ -6,11 +6,30 @@ plugins {
     alias(libs.plugins.jorisjonkers.jooq.codegen)
 }
 
+val prepareJooqMigrations by tasks.registering(Sync::class) {
+    from("src/main/resources/db/migration") {
+        exclude("V21__rebrand_agent_runtime_image.sql")
+    }
+    into(layout.buildDirectory.dir("jooq-migration"))
+}
+
 jooqCodegen {
     schemaName.set("PUBLIC")
     packageName.set("com.jorisjonkers.personalstack.agents.jooq")
-    migrationLocations.set(listOf("filesystem:src/main/resources/db/migration"))
+    migrationLocations.set(listOf("filesystem:build/jooq-migration"))
 }
+
+tasks.named("generateJooq") {
+    dependsOn(prepareJooqMigrations)
+}
+
+tasks
+    .matching {
+        it.name == "runKtlintCheckOverMainSourceSet" ||
+            it.name == "runKtlintFormatOverMainSourceSet"
+    }.configureEach {
+        dependsOn(tasks.named("generateJooq"))
+    }
 
 dependencies {
     implementation(libs.kotlin.commons.command)
@@ -106,6 +125,9 @@ tasks.register<Test>("exportOpenApiSpec") {
     group = "documentation"
     testClassesDirs = sourceSets["integrationTest"].output.classesDirs
     classpath = sourceSets["integrationTest"].runtimeClasspath
+    extensions.configure<org.gradle.testing.jacoco.plugins.JacocoTaskExtension> {
+        isEnabled = false
+    }
     useJUnitPlatform {
         includeTags("contract-export")
     }
@@ -119,4 +141,11 @@ tasks.register<Test>("exportOpenApiSpec") {
     // so caching past runs would defeat the drift gate. The CI workflow
     // diffs the freshly-written file against the committed copy.
     outputs.upToDateWhen { false }
+}
+
+tasks.named<org.gradle.testing.jacoco.tasks.JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    executionData.setFrom(
+        layout.buildDirectory.file("jacoco/test.exec"),
+        layout.buildDirectory.file("jacoco/integrationTest.exec"),
+    )
 }

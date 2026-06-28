@@ -1,0 +1,3147 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "Agents API",
+    "description" : "Conversation and messaging service for jorisjonkers.dev",
+    "version" : "1.0.0"
+  },
+  "servers" : [ {
+    "url" : "https://agents.jorisjonkers.dev",
+    "description" : "Production"
+  }, {
+    "url" : "http://localhost:8082",
+    "description" : "Local development"
+  } ],
+  "security" : [ {
+    "xUserId" : [ ]
+  } ],
+  "paths" : {
+    "/api/v1/workspaces" : {
+      "get" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "list",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/WorkspaceResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "create",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions" : {
+      "post" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "start",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartAgentSessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string",
+                    "format" : "uuid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/staged-inputs" : {
+      "post" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "stageInput",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StageInputRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StagedInputResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/restart" : {
+      "post" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "restart",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RestartAgentSessionHttpRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "202" : {
+            "description" : "Accepted",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RestartAgentSessionResponse"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Conflict",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RestartAgentSessionResponse"
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "Invalid setup request",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "Service Unavailable",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/input" : {
+      "post" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "send",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SendUserInputRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/git/open-pr" : {
+      "post" : {
+        "tags" : [ "git-controller" ],
+        "operationId" : "openPr",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OpenPrRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{id}/repositories" : {
+      "post" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "attachRepository",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AttachWorkspaceRepositoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{id}/connect" : {
+      "post" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "connect",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Runner is already ready",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "202" : {
+            "description" : "Runner boot in progress or just provisioned",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Workspace not found",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "Runner unavailable",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceConnectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories" : {
+      "get" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "list_1",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/RepositoryResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "create_1",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateRepositoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{id}/verify" : {
+      "post" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "verify",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects" : {
+      "get" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "list_2",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ProjectResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "create_2",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateProjectRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}/repositories" : {
+      "post" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "linkRepository",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LinkRepositoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/RepositoryResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}/links" : {
+      "post" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "addLink",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AddGithubLinkRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GithubLinkResponse"
+                }
+              }
+            }
+          }
+        },
+        "deprecated" : true
+      }
+    },
+    "/api/v1/credentials/sessions" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Start a CLI re-authentication session for Claude or Codex",
+        "operationId" : "start_1",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartCredentialSessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}/redirect" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Submit the Claude post-approval redirect URL back to a session",
+        "operationId" : "redirect",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SubmitRedirectUrlRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}/cancel" : {
+      "post" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Cancel an in-flight re-authentication session",
+        "operationId" : "cancel",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations" : {
+      "get" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "listByUser",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ConversationResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "create_3",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateConversationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{conversationId}/messages" : {
+      "get" : {
+        "tags" : [ "message-controller" ],
+        "operationId" : "list_3",
+        "parameters" : [ {
+          "name" : "conversationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/MessageResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "message-controller" ],
+        "operationId" : "send_1",
+        "parameters" : [ {
+          "name" : "conversationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat-sessions" : {
+      "get" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "list_4",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ChatSessionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "create_4",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartChatSessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ChatSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat-sessions/{id}/messages" : {
+      "post" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "appendMessage",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppendChatMessageRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ChatMessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/setup" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "Get workspace runner setup metadata",
+        "operationId" : "workspaceSetup",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceRunnerSetupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/setup-transitions" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "List setup transition history for a workspace",
+        "operationId" : "workspaceTransitionHistory",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetupTransitionHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/turns" : {
+      "get" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "turns",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/TurnResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "Get current, pending, and failed setup state for a session",
+        "operationId" : "sessionSetup",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionSetupStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-transitions" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "List setup transition history for a session",
+        "operationId" : "sessionTransitionHistory",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetupTransitionHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-preview" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "Preview setup diff and validation for a session restart target",
+        "operationId" : "setupPreview",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "targetSetupId",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "targetSetupVersion",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Preview",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetupPreviewResponse"
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "Validation failed",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-options" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "List setup targets for a session with validation preview",
+        "operationId" : "sessionSetupOptions",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetupTargetOptionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{id}" : {
+      "get" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "get",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "destroy",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{id}" : {
+      "get" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "get_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : { }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "delete",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{id}/installation-status" : {
+      "get" : {
+        "tags" : [ "repository-controller" ],
+        "operationId" : "installationStatus",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositoryInstallationStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}" : {
+      "get" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "get_2",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : { }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health" : {
+      "get" : {
+        "tags" : [ "health-controller" ],
+        "operationId" : "health",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/status" : {
+      "get" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Report what credentials are currently stored for each provider",
+        "operationId" : "storedStatus",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StoredCredentialStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/credentials/sessions/{id}" : {
+      "get" : {
+        "tags" : [ "credential-controller" ],
+        "summary" : "Get the current status of a re-authentication session",
+        "operationId" : "status",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}" : {
+      "get" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "getById",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "archive",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/chat-sessions/{id}" : {
+      "get" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "get_3",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : { }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "archive_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/agent-setups" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "List selectable agent setup catalog entries",
+        "operationId" : "catalog",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AgentSetupCatalogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-setups/{setupId}/versions/{version}" : {
+      "get" : {
+        "tags" : [ "agent-setup-controller" ],
+        "summary" : "Get an agent setup catalog entry",
+        "operationId" : "detail",
+        "parameters" : [ {
+          "name" : "setupId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "version",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AgentSetupDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/sessions/{sessionId}" : {
+      "delete" : {
+        "tags" : [ "agent-session-controller" ],
+        "operationId" : "stop",
+        "parameters" : [ {
+          "name" : "workspaceId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "sessionId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{id}/repositories/{repoId}" : {
+      "delete" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "detachRepository",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "repoId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/links/{linkId}" : {
+      "delete" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "removeLink",
+        "parameters" : [ {
+          "name" : "projectId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "linkId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}/repositories/{repoId}" : {
+      "delete" : {
+        "tags" : [ "project-controller" ],
+        "operationId" : "unlinkRepository",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "repoId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "CreateWorkspaceRequest" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string",
+            "maxLength" : 80,
+            "minLength" : 1
+          },
+          "repoUrl" : {
+            "type" : [ "string", "null" ]
+          },
+          "branch" : {
+            "type" : [ "string", "null" ]
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "REPO_BACKED", "SCRATCH", "CHAT" ]
+          },
+          "projectId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "repositoryId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "primaryRepositoryId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "repositoryIds" : {
+            "type" : [ "array", "null" ],
+            "items" : {
+              "type" : "string",
+              "format" : "uuid"
+            }
+          },
+          "githubLinkId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid",
+            "deprecated" : true,
+            "description" : "Use repositoryId"
+          }
+        },
+        "required" : [ "kind", "name" ]
+      },
+      "AgentSetupReferenceResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        },
+        "required" : [ "id", "version" ]
+      },
+      "WorkspaceResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "repoUrl" : {
+            "type" : [ "string", "null" ]
+          },
+          "branch" : {
+            "type" : [ "string", "null" ]
+          },
+          "podName" : {
+            "type" : [ "string", "null" ]
+          },
+          "gatewayEndpoint" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "ownerUserId" : {
+            "type" : [ "string", "null" ]
+          },
+          "projectId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "repositoryId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "githubLinkId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "runnerSetup" : {
+            "$ref" : "#/components/schemas/WorkspaceRunnerSetupResponse"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "id", "kind", "name", "runnerSetup", "status", "updatedAt" ]
+      },
+      "WorkspaceRunnerSetupResponse" : {
+        "type" : "object",
+        "properties" : {
+          "current" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "pending" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "generation" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "operation" : {
+            "type" : "string"
+          },
+          "operationStartedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "operationUpdatedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "current", "generation", "operation" ]
+      },
+      "StartAgentSessionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "CLAUDE", "CODEX", "SHELL" ]
+          }
+        },
+        "required" : [ "kind" ]
+      },
+      "StageInputRequest" : {
+        "type" : "object",
+        "properties" : {
+          "content" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "content" ]
+      },
+      "StagedInputResponse" : {
+        "type" : "object",
+        "properties" : {
+          "path" : {
+            "type" : "string"
+          },
+          "bytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "bytes", "name", "path" ]
+      },
+      "RestartAgentSessionHttpRequest" : {
+        "type" : "object",
+        "properties" : {
+          "expectedGeneration" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          },
+          "expectedEpoch" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          },
+          "expectedSetupId" : {
+            "type" : [ "string", "null" ]
+          },
+          "expectedSetupVersion" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          },
+          "expectedCurrentSetupId" : {
+            "type" : [ "string", "null" ]
+          },
+          "expectedCurrentSetupVersion" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          },
+          "targetSetupId" : {
+            "type" : [ "string", "null" ]
+          },
+          "targetSetupVersion" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int64"
+          }
+        }
+      },
+      "RestartAgentSessionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "sessionId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "epoch" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "generation" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "currentSetup" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "pendingSetup" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        },
+        "required" : [ "currentSetup", "epoch", "generation", "sessionId", "status" ]
+      },
+      "FieldError" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "rejectedValue" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "field", "message" ]
+      },
+      "ProblemDetail" : {
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "format" : "uri"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "detail" : {
+            "type" : [ "string", "null" ]
+          },
+          "instance" : {
+            "type" : [ "string", "null" ],
+            "format" : "uri"
+          },
+          "errors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldError"
+            }
+          },
+          "traceId" : {
+            "type" : [ "string", "null" ]
+          },
+          "exception" : {
+            "type" : [ "string", "null" ]
+          },
+          "kubernetesCode" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          },
+          "kubernetesReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "constraint" : {
+            "type" : [ "string", "null" ]
+          },
+          "column" : {
+            "type" : [ "string", "null" ]
+          },
+          "referencedTable" : {
+            "type" : [ "string", "null" ]
+          },
+          "runnerStatus" : {
+            "type" : [ "string", "null" ]
+          },
+          "retryAfterSeconds" : {
+            "type" : [ "integer", "null" ],
+            "format" : "int32"
+          }
+        },
+        "required" : [ "errors", "status", "title", "type" ]
+      },
+      "SendUserInputRequest" : {
+        "type" : "object",
+        "properties" : {
+          "text" : {
+            "type" : "string"
+          },
+          "enter" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "enter", "text" ]
+      },
+      "OpenPrRequest" : {
+        "type" : "object",
+        "properties" : {
+          "repoDir" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "base" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "base", "body", "repoDir", "title" ]
+      },
+      "AttachWorkspaceRepositoryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "repositoryId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          }
+        },
+        "required" : [ "repositoryId" ]
+      },
+      "WorkspaceConnectResponse" : {
+        "type" : "object",
+        "properties" : {
+          "workspaceId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "setupId" : {
+            "type" : "string"
+          },
+          "setupVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
+          },
+          "checkedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "checkedAt", "setupId", "setupVersion", "state", "workspaceId" ]
+      },
+      "CreateRepositoryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string",
+            "maxLength" : 80,
+            "minLength" : 1
+          },
+          "repoUrl" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "defaultBranch", "name", "repoUrl" ]
+      },
+      "AccessVerificationResponse" : {
+        "type" : "object",
+        "properties" : {
+          "defaultBranchProtected" : {
+            "type" : [ "boolean", "null" ]
+          },
+          "checkedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "messages" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "required" : [ "messages" ]
+      },
+      "RepositoryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "repoUrl" : {
+            "type" : "string"
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "verification" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AccessVerificationResponse"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        },
+        "required" : [ "createdAt", "defaultBranch", "id", "name", "repoUrl", "updatedAt" ]
+      },
+      "CreateProjectRequest" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string",
+            "maxLength" : 80,
+            "minLength" : 1
+          },
+          "slug" : {
+            "type" : "string",
+            "pattern" : "^[a-z0-9][a-z0-9-]{0,62}$"
+          },
+          "description" : {
+            "type" : [ "string", "null" ],
+            "maxLength" : 1000,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "name", "slug" ]
+      },
+      "ProjectResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "slug" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "description", "id", "name", "slug", "updatedAt" ]
+      },
+      "LinkRepositoryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "repositoryId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        },
+        "required" : [ "repositoryId" ]
+      },
+      "AddGithubLinkRequest" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "repoUrl" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "defaultBranch", "name", "repoUrl" ]
+      },
+      "GithubLinkResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "projectId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "repoUrl" : {
+            "type" : "string"
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "defaultBranch", "id", "name", "projectId", "repoUrl", "updatedAt" ]
+      },
+      "StartCredentialSessionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "provider" : {
+            "type" : "string",
+            "minLength" : 1,
+            "pattern" : "claude|codex"
+          }
+        },
+        "required" : [ "provider" ]
+      },
+      "SubmitRedirectUrlRequest" : {
+        "type" : "object",
+        "properties" : {
+          "url" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        },
+        "required" : [ "url" ]
+      },
+      "CreateConversationRequest" : {
+        "type" : "object",
+        "properties" : {
+          "title" : {
+            "type" : "string",
+            "maxLength" : 200,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "title" ]
+      },
+      "ConversationResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "userId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "id", "status", "title", "updatedAt", "userId" ]
+      },
+      "SendMessageRequest" : {
+        "type" : "object",
+        "properties" : {
+          "content" : {
+            "type" : "string",
+            "maxLength" : 10000,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "content" ]
+      },
+      "MessageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "conversationId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "content", "conversationId", "createdAt", "id", "role" ]
+      },
+      "StartChatSessionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "title" : {
+            "type" : [ "string", "null" ],
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "kind" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "PLAIN", "KNOWLEDGE" ]
+          }
+        }
+      },
+      "ChatSessionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "userId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "id", "kind", "status", "updatedAt", "userId" ]
+      },
+      "AppendChatMessageRequest" : {
+        "type" : "object",
+        "properties" : {
+          "body" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "role" : {
+            "type" : "string",
+            "enum" : [ "USER", "ASSISTANT", "SYSTEM" ]
+          }
+        },
+        "required" : [ "body", "role" ]
+      },
+      "ChatMessageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "sessionId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "body", "createdAt", "id", "role", "sessionId" ]
+      },
+      "SetupTransitionHistoryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "events" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SetupTransitionResponse"
+            }
+          }
+        },
+        "required" : [ "events" ]
+      },
+      "SetupTransitionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "workspaceId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "sessionId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "from" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "to" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "REQUESTED", "STARTED", "COMPLETED", "FAILED", "CANCELLED" ]
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
+          },
+          "message" : {
+            "type" : [ "string", "null" ]
+          },
+          "requestedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "startedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "completedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "id", "requestedAt", "status", "to", "updatedAt", "workspaceId" ]
+      },
+      "TurnResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "sessionId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "body", "createdAt", "id", "role", "sessionId" ]
+      },
+      "FailedSessionSetupResponse" : {
+        "type" : "object",
+        "properties" : {
+          "setup" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
+          },
+          "message" : {
+            "type" : [ "string", "null" ]
+          },
+          "completedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "setup" ]
+      },
+      "SessionSetupStateResponse" : {
+        "type" : "object",
+        "properties" : {
+          "current" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "pending" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "failed" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/FailedSessionSetupResponse"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        },
+        "required" : [ "current" ]
+      },
+      "AgentSetupBindingResponse" : {
+        "type" : "object",
+        "properties" : {
+          "kind" : {
+            "type" : "string"
+          },
+          "namespace" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "key" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "kind", "name", "namespace" ]
+      },
+      "AgentSetupDiffChangeResponse" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string"
+          },
+          "fromValue" : {
+            "type" : [ "string", "null" ]
+          },
+          "toValue" : {
+            "type" : [ "string", "null" ]
+          },
+          "redacted" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "field", "redacted" ]
+      },
+      "AgentSetupDiffResponse" : {
+        "type" : "object",
+        "properties" : {
+          "from" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "to" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "hasChanges" : {
+            "type" : "boolean"
+          },
+          "changes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AgentSetupDiffChangeResponse"
+            }
+          }
+        },
+        "required" : [ "changes", "from", "hasChanges", "to" ]
+      },
+      "AgentSetupValidationIssueResponse" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "binding" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupBindingResponse"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        },
+        "required" : [ "code", "message" ]
+      },
+      "AgentSetupValidationResponse" : {
+        "type" : "object",
+        "properties" : {
+          "target" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "valid" : {
+            "type" : "boolean"
+          },
+          "issues" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AgentSetupValidationIssueResponse"
+            }
+          },
+          "warnings" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AgentSetupValidationIssueResponse"
+            }
+          }
+        },
+        "required" : [ "issues", "target", "valid", "warnings" ]
+      },
+      "SetupPreviewResponse" : {
+        "type" : "object",
+        "properties" : {
+          "current" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "target" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "diff" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupDiffResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "validation" : {
+            "$ref" : "#/components/schemas/AgentSetupValidationResponse"
+          }
+        },
+        "required" : [ "current", "target", "validation" ]
+      },
+      "AgentSetupCatalogEntryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "setup" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "displayName" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "image" : {
+            "type" : "string"
+          },
+          "cliTools" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "toolProfiles" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "toolAllowlist" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "selectable" : {
+            "type" : "boolean"
+          },
+          "defaultSelectable" : {
+            "type" : "boolean"
+          },
+          "unavailableReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "cliTools", "defaultSelectable", "displayName", "image", "selectable", "setup", "toolAllowlist", "toolProfiles", "updatedAt" ]
+      },
+      "SetupTargetOptionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "setup" : {
+            "$ref" : "#/components/schemas/AgentSetupCatalogEntryResponse"
+          },
+          "validation" : {
+            "$ref" : "#/components/schemas/AgentSetupValidationResponse"
+          }
+        },
+        "required" : [ "setup", "validation" ]
+      },
+      "SetupTargetOptionsResponse" : {
+        "type" : "object",
+        "properties" : {
+          "current" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "pending" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "options" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SetupTargetOptionResponse"
+            }
+          }
+        },
+        "required" : [ "current", "options" ]
+      },
+      "WorkspaceAgentSessionResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "workspaceId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "CLAUDE", "CODEX", "SHELL" ]
+          },
+          "gatewayAgentId" : {
+            "type" : [ "string", "null" ]
+          },
+          "epoch" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "generation" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "gatewayBoundAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "idle" : {
+            "type" : "boolean"
+          },
+          "currentSetup" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "pendingSetup" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "currentSetup", "epoch", "generation", "id", "idle", "kind", "status", "updatedAt", "workspaceId" ]
+      },
+      "WorkspaceDetailResponse" : {
+        "type" : "object",
+        "properties" : {
+          "workspace" : {
+            "$ref" : "#/components/schemas/WorkspaceWithRepositoriesResponse"
+          },
+          "sessions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/WorkspaceAgentSessionResponse"
+            }
+          }
+        },
+        "required" : [ "sessions", "workspace" ]
+      },
+      "WorkspaceRepositoryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "isPrimary" : {
+            "type" : "boolean"
+          },
+          "attachedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "repoUrl" : {
+            "type" : "string"
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "verification" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/AccessVerificationResponse"
+            }, {
+              "type" : "null"
+            } ]
+          }
+        },
+        "required" : [ "attachedAt", "createdAt", "defaultBranch", "id", "isPrimary", "name", "repoUrl", "updatedAt" ]
+      },
+      "WorkspaceRunnerImageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "version" : {
+            "type" : [ "string", "null" ]
+          },
+          "upgradeAvailable" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "upgradeAvailable" ]
+      },
+      "WorkspaceWithRepositoriesResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "repoUrl" : {
+            "type" : [ "string", "null" ]
+          },
+          "branch" : {
+            "type" : [ "string", "null" ]
+          },
+          "podName" : {
+            "type" : [ "string", "null" ]
+          },
+          "gatewayEndpoint" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "ownerUserId" : {
+            "type" : [ "string", "null" ]
+          },
+          "projectId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "repositoryId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "githubLinkId" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          },
+          "repositories" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/WorkspaceRepositoryResponse"
+            }
+          },
+          "runnerSetup" : {
+            "$ref" : "#/components/schemas/WorkspaceRunnerSetupResponse"
+          },
+          "runnerImage" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/WorkspaceRunnerImageResponse"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "id", "kind", "name", "repositories", "runnerSetup", "status", "updatedAt" ]
+      },
+      "RepositoryInstallationStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "state" : {
+            "type" : "string"
+          },
+          "checkedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "detail" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "checkedAt", "state" ]
+      },
+      "StoredCredentialStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "claude" : {
+            "$ref" : "#/components/schemas/StoredProviderCredentialStatus"
+          },
+          "codex" : {
+            "$ref" : "#/components/schemas/StoredProviderCredentialStatus"
+          }
+        },
+        "required" : [ "claude", "codex" ]
+      },
+      "StoredProviderCredentialStatus" : {
+        "type" : "object",
+        "properties" : {
+          "exists" : {
+            "type" : "boolean"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "valid" : {
+            "type" : [ "boolean", "null" ]
+          },
+          "validatedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : [ "string", "null" ],
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "exists", "state" ]
+      },
+      "AgentSetupCatalogResponse" : {
+        "type" : "object",
+        "properties" : {
+          "setups" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AgentSetupCatalogEntryResponse"
+            }
+          }
+        },
+        "required" : [ "setups" ]
+      },
+      "AgentSetupDetailResponse" : {
+        "type" : "object",
+        "properties" : {
+          "setup" : {
+            "$ref" : "#/components/schemas/AgentSetupReferenceResponse"
+          },
+          "displayName" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : [ "string", "null" ]
+          },
+          "namespace" : {
+            "type" : "string"
+          },
+          "image" : {
+            "type" : "string"
+          },
+          "imagePullPolicy" : {
+            "type" : "string"
+          },
+          "serviceAccount" : {
+            "type" : "string"
+          },
+          "gatewayPort" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "claudeCredentialsPvc" : {
+            "type" : "string"
+          },
+          "codexCredentialsPvc" : {
+            "type" : "string"
+          },
+          "githubDeployKeySecret" : {
+            "type" : "string"
+          },
+          "cliTools" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "knowledgeBaseUrl" : {
+            "type" : "string"
+          },
+          "knowledgeBearerSecret" : {
+            "type" : "string"
+          },
+          "knowledgeBearerSecretKey" : {
+            "type" : "string"
+          },
+          "mcpServersConfigMap" : {
+            "type" : "string"
+          },
+          "defaultMcpProfile" : {
+            "type" : "string"
+          },
+          "connectorConfig" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "toolProfiles" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "toolAllowlist" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "dockerSocketEnabled" : {
+            "type" : "boolean"
+          },
+          "dockerSocketPath" : {
+            "type" : "string"
+          },
+          "dockerSocketSupplementalGroups" : {
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int64"
+            }
+          },
+          "nodeSelector" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "selectable" : {
+            "type" : "boolean"
+          },
+          "defaultSelectable" : {
+            "type" : "boolean"
+          },
+          "unavailableReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "claudeCredentialsPvc", "cliTools", "codexCredentialsPvc", "connectorConfig", "createdAt", "defaultMcpProfile", "defaultSelectable", "displayName", "dockerSocketEnabled", "dockerSocketPath", "dockerSocketSupplementalGroups", "gatewayPort", "githubDeployKeySecret", "image", "imagePullPolicy", "knowledgeBaseUrl", "knowledgeBearerSecret", "knowledgeBearerSecretKey", "mcpServersConfigMap", "namespace", "nodeSelector", "selectable", "serviceAccount", "setup", "toolAllowlist", "toolProfiles", "updatedAt" ]
+      }
+    },
+    "securitySchemes" : {
+      "xUserId" : {
+        "type" : "apiKey",
+        "description" : "User identifier injected by Traefik forward-auth",
+        "name" : "X-User-Id",
+        "in" : "header"
+      }
+    }
+  }
+}

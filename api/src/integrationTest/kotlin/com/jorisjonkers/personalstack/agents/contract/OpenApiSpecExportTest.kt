@@ -1,5 +1,7 @@
 package com.jorisjonkers.personalstack.agents.contract
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationStatusService
 import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationService
 import com.jorisjonkers.personalstack.agents.application.chat.ChatAnswerStreamService
@@ -70,7 +72,8 @@ import java.nio.file.Paths
 // Pinned contract: hitting /api/v1/api-docs in the springdoc MVC slice
 // produces the OpenAPI spec checked into the repo. The `exportOpenApiSpec`
 // Gradle task runs only this tag and writes the JSON output to
-// client-spec/openapi/agents-api.json.
+// client-spec/openapi/agents-api.json. The export also writes a
+// generator-safe client spec next to it without changing the public contract.
 @Tag("contract-export")
 @WebMvcTest(
     controllers = [
@@ -129,7 +132,9 @@ class OpenApiSpecExportTest {
 
     @Test
     fun `export OpenAPI spec to repo root`() {
-        OpenApiSliceExporter.writeJson(mockMvc, resolveOpenApiSpecPath(), "/api/v1/api-docs")
+        val publicSpecPath = resolveOpenApiSpecPath()
+        OpenApiSliceExporter.writeJson(mockMvc, publicSpecPath, "/api/v1/api-docs")
+        writeClientSpec(publicSpecPath)
     }
 
     @Test
@@ -186,6 +191,23 @@ class OpenApiSpecExportTest {
         }
         return Paths.get(System.getProperty("user.dir")).resolve("openapi.json")
     }
+
+    private fun writeClientSpec(publicSpecPath: Path) {
+        val mapper = ObjectMapper()
+        val root = mapper.readTree(publicSpecPath.toFile()) as ObjectNode
+        val fieldErrorProperties =
+            root.objectNode("/components/schemas/FieldError/properties")
+        fieldErrorProperties.replace(
+            "rejectedValue",
+            mapper.createObjectNode().put("type", "string"),
+        )
+        mapper.writerWithDefaultPrettyPrinter().writeValue(resolveClientSpecPath(publicSpecPath).toFile(), root)
+    }
+
+    private fun resolveClientSpecPath(publicSpecPath: Path): Path =
+        publicSpecPath.resolveSibling("agents-api-client.json")
+
+    private fun ObjectNode.objectNode(pointer: String): ObjectNode = at(pointer) as ObjectNode
 
     @SpringBootConfiguration
     class Application
