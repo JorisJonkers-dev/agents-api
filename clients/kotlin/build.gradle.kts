@@ -18,6 +18,14 @@ java {
     withJavadocJar()
 }
 
+tasks.named("sourcesJar") {
+    dependsOn(tasks.named("generate"))
+}
+
+tasks.named("javadocJar") {
+    dependsOn(tasks.named("generate"))
+}
+
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {

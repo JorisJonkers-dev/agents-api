@@ -1,0 +1,14 @@
+complexity:
+  LargeClass:
+    excludes:
+      - '**/src/test/**'
+  LongMethod:
+    excludes:
+      - '**/src/test/**'
+  TooManyFunctions:
+    allowedFunctionsPerClass: 15
+    allowedFunctionsPerInterface: 14
+
+style:
+  ReturnCount:
+    max: 3

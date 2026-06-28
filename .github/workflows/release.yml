@@ -68,58 +68,24 @@ jobs:
           build-args: |
             GIT_SHA=${{ needs.release-please.outputs.tag_name }}
 
-  publish-maven-clients:
-    name: Publish Maven Clients
+  publish-api-clients:
+    name: Publish API Clients
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.2
     permissions:
       contents: read
       packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Publish Maven clients
-        env:
-          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          artifact_version="${TAG_NAME#v}"
-          ./gradlew -PartifactVersion="$artifact_version" \
-            :clients:java:publish :clients:kotlin:publish \
-            --no-daemon --no-parallel --max-workers=1
-
-  publish-typescript-client:
-    name: Publish TypeScript Client
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 9.15.4
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: pnpm
-      - name: Install TypeScript client dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Generate TypeScript client
-        run: pnpm --filter @jorisjonkers-dev/agents-api-client generate
-      - name: Build TypeScript client
-        run: pnpm --filter @jorisjonkers-dev/agents-api-client build
-      - name: Publish TypeScript client
-        working-directory: clients/typescript
-        run: pnpm publish --no-git-checks --access public
+      id-token: write
+    with:
+      spec-path: client-spec/openapi/agents-api.json
+      api-name: agents-api
+      version: ${{ needs.release-please.outputs.tag_name }}
+      ts-package: "@jorisjonkers-dev/agents-api-client"
+      maven-group: dev.jorisjonkers
+      java-artifact: agents-api-client-java
+      kotlin-artifact: agents-api-client-kotlin
+      dry-run: false
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+      node-auth-token: ${{ secrets.GITHUB_TOKEN }}

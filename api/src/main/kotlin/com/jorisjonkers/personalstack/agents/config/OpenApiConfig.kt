@@ -6,6 +6,7 @@ import io.swagger.v3.oas.models.info.Info
 import io.swagger.v3.oas.models.security.SecurityRequirement
 import io.swagger.v3.oas.models.security.SecurityScheme
 import io.swagger.v3.oas.models.servers.Server
+import org.springdoc.core.customizers.OpenApiCustomizer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
@@ -32,4 +33,14 @@ class OpenApiConfig {
                             .description("User identifier injected by Traefik forward-auth"),
                     ),
             ).addSecurityItem(SecurityRequirement().addList("xUserId"))
+
+    @Bean
+    fun validationProblemSchemaCustomizer(): OpenApiCustomizer =
+        OpenApiCustomizer { openApi ->
+            openApi.components
+                ?.schemas
+                ?.get("FieldError")
+                ?.properties
+                ?.remove("rejectedValue")
+        }
 }

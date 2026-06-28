@@ -1937,9 +1937,6 @@
           },
           "message" : {
             "type" : "string"
-          },
-          "rejectedValue" : {
-            "type" : "null"
           }
         },
         "required" : [ "field", "message" ]
