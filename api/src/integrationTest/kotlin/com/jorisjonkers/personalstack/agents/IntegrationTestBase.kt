@@ -5,6 +5,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.GenericContainer
+import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.rabbitmq.RabbitMQContainer
@@ -25,6 +26,7 @@ abstract class IntegrationTestBase {
         private val valkey =
             GenericContainer<Nothing>("valkey/valkey:7-alpine").apply {
                 withExposedPorts(6379)
+                waitingFor(Wait.forLogMessage(".*Ready to accept connections tcp.*\\n", 1))
             }
 
         private val rabbitmq = RabbitMQContainer("rabbitmq:3-management-alpine")

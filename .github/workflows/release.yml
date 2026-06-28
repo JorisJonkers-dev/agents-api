@@ -72,13 +72,13 @@ jobs:
     name: Publish API Clients
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.1
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.2
     permissions:
       contents: read
       packages: write
       id-token: write
     with:
-      spec-path: client-spec/openapi/agents-api.json
+      spec-path: client-spec/openapi/agents-api-client.json
       api-name: agents-api
       version: ${{ needs.release-please.outputs.tag_name }}
       ts-package: "@jorisjonkers-dev/agents-api-client"
