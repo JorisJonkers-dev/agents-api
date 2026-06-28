@@ -1,3 +1,5 @@
+/* [jooq ignore start] */
+
 UPDATE agent_setup_availability
 SET selectable = FALSE,
     default_selectable = FALSE,
@@ -93,3 +95,5 @@ UPDATE workspace_agent_sessions
 SET current_setup_version = 2
 WHERE current_setup_id = 'default'
   AND current_setup_version = 1;
+
+/* [jooq ignore stop] */

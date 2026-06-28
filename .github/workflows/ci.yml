@@ -27,7 +27,7 @@ jobs:
     with:
       gradle-command: ./gradlew
       lint-gradle-args: :api:detekt :api:ktlintCheck
-      test-gradle-args: :api:test :api:integrationTest :api:jacocoTestCoverageVerification
+      test-gradle-args: :api:test :api:integrationTest :api:jacocoTestCoverageVerification :api:exportOpenApiSpec
     secrets:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -63,7 +63,7 @@ jobs:
 
   client-dry-run:
     name: Client Dry Run
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.1
     permissions:
       contents: read
       packages: write
@@ -113,12 +113,6 @@ jobs:
     needs: [jvm-ci, contract, client-dry-run, docker-dry-run, migration-guard]
     if: ${{ always() }}
     steps:
-      - name: Check required jobs
-        env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
-        run: |
-          set -euo pipefail
-          if [[ "$NEEDS_JSON" == *'"result":"failure"'* || "$NEEDS_JSON" == *'"result":"cancelled"'* ]]; then
-            echo "$NEEDS_JSON"
-            exit 1
-          fi
+      - uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
