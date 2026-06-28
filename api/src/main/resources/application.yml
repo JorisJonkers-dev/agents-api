@@ -1,0 +1,221 @@
+spring:
+  application:
+    name: agents-api
+  threads:
+    virtual:
+      enabled: true
+  autoconfigure:
+    exclude:
+      - org.springframework.cloud.autoconfigure.LifecycleMvcEndpointAutoConfiguration
+  cloud:
+    vault:
+      enabled: ${VAULT_ENABLED:false}
+      uri: ${VAULT_ADDR:http://localhost:8200}
+      authentication: ${VAULT_AUTHENTICATION:TOKEN}
+      config:
+        lifecycle:
+          enabled: true
+          min-renewal: 10s
+          expiry-threshold: 60s
+          lease-endpoints: Leases
+      database:
+        enabled: ${VAULT_DB_ENABLED:false}
+        role: agents-api
+        backend: database
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/agents_db
+    username: ${DB_USER:agents_user}
+    password: ${DB_PASSWORD:agents_password}
+    hikari:
+      pool-name: agents-api-pool
+      maximum-pool-size: 10
+      minimum-idle: 10
+      connection-timeout: 10000
+      validation-timeout: 5000
+      idle-timeout: 600000
+      keepalive-time: 30000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+      initialization-fail-timeout: 60000
+      auto-commit: true
+      data-source-properties:
+        tcpKeepAlive: true
+        socketTimeout: 30
+        connectTimeout: 10
+        loginTimeout: 10
+        ApplicationName: agents-api
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${VALKEY_HOST:localhost}
+      port: ${VALKEY_PORT:6379}
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      base-path: /api/actuator
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      # Full per-contributor breakdown so a composite 503 is diagnosable
+      # with one curl, matching auth-api. Actuator is behind forward-auth
+      # in production and details expose descriptor data only — never
+      # credentials.
+      show-details: always
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState,ping
+        readiness:
+          include: readinessState
+  metrics:
+    tags:
+      # Common Micrometer tag — see auth-api/application.yml for the
+      # rationale; both services standardise on `application=<name>`
+      # so the spring-boot-jvm and service-template dashboards can
+      # filter consistently.
+      application: ${spring.application.name}
+  # OTLP tracing — see auth-api/application.yml for the rationale,
+  # including the note about OTel-agent-owned sampling in prod.
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+    propagation:
+      type: w3c
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://alloy.observability.svc.cluster.local:4318/v1/traces}
+  observations:
+    key-values:
+      service.name: ${spring.application.name}
+      deployment.environment: ${DEPLOYMENT_ENVIRONMENT:unknown}
+
+springdoc:
+  api-docs:
+    path: /api/v1/api-docs
+  swagger-ui:
+    path: /api/v1/swagger-ui
+
+agent-runtime:
+  namespace: ${AGENT_RUNTIME_NAMESPACE:agents-system}
+  image: ${AGENT_RUNTIME_IMAGE:ghcr.io/jorisjonkers-dev/agent-runtime/agent-runner:v0.16.0}
+  image-pull-policy: ${AGENT_RUNTIME_IMAGE_PULL_POLICY:IfNotPresent}
+  service-account: ${AGENT_RUNTIME_SERVICE_ACCOUNT:agent-runner}
+  workspace-storage-class: ${AGENT_RUNTIME_WORKSPACE_STORAGE_CLASS:local-path}
+  workspace-storage-size: ${AGENT_RUNTIME_WORKSPACE_STORAGE_SIZE:8Gi}
+  gateway-port: ${AGENT_RUNTIME_GATEWAY_PORT:8090}
+  claude-credentials-pvc: ${AGENT_RUNTIME_CLAUDE_PVC:claude-credentials}
+  codex-credentials-pvc: ${AGENT_RUNTIME_CODEX_PVC:codex-credentials}
+  github-deploy-key-secret: ${AGENT_RUNTIME_GH_KEY_SECRET:agents-github-deploy-key}
+  knowledge-base-url: ${AGENT_RUNTIME_KB_URL:http://knowledge-api.knowledge-system.svc.cluster.local:8080}
+  knowledge-bearer-secret: ${AGENT_RUNTIME_KB_BEARER_SECRET:agents-kb-bearer}
+  knowledge-bearer-secret-key: ${AGENT_RUNTIME_KB_BEARER_SECRET_KEY:bearer}
+  # Runner MCP profile. Keep default tool count low; wider profiles are
+  # opt-ins via AGENT_RUNTIME_DEFAULT_MCP_PROFILE.
+  default-mcp-profile: ${AGENT_RUNTIME_DEFAULT_MCP_PROFILE:minimal}
+  # Runner Pods mount the host Docker socket so future agent sessions can run
+  # Docker CLI commands and JVM Testcontainers suites. This is host-equivalent
+  # access. The default gid is pinned in the Nix host definition for the
+  # Docker-socket-capable runner node; override both values together when
+  # moving runners.
+  docker-socket-enabled: ${AGENT_RUNTIME_DOCKER_SOCKET_ENABLED:true}
+  docker-socket-path: ${AGENT_RUNTIME_DOCKER_SOCKET_PATH:/var/run/docker.sock}
+  docker-socket-supplemental-groups: ${AGENT_RUNTIME_DOCKER_SOCKET_SUPPLEMENTAL_GROUPS:131}
+  # Pinning to a single node keeps the runner workspace PVCs local to the
+  # node that owns their local-path PVs.
+  # Spring Boot's `@ConfigurationProperties` relaxed binding lowercases
+  # map keys and strips special chars (`-`, `/`, `.`) unless the key
+  # is bracket-escaped. Without the brackets, `personal-stack/node`
+  # bound to `personalstacknode` on the runtime side and every
+  # agent-runner Pod sat Pending forever ("0/7 nodes are available:
+  # 7 node(s) didn't match Pod's node affinity/selector"). The
+  # bracket form forces Spring to take the key literally.
+  # https://docs.spring.io/spring-boot/reference/features/external-config.html#features.external-config.typesafe-configuration-properties.relaxed-binding.maps
+  node-selector:
+    '[personal-stack/node]': ${AGENT_RUNTIME_NODE:enschede-gtx-960m-1}
+    '[personal-stack/capability-docker-socket]': ${AGENT_RUNTIME_DOCKER_SOCKET_CAPABILITY:true}
+  # Idle scale-down. A workspace whose last observed activity is
+  # older than `idle-after-seconds` gets its Pod + Service deleted;
+  # the workspace PVC and per-workspace credential Secret survive so
+  # a future wake-up can re-mount the same disk and credentials. The
+  # sweep runs at `idle-sweep-period-ms` intervals.
+  idle-after-seconds: ${AGENT_RUNTIME_IDLE_AFTER_SECONDS:1800}
+  idle-sweep-period-ms: ${AGENT_RUNTIME_IDLE_SWEEP_PERIOD_MS:300000}
+  # Stale runner-setup-lease reaper. A `start`/`restart` holds the
+  # workspace's runner-setup lease (RESTARTING) only for the few seconds
+  # of provisioning. Any lease still non-IDLE after
+  # `runner-setup-lease-timeout-seconds` is orphaned — agents-api crashed
+  # mid-provision, or a provision failed (FAILED) and nothing reset it —
+  # and is reclaimed to IDLE so the workspace can bind sessions again.
+  # The timeout is minutes (>> provisioning) so it never preempts a live
+  # operation. Swept every `runner-setup-lease-sweep-period-ms`.
+  runner-setup-lease-timeout-seconds: ${AGENT_RUNTIME_RUNNER_SETUP_LEASE_TIMEOUT_SECONDS:300}
+  runner-setup-lease-sweep-period-ms: ${AGENT_RUNTIME_RUNNER_SETUP_LEASE_SWEEP_PERIOD_MS:120000}
+  durable-session-retention-seconds: ${AGENT_RUNTIME_DURABLE_SESSION_RETENTION_SECONDS:604800}
+  durable-session-cleanup-sweep-period-ms: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_SWEEP_PERIOD_MS:300000}
+  durable-session-cleanup-batch-size: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_BATCH_SIZE:25}
+  setups:
+    - id: default
+      version: ${AGENT_RUNTIME_SETUP_VERSION:2}
+      display-name: ${AGENT_RUNTIME_SETUP_DISPLAY_NAME:Default runner}
+      description: ${AGENT_RUNTIME_SETUP_DESCRIPTION:Runtime-derived default runner setup.}
+      cli-tools:
+        claude: ${AGENT_RUNTIME_SETUP_CLAUDE_VERSION:default}
+        codex: ${AGENT_RUNTIME_SETUP_CODEX_VERSION:default}
+      connector-config: {}
+      tool-profiles:
+        - ${AGENT_RUNTIME_DEFAULT_MCP_PROFILE:minimal}
+      tool-allowlist: []
+      default-selectable: true
+  # Standing agent-gateway used for the workspace-independent
+  # `/git/verify` deploy-key probe at attach/create time. Empty =>
+  # the probe is skipped and the stored read/write degrade to null.
+  verify-gateway-base-url: ${AGENT_RUNTIME_VERIFY_GATEWAY_URL:}
+  # Read-only GitHub token for the branch-protection lookup, projected
+  # from the github-api-token Secret. Empty => protection reports null
+  # (never a hard failure).
+  github-api-token: ${GITHUB_API_TOKEN:}
+  github-api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+  # GitHub App used to mint short-lived, single-repo installation tokens
+  # for runner GitHub writes: git push over HTTPS, gh PR creation,
+  # PR comments, and Actions re-runs. Both the id and key empty =>
+  # minting disabled and the internal token endpoint returns 503. The
+  # PEM may be PKCS#1 or PKCS#8.
+  github-app-id: ${GITHUB_APP_ID:}
+  github-app-private-key: ${GITHUB_APP_PRIVATE_KEY:}
+  # Shared bearer the runner presents on the in-cluster installation-
+  # token endpoint. Empty => that endpoint is fail-closed (rejects all).
+  github-app-token-bearer: ${GITHUB_APP_TOKEN_BEARER:}
+  github-app-token-url: ${GITHUB_APP_TOKEN_URL:http://agents-api.agents-system.svc.cluster.local:8082/api/v1/internal/github/installation-token}
+  github-app-bearer-secret: ${GITHUB_APP_BEARER_SECRET:github-app}
+  github-app-bearer-secret-key: ${GITHUB_APP_BEARER_SECRET_KEY:token-bearer}
+  credential-ingest-bearer: ${CREDENTIAL_INGEST_BEARER:}
+  # Credential-worker proxy. The worker drives the Claude Code / Codex
+  # CLI `/login` flows and writes the captured OAuth bundle to Vault;
+  # agents-api only relays the operator's browser interactions to it.
+  # The token is the shared `x-internal-token` (sourced from
+  # INTERNAL_TOKEN); empty => the worker rejects every proxied call.
+  credential-worker-url: ${CREDENTIAL_WORKER_URL:http://agents-login-worker.agents-system.svc.cluster.local:8081}
+  credential-worker-token: ${INTERNAL_TOKEN:}
+
+# RAG retrieval / capture configuration.
+# rag.enabled is a deprecated master toggle (false disables both retrieval and
+# capture); use the fine-grained flags below for independent control.
+rag:
+  enabled: true                     # deprecated master toggle — remove next release
+  retrieval:
+    enabled: true                   # rag.retrieval.enabled — gates ContextBuilder
+  capture:
+    enabled: true                   # rag.capture.enabled — gates LessonAutoCapture
+  sources:
+    knowledge:
+      enabled: true                 # rag.sources.knowledge.enabled — KB recall source
+    lightrag:
+      enabled: true                 # rag.sources.lightrag.enabled — LightRAG source

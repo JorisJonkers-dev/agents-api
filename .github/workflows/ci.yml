@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
+
+env:
+  GITHUB_ACTOR: ${{ github.actor }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  jvm-ci:
+    name: JVM CI
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.6.1
+    with:
+      gradle-command: ./gradlew
+      lint-gradle-args: :api:detekt :api:ktlintCheck :client-spec:check
+      test-gradle-args: :api:test :api:integrationTest :api:jacocoTestCoverageVerification
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+
+  contract:
+    name: API Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Export OpenAPI spec
+        run: ./gradlew :api:exportOpenApiSpec --no-daemon
+      - name: Check committed OpenAPI spec
+        run: git diff --exit-code -- client-spec/openapi/agents-api.json
+      - uses: JorisJonkers-dev/api-contract-checks@v1.0.0
+        with:
+          profile: agents-api
+          spec-path: client-spec/openapi/agents-api.json
+          export-command: ./gradlew :api:exportOpenApiSpec --no-daemon
+          guidance: ./gradlew :api:exportOpenApiSpec
+      - name: Fetch base OpenAPI spec
+        run: git fetch --depth=1 origin ${{ github.base_ref || 'main' }}
+      - uses: oasdiff/oasdiff-action/breaking@v0
+        with:
+          base: origin/${{ github.base_ref || 'main' }}:client-spec/openapi/agents-api.json
+          revision: HEAD:client-spec/openapi/agents-api.json
+          fail-on: WARN
+
+  client-dry-run:
+    name: Client Dry Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install TypeScript client dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate TypeScript client
+        run: pnpm --filter @jorisjonkers-dev/agents-api-client generate
+      - name: Build TypeScript client
+        run: pnpm --filter @jorisjonkers-dev/agents-api-client build
+      - name: Pack TypeScript client
+        run: pnpm --filter @jorisjonkers-dev/agents-api-client pack:dry-run
+
+  docker-dry-run:
+    name: Docker Dry Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build agents-api image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: ghcr.io/jorisjonkers-dev/agents-api/agents-api:${{ github.sha }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
+            github_actor=${{ github.actor }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+
+  migration-guard:
+    name: Migration Guard
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.6.1
+    with:
+      migration-regex: '^api/src/main/resources/db/migration/V[0-9][^/]*\.sql$'
+      scope-regex: '^(api)/.*'
+
+  pipeline-complete:
+    name: Pipeline Complete
+    runs-on: ubuntu-latest
+    needs: [jvm-ci, contract, client-dry-run, docker-dry-run, migration-guard]
+    if: ${{ always() }}
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [[ "$NEEDS_JSON" == *'"result":"failure"'* || "$NEEDS_JSON" == *'"result":"cancelled"'* ]]; then
+            echo "$NEEDS_JSON"
+            exit 1
+          fi
