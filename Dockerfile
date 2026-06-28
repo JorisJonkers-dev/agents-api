@@ -8,8 +8,6 @@ COPY settings.gradle.kts build.gradle.kts gradle.properties* ./
 COPY gradle/ gradle/
 COPY api/build.gradle.kts api/
 COPY client-spec/build.gradle.kts client-spec/
-COPY clients/java/build.gradle.kts clients/java/
-COPY clients/kotlin/build.gradle.kts clients/kotlin/
 
 # Resolve dependencies (cached unless build files change)
 RUN --mount=type=secret,id=github_token \
