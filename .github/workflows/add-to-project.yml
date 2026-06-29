@@ -1,20 +1,25 @@
-name: 'Add to Project'
+'name': 'Add to Project'
 
 'on':
-  issues:
-    types:
+  'issues':
+    'types':
       - 'opened'
       - 'reopened'
       - 'transferred'
-  pull_request_target:
-    types:
+  'pull_request_target':
+    'types':
       - 'opened'
       - 'reopened'
+      - 'ready_for_review'
 
-permissions:
-  contents: 'read'
+'permissions':
+  'contents': 'read'
 
-jobs:
-  add-to-project:
-    uses: 'JorisJonkers-dev/github-workflows/.github/workflows/add-to-project.yml@v0.8.0'
-    secrets: 'inherit'
+'jobs':
+  'add-to-project':
+    'uses': 'JorisJonkers-dev/github-workflows/.github/workflows/add-to-project.yml@main'
+    'with':
+      'project-url': 'https://github.com/orgs/JorisJonkers-dev/projects/2'
+    'secrets':
+      'PROJECT_AUTOMATION_APP_ID': '${{ secrets.RELEASE_APP_ID }}'
+      'PROJECT_AUTOMATION_APP_PRIVATE_KEY': '${{ secrets.RELEASE_APP_PRIVATE_KEY }}'
