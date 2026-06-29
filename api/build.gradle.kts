@@ -118,6 +118,8 @@ tasks.named<Test>("integrationTest") {
         includeTags("integration")
         excludeTags("contract-export")
     }
+    systemProperty("springdoc.api-docs.enabled", "true")
+    systemProperty("springdoc.swagger-ui.enabled", "false")
 }
 
 tasks.register<Test>("exportOpenApiSpec") {
@@ -137,6 +139,8 @@ tasks.register<Test>("exportOpenApiSpec") {
             .file("client-spec/openapi/agents-api.json")
             .asFile.absolutePath,
     )
+    systemProperty("springdoc.api-docs.enabled", "true")
+    systemProperty("springdoc.swagger-ui.enabled", "false")
     // Always re-run: the spec is derived from the live springdoc output,
     // so caching past runs would defeat the drift gate. The CI workflow
     // diffs the freshly-written file against the committed copy.

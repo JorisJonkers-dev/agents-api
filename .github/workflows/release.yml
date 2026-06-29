@@ -21,13 +21,13 @@ jobs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         continue-on-error: true
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: rp
         with:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
@@ -72,7 +72,7 @@ jobs:
     name: Publish API Clients
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.2
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.8.0
     permissions:
       contents: read
       packages: write
@@ -81,11 +81,68 @@ jobs:
       spec-path: client-spec/openapi/agents-api-client.json
       api-name: agents-api
       version: ${{ needs.release-please.outputs.tag_name }}
-      ts-package: "@jorisjonkers-dev/agents-api-client"
+      ts-package: '@jorisjonkers-dev/agents-api-client'
       maven-group: dev.jorisjonkers
       java-artifact: agents-api-client-java
       kotlin-artifact: agents-api-client-kotlin
+      openapi-client-gradle-version: '0.3.1'
       dry-run: false
     secrets:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
       node-auth-token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-deploy-bundle:
+    name: Publish Deploy Bundle
+    needs: [release-please, publish-image]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/checkout@v6
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.8.0
+          path: .github-workflows
+          persist-credentials: false
+      - name: Write deploy image lock
+        env:
+          IMAGE_REF: ghcr.io/jorisjonkers-dev/agents-api/agents-api:${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/agents-api-images.json" <<JSON
+          {
+            "agents-api": "$IMAGE_REF",
+            "agents-api-ws": "$IMAGE_REF"
+          }
+          JSON
+      - name: Pack deploy bundle
+        id: deploy-bundle
+        uses: ./.github-workflows/actions/deploy-bundle
+        with:
+          deploy-dir: deploy
+          images: ${{ runner.temp }}/agents-api-images.json
+          package-version: 0.9.0
+          version: ${{ needs.release-please.outputs.tag_name }}
+          node-auth-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: oras-project/setup-oras@v2
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GHCR_TOKEN"
+      - name: Publish deploy bundle
+        env:
+          BUNDLE_PATH: ${{ steps.deploy-bundle.outputs.bundle-path }}
+          BUNDLE_REF: ghcr.io/jorisjonkers-dev/agents-api-deploy-bundle:${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          oras push "$BUNDLE_REF" "$BUNDLE_PATH:application/vnd.jorisjonkers.deployment.bundle.v1+tar"
