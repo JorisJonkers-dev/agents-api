@@ -118,6 +118,8 @@ tasks.named<Test>("integrationTest") {
         includeTags("integration")
         excludeTags("contract-export")
     }
+    systemProperty("springdoc.api-docs.enabled", "true")
+    systemProperty("springdoc.swagger-ui.enabled", "false")
 }
 
 tasks.register<Test>("exportOpenApiSpec") {
