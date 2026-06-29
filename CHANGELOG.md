@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.17.0...v0.17.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* add .dockerignore to exclude build artifacts from image context ([#6](https://github.com/JorisJonkers-dev/agents-api/issues/6)) ([988f2e3](https://github.com/JorisJonkers-dev/agents-api/commit/988f2e38497f29a1169b5c0e4a7118cdb952accb))
+
 ## [0.17.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.16.0...v0.17.0) (2026-06-28)
 
 
