@@ -94,7 +94,9 @@ import java.nio.file.Paths
         WorkspaceController::class,
     ],
     properties = [
+        "springdoc.api-docs.enabled=true",
         "springdoc.api-docs.path=/api/v1/api-docs",
+        "springdoc.swagger-ui.enabled=false",
     ],
 )
 @AutoConfigureMockMvc(addFilters = false)

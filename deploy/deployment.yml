@@ -1,0 +1,130 @@
+apiVersion: deployment.jorisjonkers.dev/v2
+kind: Deployment
+metadata:
+  name: agents-api
+  labels:
+    app.kubernetes.io/part-of: agents
+spec:
+  services:
+    agents-api:
+      image: ghcr.io/jorisjonkers-dev/agents-api/agents-api:v0.16.0
+      namespace: agents-system
+      account: agents-api
+      ports:
+        - name: http
+          containerPort: 8082
+      data:
+        postgres:
+          claim: data.platform-postgres.agents-api
+          database: agents_db
+        valkey:
+          claim: data.platform-valkey.agents-api
+      messaging:
+        rabbitmq:
+          claim: data.platform-rabbitmq.app-consumer
+      placement:
+        site: frankfurt
+        nodeSelector:
+          personal-stack/site: frankfurt
+      autoscaling:
+        minReplicas: 1
+        maxReplicas: 1
+      credentials:
+        - name: postgres
+          claim: data.platform-postgres.agents-api
+          destinationSecret: agents-api-postgres
+        - name: rabbitmq
+          claim: data.platform-rabbitmq.app-consumer
+          destinationSecret: agents-api-rabbitmq
+        - name: github-app
+          claim: secret.agents.github-app
+          destinationSecret: github-app
+        - name: agents-login-internal
+          claim: secret.agents.login-internal-token
+          destinationSecret: agents-login-internal
+      observability:
+        metrics:
+          - port: http
+            path: /api/actuator/prometheus
+        gatus:
+          - name: agents-api-health
+            url: https://agents.jorisjonkers.dev/api/v1/health
+      routes:
+        - host: agents.jorisjonkers.dev
+          expose:
+            tier: public-frankfurt
+          rules:
+            - path: /api/actuator/health/
+              port: http
+              operation: prefix
+              auth:
+                scope: anonymous
+            - path: /api/actuator/health
+              port: http
+              operation: exact
+              auth:
+                scope: anonymous
+            - path: /api/v1/health
+              port: http
+              operation: exact
+              auth:
+                scope: anonymous
+            - path: /api/
+              port: http
+              operation: prefix
+              middleware:
+                - forward-auth
+              auth:
+                scope: authenticated
+    agents-api-ws:
+      image: ghcr.io/jorisjonkers-dev/agents-api/agents-api:v0.16.0
+      namespace: agents-system
+      account: agents-api
+      ports:
+        - name: http
+          containerPort: 8082
+      data:
+        postgres:
+          claim: data.platform-postgres.agents-api
+          database: agents_db
+        valkey:
+          claim: data.platform-valkey.agents-api
+      messaging:
+        rabbitmq:
+          claim: data.platform-rabbitmq.app-consumer
+      placement:
+        site: enschede
+        nodeSelector:
+          personal-stack/node: enschede-t1000-1
+      autoscaling:
+        minReplicas: 1
+        maxReplicas: 1
+      credentials:
+        - name: postgres
+          claim: data.platform-postgres.agents-api
+          destinationSecret: agents-api-postgres
+        - name: rabbitmq
+          claim: data.platform-rabbitmq.app-consumer
+          destinationSecret: agents-api-rabbitmq
+        - name: github-app
+          claim: secret.agents.github-app
+          destinationSecret: github-app
+        - name: agents-login-internal
+          claim: secret.agents.login-internal-token
+          destinationSecret: agents-login-internal
+      observability:
+        metrics:
+          - port: http
+            path: /api/actuator/prometheus
+      routes:
+        - host: agents-ws.jorisjonkers.dev
+          expose:
+            tier: lan
+          rules:
+            - path: /
+              port: http
+              operation: prefix
+              middleware:
+                - forward-auth
+              auth:
+                scope: authenticated

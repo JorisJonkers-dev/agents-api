@@ -12,7 +12,7 @@ committed spec.
 
 - `client-spec/openapi/agents-api.json` — pinned spec (committed).
 - Shared workflow
-  `JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.7.0`
+  `JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.8.0`
   — generates and publishes TypeScript package
   `@jorisjonkers-dev/agents-api-client` plus Maven clients
   `dev.jorisjonkers:agents-api-client-java` and
