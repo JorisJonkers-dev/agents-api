@@ -1,0 +1,13 @@
+# Exclude local build artifacts and dependencies from the Docker build context.
+# The Dockerfile copies only specific source paths (gradle build files, api/src,
+# client-spec), so these directories are never needed inside the build and only
+# bloat the upload context and risk stale-artifact cache invalidation.
+.git/
+.github/
+.gradle/
+build/
+**/build/
+node_modules/
+**/node_modules/
+clients/
+*.log
