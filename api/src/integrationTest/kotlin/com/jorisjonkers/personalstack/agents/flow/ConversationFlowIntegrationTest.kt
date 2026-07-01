@@ -16,163 +16,164 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.context.WebApplicationContext
 import java.util.UUID
 
-class ConversationFlowIntegrationTest : IntegrationTestBase() {
+class ConversationFlowIntegrationTest
     @Autowired
-    private lateinit var webApplicationContext: WebApplicationContext
+    constructor(
+        private val webApplicationContext: WebApplicationContext,
+    ) : IntegrationTestBase {
+        private lateinit var mockMvc: MockMvc
+        private val objectMapper = ObjectMapper()
 
-    private lateinit var mockMvc: MockMvc
-    private val objectMapper = ObjectMapper()
+        @BeforeEach
+        fun setUp() {
+            mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
+        }
 
-    @BeforeEach
-    fun setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
-    }
+        @Test
+        fun createAndGetConversation() {
+            val userId = UUID.randomUUID().toString()
 
-    @Test
-    fun `create and get conversation`() {
-        val userId = UUID.randomUUID().toString()
+            val result =
+                mockMvc
+                    .perform(
+                        post("/api/v1/conversations")
+                            .header("X-User-Id", userId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(mapOf("title" to "Integration Chat"))),
+                    ).andExpect(status().isCreated)
+                    .andExpect(jsonPath("$.title").value("Integration Chat"))
+                    .andExpect(jsonPath("$.status").value("ACTIVE"))
+                    .andReturn()
 
-        val result =
+            val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
+
             mockMvc
-                .perform(
-                    post("/api/v1/conversations")
-                        .header("X-User-Id", userId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("title" to "Integration Chat"))),
-                ).andExpect(status().isCreated)
+                .perform(get("/api/v1/conversations/$id").header("X-User-Id", userId))
+                .andExpect(status().isOk)
                 .andExpect(jsonPath("$.title").value("Integration Chat"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andReturn()
+        }
 
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
+        @Test
+        fun createConversationWithoutXUserIdReturns400() {
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mapOf("title" to "No Auth"))),
+                ).andExpect(status().isBadRequest)
+        }
 
-        mockMvc
-            .perform(get("/api/v1/conversations/$id").header("X-User-Id", userId))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.title").value("Integration Chat"))
-    }
+        @Test
+        fun listConversationsReturnsOnlyUserSConversations() {
+            val userId1 = UUID.randomUUID().toString()
+            val userId2 = UUID.randomUUID().toString()
 
-    @Test
-    fun `create conversation without X-User-Id returns 400`() {
-        mockMvc
-            .perform(
+            mockMvc.perform(
                 post("/api/v1/conversations")
+                    .header("X-User-Id", userId1)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("title" to "No Auth"))),
-            ).andExpect(status().isBadRequest)
-    }
+                    .content(objectMapper.writeValueAsString(mapOf("title" to "User1 Chat"))),
+            )
 
-    @Test
-    fun `list conversations returns only user's conversations`() {
-        val userId1 = UUID.randomUUID().toString()
-        val userId2 = UUID.randomUUID().toString()
+            mockMvc.perform(
+                post("/api/v1/conversations")
+                    .header("X-User-Id", userId2)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("title" to "User2 Chat"))),
+            )
 
-        mockMvc.perform(
-            post("/api/v1/conversations")
-                .header("X-User-Id", userId1)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("title" to "User1 Chat"))),
-        )
+            mockMvc
+                .perform(get("/api/v1/conversations").header("X-User-Id", userId1))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("User1 Chat"))
+        }
 
-        mockMvc.perform(
-            post("/api/v1/conversations")
-                .header("X-User-Id", userId2)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("title" to "User2 Chat"))),
-        )
+        @Test
+        fun archiveConversationReturns204() {
+            val userId = UUID.randomUUID().toString()
 
-        mockMvc
-            .perform(get("/api/v1/conversations").header("X-User-Id", userId1))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].title").value("User1 Chat"))
-    }
+            val result =
+                mockMvc
+                    .perform(
+                        post("/api/v1/conversations")
+                            .header("X-User-Id", userId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(mapOf("title" to "To Archive"))),
+                    ).andReturn()
 
-    @Test
-    fun `archive conversation returns 204`() {
-        val userId = UUID.randomUUID().toString()
+            val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
 
-        val result =
+            mockMvc
+                .perform(delete("/api/v1/conversations/$id").header("X-User-Id", userId))
+                .andExpect(status().isNoContent)
+        }
+
+        @Test
+        fun archiveNonExistentConversationReturns404() {
+            val userId = UUID.randomUUID().toString()
+            val nonExistentId = UUID.randomUUID()
+
+            mockMvc
+                .perform(delete("/api/v1/conversations/$nonExistentId").header("X-User-Id", userId))
+                .andExpect(status().isNotFound)
+        }
+
+        @Test
+        fun getNonExistentConversationReturns404() {
+            val userId = UUID.randomUUID().toString()
+            val nonExistentId = UUID.randomUUID()
+
+            mockMvc
+                .perform(get("/api/v1/conversations/$nonExistentId").header("X-User-Id", userId))
+                .andExpect(status().isNotFound)
+        }
+
+        @Test
+        fun createConversationWithBlankTitleReturns422() {
+            val userId = UUID.randomUUID().toString()
+
             mockMvc
                 .perform(
                     post("/api/v1/conversations")
                         .header("X-User-Id", userId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("title" to "To Archive"))),
-                ).andReturn()
+                        .content(objectMapper.writeValueAsString(mapOf("title" to ""))),
+                ).andExpect(status().isUnprocessableContent)
+        }
 
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
+        @Test
+        fun sendAndRetrieveMessages() {
+            val userId = UUID.randomUUID().toString()
 
-        mockMvc
-            .perform(delete("/api/v1/conversations/$id").header("X-User-Id", userId))
-            .andExpect(status().isNoContent)
-    }
+            val convResult =
+                mockMvc
+                    .perform(
+                        post("/api/v1/conversations")
+                            .header("X-User-Id", userId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(mapOf("title" to "Message Test"))),
+                    ).andExpect(status().isCreated)
+                    .andReturn()
 
-    @Test
-    fun `archive non-existent conversation returns 404`() {
-        val userId = UUID.randomUUID().toString()
-        val nonExistentId = UUID.randomUUID()
+            val conversationId = objectMapper.readTree(convResult.response.contentAsString)["id"].asText()
 
-        mockMvc
-            .perform(delete("/api/v1/conversations/$nonExistentId").header("X-User-Id", userId))
-            .andExpect(status().isNotFound)
-    }
-
-    @Test
-    fun `get non-existent conversation returns 404`() {
-        val userId = UUID.randomUUID().toString()
-        val nonExistentId = UUID.randomUUID()
-
-        mockMvc
-            .perform(get("/api/v1/conversations/$nonExistentId").header("X-User-Id", userId))
-            .andExpect(status().isNotFound)
-    }
-
-    @Test
-    fun `create conversation with blank title returns 422`() {
-        val userId = UUID.randomUUID().toString()
-
-        mockMvc
-            .perform(
-                post("/api/v1/conversations")
-                    .header("X-User-Id", userId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("title" to ""))),
-            ).andExpect(status().isUnprocessableContent)
-    }
-
-    @Test
-    fun `send and retrieve messages`() {
-        val userId = UUID.randomUUID().toString()
-
-        val convResult =
             mockMvc
                 .perform(
-                    post("/api/v1/conversations")
+                    post("/api/v1/conversations/$conversationId/messages")
                         .header("X-User-Id", userId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("title" to "Message Test"))),
+                        .content(objectMapper.writeValueAsString(mapOf("content" to "Hello there"))),
                 ).andExpect(status().isCreated)
-                .andReturn()
+                .andExpect(jsonPath("$.content").value("Hello there"))
+                .andExpect(jsonPath("$.role").value("USER"))
 
-        val conversationId = objectMapper.readTree(convResult.response.contentAsString)["id"].asText()
-
-        mockMvc
-            .perform(
-                post("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("content" to "Hello there"))),
-            ).andExpect(status().isCreated)
-            .andExpect(jsonPath("$.content").value("Hello there"))
-            .andExpect(jsonPath("$.role").value("USER"))
-
-        mockMvc
-            .perform(
-                get("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId),
-            ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].content").value("Hello there"))
+            mockMvc
+                .perform(
+                    get("/api/v1/conversations/$conversationId/messages")
+                        .header("X-User-Id", userId),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].content").value("Hello there"))
+        }
     }
-}

@@ -30,9 +30,9 @@ class StaleRunnerSetupLeaseReaperTest {
     private class FixedClock(
         var now: Instant,
     ) : Clock() {
-        override fun getZone() = ZoneOffset.UTC
+        override fun getZone(): java.time.ZoneId = ZoneOffset.UTC
 
-        override fun withZone(zone: java.time.ZoneId) = this
+        override fun withZone(zone: java.time.ZoneId): Clock = this
 
         override fun instant(): Instant = now
     }

@@ -11,7 +11,6 @@ import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.impl.DSL
 import org.springframework.stereotype.Repository
-import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -75,24 +74,16 @@ class JooqSetupRestartEventRepository(
             .fetch()
             .map { it.toEvent() }
 
-    override fun updateStatusIfCurrent(
-        id: UUID,
-        expectedStatus: SetupRestartEventStatus,
-        status: SetupRestartEventStatus,
-        message: String?,
-        startedAt: Instant?,
-        completedAt: Instant?,
-        now: Instant,
-    ): Boolean =
+    override fun updateStatusIfCurrent(update: SetupRestartEventRepository.StatusUpdate): Boolean =
         dsl
             .update(TABLE)
-            .set(STATUS, status.name)
-            .set(MESSAGE, message)
-            .set(STARTED_AT, startedAt?.atOffset(ZoneOffset.UTC))
-            .set(COMPLETED_AT, completedAt?.atOffset(ZoneOffset.UTC))
-            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .where(ID.eq(id))
-            .and(STATUS.eq(expectedStatus.name))
+            .set(STATUS, update.status.name)
+            .set(MESSAGE, update.message)
+            .set(STARTED_AT, update.startedAt?.atOffset(ZoneOffset.UTC))
+            .set(COMPLETED_AT, update.completedAt?.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, update.now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(update.id))
+            .and(STATUS.eq(update.expectedStatus.name))
             .execute() == 1
 
     private fun Record.toEvent(): SetupRestartEvent =

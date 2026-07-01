@@ -123,7 +123,7 @@ class ChatSessionController(
     fun archive(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             ArchiveChatSessionCommand(
                 sessionId = ChatSessionId(id),

@@ -56,11 +56,13 @@ class SetupTransitionAuditServiceTest {
 
         val event =
             service.recordRejected(
-                workspace = workspace,
-                session = session,
-                targetId = AgentSetupId("target"),
-                targetVersion = AgentSetupVersion(2),
-                result = result,
+                SetupTransitionAuditService.Rejection(
+                    workspace = workspace,
+                    session = session,
+                    targetId = AgentSetupId("target"),
+                    targetVersion = AgentSetupVersion(2),
+                    result = result,
+                ),
                 now = now,
             )
 
@@ -95,11 +97,13 @@ class SetupTransitionAuditServiceTest {
 
         val event =
             service.recordRejected(
-                workspace = workspace(),
-                session = null,
-                targetId = AgentSetupId("target"),
-                targetVersion = AgentSetupVersion(2),
-                result = result,
+                SetupTransitionAuditService.Rejection(
+                    workspace = workspace(),
+                    session = null,
+                    targetId = AgentSetupId("target"),
+                    targetVersion = AgentSetupVersion(2),
+                    result = result,
+                ),
             )
 
         assertThat(event).isNull()

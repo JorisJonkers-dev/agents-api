@@ -15,148 +15,149 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.context.WebApplicationContext
 import java.util.UUID
 
-class MessageFlowIntegrationTest : IntegrationTestBase() {
+class MessageFlowIntegrationTest
     @Autowired
-    private lateinit var webApplicationContext: WebApplicationContext
+    constructor(
+        private val webApplicationContext: WebApplicationContext,
+    ) : IntegrationTestBase {
+        private lateinit var mockMvc: MockMvc
+        private val objectMapper = ObjectMapper()
 
-    private lateinit var mockMvc: MockMvc
-    private val objectMapper = ObjectMapper()
+        @BeforeEach
+        fun setUp() {
+            mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
+        }
 
-    @BeforeEach
-    fun setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
-    }
+        @Test
+        fun sendMessageAndRetrieveByConversation() {
+            val userId = UUID.randomUUID().toString()
+            val conversationId = createConversation(userId, "Msg Flow Test")
 
-    @Test
-    fun `send message and retrieve by conversation`() {
-        val userId = UUID.randomUUID().toString()
-        val conversationId = createConversation(userId, "Msg Flow Test")
-
-        mockMvc
-            .perform(
-                post("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("content" to "First message"))),
-            ).andExpect(status().isCreated)
-            .andExpect(jsonPath("$.content").value("First message"))
-
-        mockMvc
-            .perform(
-                get("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId),
-            ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].content").value("First message"))
-    }
-
-    @Test
-    fun `send message without X-User-Id returns 400`() {
-        val userId = UUID.randomUUID().toString()
-        val conversationId = createConversation(userId, "No Auth Msg")
-
-        mockMvc
-            .perform(
-                post("/api/v1/conversations/$conversationId/messages")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("content" to "Should fail"))),
-            ).andExpect(status().isBadRequest)
-    }
-
-    @Test
-    fun `send message with blank content returns 422`() {
-        val userId = UUID.randomUUID().toString()
-        val conversationId = createConversation(userId, "Blank Msg")
-
-        mockMvc
-            .perform(
-                post("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("content" to ""))),
-            ).andExpect(status().isUnprocessableContent)
-    }
-
-    @Test
-    fun `messages are ordered by creation time`() {
-        val userId = UUID.randomUUID().toString()
-        val conversationId = createConversation(userId, "Ordered Msgs")
-
-        mockMvc.perform(
-            post("/api/v1/conversations/$conversationId/messages")
-                .header("X-User-Id", userId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("content" to "First"))),
-        )
-
-        mockMvc.perform(
-            post("/api/v1/conversations/$conversationId/messages")
-                .header("X-User-Id", userId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("content" to "Second"))),
-        )
-
-        mockMvc
-            .perform(
-                get("/api/v1/conversations/$conversationId/messages")
-                    .header("X-User-Id", userId),
-            ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(2))
-            .andExpect(jsonPath("$[0].content").value("First"))
-            .andExpect(jsonPath("$[1].content").value("Second"))
-    }
-
-    @Test
-    fun `messages for different conversations are isolated`() {
-        val userId = UUID.randomUUID().toString()
-        val conv1 = createConversation(userId, "Conv1")
-        val conv2 = createConversation(userId, "Conv2")
-
-        mockMvc.perform(
-            post("/api/v1/conversations/$conv1/messages")
-                .header("X-User-Id", userId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("content" to "Conv1 message"))),
-        )
-
-        mockMvc.perform(
-            post("/api/v1/conversations/$conv2/messages")
-                .header("X-User-Id", userId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("content" to "Conv2 message"))),
-        )
-
-        mockMvc
-            .perform(
-                get("/api/v1/conversations/$conv1/messages")
-                    .header("X-User-Id", userId),
-            ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].content").value("Conv1 message"))
-
-        mockMvc
-            .perform(
-                get("/api/v1/conversations/$conv2/messages")
-                    .header("X-User-Id", userId),
-            ).andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].content").value("Conv2 message"))
-    }
-
-    private fun createConversation(
-        userId: String,
-        title: String,
-    ): String {
-        val result =
             mockMvc
                 .perform(
-                    post("/api/v1/conversations")
+                    post("/api/v1/conversations/$conversationId/messages")
                         .header("X-User-Id", userId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("title" to title))),
+                        .content(objectMapper.writeValueAsString(mapOf("content" to "First message"))),
                 ).andExpect(status().isCreated)
-                .andReturn()
+                .andExpect(jsonPath("$.content").value("First message"))
 
-        return objectMapper.readTree(result.response.contentAsString)["id"].asText()
+            mockMvc
+                .perform(
+                    get("/api/v1/conversations/$conversationId/messages")
+                        .header("X-User-Id", userId),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].content").value("First message"))
+        }
+
+        @Test
+        fun sendMessageWithoutXUserIdReturns400() {
+            val userId = UUID.randomUUID().toString()
+            val conversationId = createConversation(userId, "No Auth Msg")
+
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations/$conversationId/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mapOf("content" to "Should fail"))),
+                ).andExpect(status().isBadRequest)
+        }
+
+        @Test
+        fun sendMessageWithBlankContentReturns422() {
+            val userId = UUID.randomUUID().toString()
+            val conversationId = createConversation(userId, "Blank Msg")
+
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations/$conversationId/messages")
+                        .header("X-User-Id", userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mapOf("content" to ""))),
+                ).andExpect(status().isUnprocessableContent)
+        }
+
+        @Test
+        fun messagesAreOrderedByCreationTime() {
+            val userId = UUID.randomUUID().toString()
+            val conversationId = createConversation(userId, "Ordered Msgs")
+
+            mockMvc.perform(
+                post("/api/v1/conversations/$conversationId/messages")
+                    .header("X-User-Id", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("content" to "First"))),
+            )
+
+            mockMvc.perform(
+                post("/api/v1/conversations/$conversationId/messages")
+                    .header("X-User-Id", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("content" to "Second"))),
+            )
+
+            mockMvc
+                .perform(
+                    get("/api/v1/conversations/$conversationId/messages")
+                        .header("X-User-Id", userId),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].content").value("First"))
+                .andExpect(jsonPath("$[1].content").value("Second"))
+        }
+
+        @Test
+        fun messagesForDifferentConversationsAreIsolated() {
+            val userId = UUID.randomUUID().toString()
+            val conv1 = createConversation(userId, "Conv1")
+            val conv2 = createConversation(userId, "Conv2")
+
+            mockMvc.perform(
+                post("/api/v1/conversations/$conv1/messages")
+                    .header("X-User-Id", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("content" to "Conv1 message"))),
+            )
+
+            mockMvc.perform(
+                post("/api/v1/conversations/$conv2/messages")
+                    .header("X-User-Id", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("content" to "Conv2 message"))),
+            )
+
+            mockMvc
+                .perform(
+                    get("/api/v1/conversations/$conv1/messages")
+                        .header("X-User-Id", userId),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].content").value("Conv1 message"))
+
+            mockMvc
+                .perform(
+                    get("/api/v1/conversations/$conv2/messages")
+                        .header("X-User-Id", userId),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].content").value("Conv2 message"))
+        }
+
+        private fun createConversation(
+            userId: String,
+            title: String,
+        ): String {
+            val result =
+                mockMvc
+                    .perform(
+                        post("/api/v1/conversations")
+                            .header("X-User-Id", userId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(mapOf("title" to title))),
+                    ).andExpect(status().isCreated)
+                    .andReturn()
+
+            return objectMapper.readTree(result.response.contentAsString)["id"].asText()
+        }
     }
-}

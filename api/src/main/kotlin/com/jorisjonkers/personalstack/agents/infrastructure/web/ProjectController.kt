@@ -46,7 +46,7 @@ class ProjectController(
                 projectId = id,
                 name = req.name,
                 slug = req.slug,
-                description = req.description ?: "",
+                description = req.description.orEmpty(),
             ),
         )
         val view = projectQuery.get(id) ?: error("project not visible immediately after create")
@@ -90,7 +90,7 @@ class ProjectController(
     fun unlinkRepository(
         @PathVariable id: UUID,
         @PathVariable repoId: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             UnlinkRepositoryFromProjectCommand(
                 projectId = ProjectId(id),
@@ -133,7 +133,7 @@ class ProjectController(
     fun removeLink(
         @PathVariable projectId: UUID,
         @PathVariable linkId: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(RemoveGithubLinkCommand(GithubLinkId(linkId)))
         return ResponseEntity.noContent().build()
     }

@@ -98,7 +98,7 @@ class JooqAgentCredentialRepository(
 
     private fun Record.toCredential(): AgentOauthCredential {
         val payload: Map<String, String> =
-            this.get(PAYLOAD)?.let { json.readValue(it) } ?: emptyMap()
+            this.get(PAYLOAD)?.let { json.readValue<Map<String, String>>(it) }.orEmpty()
         return AgentOauthCredential(
             userId = this.get(USER_ID),
             provider = AgentCredentialProvider.valueOf(this.get(PROVIDER)),

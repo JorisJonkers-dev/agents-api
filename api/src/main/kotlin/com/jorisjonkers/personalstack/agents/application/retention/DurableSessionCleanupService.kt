@@ -24,16 +24,27 @@ import java.time.Clock
 import java.time.Duration
 
 @Component
+class DurableSessionCleanupDependencies(
+    val workspaces: WorkspaceRepository,
+    val sessions: WorkspaceAgentSessionRepository,
+    val gateway: AgentGatewayClient,
+    val runnerLifecycle: WorkspaceRunnerLifecycleService,
+    val sessionStatus: SessionStatusPublisher,
+    val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
+)
+
+@Component
 class DurableSessionCleanupService(
-    private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
-    private val gateway: AgentGatewayClient,
-    private val runnerLifecycle: WorkspaceRunnerLifecycleService,
+    dependencies: DurableSessionCleanupDependencies,
     private val runtime: AgentRuntimeProperties,
-    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
-    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) {
+    private val workspaces = dependencies.workspaces
+    private val sessions = dependencies.sessions
+    private val gateway = dependencies.gateway
+    private val runnerLifecycle = dependencies.runnerLifecycle
+    private val sessionStatus = dependencies.sessionStatus
+    private val telemetry = dependencies.telemetry
     private val log = LoggerFactory.getLogger(DurableSessionCleanupService::class.java)
 
     data class CleanupResult(

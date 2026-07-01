@@ -9,12 +9,15 @@ import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.rabbitmq.RabbitMQContainer
+import org.testcontainers.utility.DockerImageName
 
 @Tag("integration")
 @SpringBootTest
 @Testcontainers
-abstract class IntegrationTestBase {
+interface IntegrationTestBase {
     companion object {
+        private const val VALKEY_PORT = 6379
+
         private val postgres =
             PostgreSQLContainer("postgres:17-alpine").apply {
                 withDatabaseName("agents_db")
@@ -22,10 +25,9 @@ abstract class IntegrationTestBase {
                 withPassword("agents_pass")
             }
 
-        @Suppress("DEPRECATION")
         private val valkey =
-            GenericContainer<Nothing>("valkey/valkey:7-alpine").apply {
-                withExposedPorts(6379)
+            GenericContainer<Nothing>(DockerImageName.parse("valkey/valkey:7-alpine")).apply {
+                withExposedPorts(VALKEY_PORT)
                 waitingFor(Wait.forLogMessage(".*Ready to accept connections tcp.*\\n", 1))
             }
 
@@ -44,7 +46,7 @@ abstract class IntegrationTestBase {
             registry.add("spring.datasource.username") { postgres.username }
             registry.add("spring.datasource.password") { postgres.password }
             registry.add("spring.data.redis.host") { valkey.host }
-            registry.add("spring.data.redis.port") { valkey.getMappedPort(6379).toString() }
+            registry.add("spring.data.redis.port") { valkey.getMappedPort(VALKEY_PORT).toString() }
             registry.add("spring.rabbitmq.host") { rabbitmq.host }
             registry.add("spring.rabbitmq.port") { rabbitmq.amqpPort.toString() }
         }

@@ -27,7 +27,7 @@ class GitController(
     fun openPr(
         @PathVariable workspaceId: UUID,
         @RequestBody req: OpenPrRequest,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             OpenPullRequestCommand(
                 workspaceId = WorkspaceId(workspaceId),

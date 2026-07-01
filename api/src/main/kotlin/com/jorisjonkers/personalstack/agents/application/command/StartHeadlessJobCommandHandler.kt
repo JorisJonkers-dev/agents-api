@@ -76,14 +76,14 @@ class StartHeadlessJobCommandHandler(
     ): AgentGatewayClient.HeadlessJob =
         runCatching {
             gateway.startHeadlessJob(
-                workspace = runner.workspace,
-                kind = command.kind,
-                prompt = command.prompt,
-                cliSessionId = null,
-                timeoutSeconds = command.timeoutSeconds,
-                stableSessionId = command.sessionId,
-                epoch = 1,
-                continuation = null,
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = runner.workspace,
+                    kind = command.kind,
+                    prompt = command.prompt,
+                    timeoutSeconds = command.timeoutSeconds,
+                    stableSessionId = command.sessionId,
+                    epoch = 1,
+                ),
             )
         }.getOrElse { ex ->
             throw AgentRunnerUnavailableException(

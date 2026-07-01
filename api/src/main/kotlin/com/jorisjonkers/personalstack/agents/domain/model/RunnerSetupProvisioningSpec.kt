@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.domain.model
 
 import java.security.MessageDigest
+import java.util.Locale
 
 @Suppress("LongParameterList")
 data class RunnerSetupProvisioningSpec(
@@ -107,7 +108,7 @@ data class RunnerSetupProvisioningSpec(
 
         private fun sha256(value: String): String {
             val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
-            return bytes.joinToString("") { "%02x".format(it) }
+            return bytes.joinToString("") { "%02x".format(Locale.ROOT, it) }
         }
 
         private const val HASH_PREFIX_LENGTH = 16

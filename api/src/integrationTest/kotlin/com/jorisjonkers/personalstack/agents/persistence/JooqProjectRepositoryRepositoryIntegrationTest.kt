@@ -14,83 +14,84 @@ import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 import java.util.UUID
 
-class JooqProjectRepositoryRepositoryIntegrationTest : IntegrationTestBase() {
+class JooqProjectRepositoryRepositoryIntegrationTest
     @Autowired
-    private lateinit var junction: ProjectRepositoryRepository
+    constructor(
+        private val junction: ProjectRepositoryRepository,
+        private val repositories: RepositoryRepository,
+        private val projects: ProjectsRepository,
+    ) : IntegrationTestBase {
+        private companion object {
+            const val PROJECT_SLUG_SUFFIX_LENGTH = 6
+        }
 
-    @Autowired
-    private lateinit var repositories: RepositoryRepository
+        private fun project() =
+            Project(
+                id = ProjectId.random(),
+                name = "p",
+                slug = "p-${UUID.randomUUID().toString().take(PROJECT_SLUG_SUFFIX_LENGTH)}",
+                description = "",
+                createdAt = Instant.now(),
+                updatedAt = Instant.now(),
+            ).also(projects::save)
 
-    @Autowired
-    private lateinit var projects: ProjectsRepository
+        private fun repository() =
+            Repository(
+                id = RepositoryId.random(),
+                name = "r-${UUID.randomUUID()}",
+                repoUrl = "git@x:o/r.git",
+                defaultBranch = "main",
+                createdAt = Instant.now(),
+                updatedAt = Instant.now(),
+            ).also(repositories::save)
 
-    private fun project() =
-        Project(
-            id = ProjectId.random(),
-            name = "p",
-            slug = "p-${UUID.randomUUID().toString().take(6)}",
-            description = "",
-            createdAt = Instant.now(),
-            updatedAt = Instant.now(),
-        ).also(projects::save)
+        @Test
+        fun linkInsertsARowAndExistsReturnsTrue() {
+            val p = project()
+            val r = repository()
+            junction.link(p.id, r.id)
+            assertThat(junction.exists(p.id, r.id)).isTrue
+        }
 
-    private fun repository() =
-        Repository(
-            id = RepositoryId.random(),
-            name = "r-${UUID.randomUUID()}",
-            repoUrl = "git@x:o/r.git",
-            defaultBranch = "main",
-            createdAt = Instant.now(),
-            updatedAt = Instant.now(),
-        ).also(repositories::save)
+        @Test
+        fun linkIsIdempotentOnDuplicateInsert() {
+            val p = project()
+            val r = repository()
+            junction.link(p.id, r.id)
+            junction.link(p.id, r.id)
+            assertThat(junction.findAllByProjectId(p.id)).hasSize(1)
+        }
 
-    @Test
-    fun `link inserts a row and exists returns true`() {
-        val p = project()
-        val r = repository()
-        junction.link(p.id, r.id)
-        assertThat(junction.exists(p.id, r.id)).isTrue
+        @Test
+        fun unlinkRemovesTheRow() {
+            val p = project()
+            val r = repository()
+            junction.link(p.id, r.id)
+            junction.unlink(p.id, r.id)
+            assertThat(junction.exists(p.id, r.id)).isFalse
+        }
+
+        @Test
+        fun findallbyprojectidReturnsJunctionRowsForTheProject() {
+            val p = project()
+            val r1 = repository()
+            val r2 = repository()
+            junction.link(p.id, r1.id)
+            junction.link(p.id, r2.id)
+
+            val links = junction.findAllByProjectId(p.id)
+            assertThat(links.map { it.repositoryId }).containsExactlyInAnyOrder(r1.id, r2.id)
+        }
+
+        @Test
+        fun findallbyrepositoryidReturnsJunctionRowsForTheRepository() {
+            val p1 = project()
+            val p2 = project()
+            val r = repository()
+            junction.link(p1.id, r.id)
+            junction.link(p2.id, r.id)
+
+            val links = junction.findAllByRepositoryId(r.id)
+            assertThat(links.map { it.projectId }).containsExactlyInAnyOrder(p1.id, p2.id)
+        }
     }
-
-    @Test
-    fun `link is idempotent on duplicate insert`() {
-        val p = project()
-        val r = repository()
-        junction.link(p.id, r.id)
-        junction.link(p.id, r.id)
-        assertThat(junction.findAllByProjectId(p.id)).hasSize(1)
-    }
-
-    @Test
-    fun `unlink removes the row`() {
-        val p = project()
-        val r = repository()
-        junction.link(p.id, r.id)
-        junction.unlink(p.id, r.id)
-        assertThat(junction.exists(p.id, r.id)).isFalse
-    }
-
-    @Test
-    fun `findAllByProjectId returns junction rows for the project`() {
-        val p = project()
-        val r1 = repository()
-        val r2 = repository()
-        junction.link(p.id, r1.id)
-        junction.link(p.id, r2.id)
-
-        val links = junction.findAllByProjectId(p.id)
-        assertThat(links.map { it.repositoryId }).containsExactlyInAnyOrder(r1.id, r2.id)
-    }
-
-    @Test
-    fun `findAllByRepositoryId returns junction rows for the repository`() {
-        val p1 = project()
-        val p2 = project()
-        val r = repository()
-        junction.link(p1.id, r.id)
-        junction.link(p2.id, r.id)
-
-        val links = junction.findAllByRepositoryId(r.id)
-        assertThat(links.map { it.projectId }).containsExactlyInAnyOrder(p1.id, p2.id)
-    }
-}

@@ -80,7 +80,7 @@ class AgentSessionController(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
         @RequestBody req: SendUserInputRequest,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             SendUserInputCommand(
                 sessionId = WorkspaceAgentSessionId(sessionId),
@@ -228,7 +228,7 @@ class AgentSessionController(
     fun stop(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(StopAgentSessionCommand(WorkspaceAgentSessionId(sessionId)))
         return ResponseEntity.noContent().build()
     }

@@ -45,14 +45,17 @@ class StopAgentSessionCommandHandlerTest {
     private val telemetry = RecordingTelemetry()
     private val handler =
         StopAgentSessionCommandHandler(
-            workspaces = workspaces,
-            sessions = sessions,
-            gateway = gateway,
-            autoCapture = autoCapture,
+            dependencies =
+                StopAgentSessionDependencies(
+                    workspaces = workspaces,
+                    sessions = sessions,
+                    gateway = gateway,
+                    autoCapture = autoCapture,
+                    sessionStatus = sessionStatus,
+                    telemetry = telemetry,
+                ),
             runtime = runtime,
-            sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
-            telemetry = telemetry,
         )
 
     @Test
@@ -63,12 +66,14 @@ class StopAgentSessionCommandHandlerTest {
         every { workspaces.findById(ws.id) } returns ws
         every {
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.STOPPED,
-                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
-                clearGatewayBinding = true,
-                now = now,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                    clearGatewayBinding = true,
+                    now = now,
+                ),
             )
         } returns true
 
@@ -77,12 +82,14 @@ class StopAgentSessionCommandHandlerTest {
         verify { gateway.stopAgent(ws, "abc12345") }
         verify {
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.STOPPED,
-                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
-                clearGatewayBinding = true,
-                now = now,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                    clearGatewayBinding = true,
+                    now = now,
+                ),
             )
         }
         verify { autoCapture.capture(session.id) }
@@ -133,12 +140,14 @@ class StopAgentSessionCommandHandlerTest {
         every { gateway.stopAgent(ws, "abc12345") } throws RuntimeException("stop failed for ${session.id}")
         every {
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.STOPPED,
-                retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
-                clearGatewayBinding = true,
-                now = now,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
+                    clearGatewayBinding = true,
+                    now = now,
+                ),
             )
         } returns true
 

@@ -6,7 +6,6 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
@@ -26,22 +25,11 @@ import org.springframework.web.client.RestClient
 import java.time.Instant
 
 class HttpAgentGatewayClientTest {
-    private fun props(verifyBase: String = "") =
-        AgentRuntimeProperties(
-            namespace = "agents-system",
-            image = "img",
-            serviceAccount = "sa",
-            claudeCredentialsPvc = "c",
-            codexCredentialsPvc = "x",
-            githubDeployKeySecret = "k",
-            verifyGatewayBaseUrl = verifyBase,
-        )
-
     @Test
     fun `spawnAgent posts durable session metadata and maps response`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = HttpAgentGatewayClient(builder.build(), props())
+        val client = HttpAgentGatewayClient(builder.build())
         val sessionId = WorkspaceAgentSessionId.parse("11111111-1111-4111-8111-111111111111")
         val ws = workspace()
 
@@ -80,18 +68,20 @@ class HttpAgentGatewayClientTest {
 
         val spawned =
             client.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                stableSessionId = sessionId,
-                epoch = 3,
-                continuation =
-                    AgentGatewayClient.ContinuationMetadata(
-                        reason = "restart",
-                        previousEpoch = 2,
-                        fromSetupLabel = "Default runner",
-                        toSetupLabel = "GPU runner",
-                    ),
-                resumeCliSessionId = "native-old",
+                AgentGatewayClient.SpawnAgentRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    stableSessionId = sessionId,
+                    epoch = 3,
+                    continuation =
+                        AgentGatewayClient.ContinuationMetadata(
+                            reason = "restart",
+                            previousEpoch = 2,
+                            fromSetupLabel = "Default runner",
+                            toSetupLabel = "GPU runner",
+                        ),
+                    resumeCliSessionId = "native-old",
+                ),
             )
 
         assertThat(spawned.id).isEqualTo("abc12345")
@@ -107,7 +97,7 @@ class HttpAgentGatewayClientTest {
     fun `startHeadlessJob posts continuation setup labels`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = HttpAgentGatewayClient(builder.build(), props())
+        val client = HttpAgentGatewayClient(builder.build())
         val sessionId = WorkspaceAgentSessionId.parse("22222222-2222-4222-8222-222222222222")
         val ws = workspace()
         val prompt = "continue with /workspace/private/brief.md"
@@ -133,18 +123,20 @@ class HttpAgentGatewayClientTest {
 
         val job =
             client.startHeadlessJob(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                prompt = prompt,
-                stableSessionId = sessionId,
-                epoch = 4,
-                continuation =
-                    AgentGatewayClient.ContinuationMetadata(
-                        reason = "restart",
-                        previousEpoch = 3,
-                        fromSetupLabel = "Default runner",
-                        toSetupLabel = "GPU runner",
-                    ),
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = prompt,
+                    stableSessionId = sessionId,
+                    epoch = 4,
+                    continuation =
+                        AgentGatewayClient.ContinuationMetadata(
+                            reason = "restart",
+                            previousEpoch = 3,
+                            fromSetupLabel = "Default runner",
+                            toSetupLabel = "GPU runner",
+                        ),
+                ),
             )
 
         assertThat(job.id).isEqualTo("job-raw-1")
@@ -156,7 +148,7 @@ class HttpAgentGatewayClientTest {
     fun `cleanupStableSession deletes by stable session id`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
-        val client = HttpAgentGatewayClient(builder.build(), props())
+        val client = HttpAgentGatewayClient(builder.build())
         val sessionId = WorkspaceAgentSessionId.parse("44444444-4444-4444-8444-444444444444")
 
         server
@@ -174,7 +166,7 @@ class HttpAgentGatewayClientTest {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val telemetry = RecordingTelemetry()
-        val client = HttpAgentGatewayClient(builder.build(), props(), telemetry)
+        val client = HttpAgentGatewayClient(builder.build(), telemetry)
         val jobId = "job-raw-123"
         val outputFile = "/workspace/private/result.txt"
 
@@ -207,7 +199,7 @@ class HttpAgentGatewayClientTest {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val telemetry = RecordingTelemetry()
-        val client = HttpAgentGatewayClient(builder.build(), props(), telemetry)
+        val client = HttpAgentGatewayClient(builder.build(), telemetry)
 
         server
             .expect(requestTo("http://runner:8090/agents/headless/job-failed-secret"))

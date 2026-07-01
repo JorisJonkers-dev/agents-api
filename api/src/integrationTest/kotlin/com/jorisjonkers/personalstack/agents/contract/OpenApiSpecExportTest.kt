@@ -103,7 +103,10 @@ import java.nio.file.Paths
 @ContextConfiguration(
     classes = [
         OpenApiSpecExportTest.Application::class,
-        OpenApiSpecExportTest.Collaborators::class,
+        OpenApiSpecExportTest.AgentCollaborators::class,
+        OpenApiSpecExportTest.QueryCollaborators::class,
+        OpenApiSpecExportTest.RepositoryCollaborators::class,
+        OpenApiSpecExportTest.InfrastructureCollaborators::class,
         OpenApiWebMvcSliceConfiguration::class,
         OpenApiConfig::class,
         GlobalExceptionHandler::class,
@@ -128,176 +131,186 @@ import java.nio.file.Paths
         WorkspaceController::class,
     ],
 )
-class OpenApiSpecExportTest {
+class OpenApiSpecExportTest
     @Autowired
-    private lateinit var mockMvc: MockMvc
-
-    @Test
-    fun `export OpenAPI spec to repo root`() {
-        val publicSpecPath = resolveOpenApiSpecPath()
-        OpenApiSliceExporter.writeJson(mockMvc, publicSpecPath, "/api/v1/api-docs")
-        writeClientSpec(publicSpecPath)
-    }
-
-    @Test
-    fun `session status events endpoint is hidden from OpenAPI`() {
-        mockMvc
-            .perform(get("/api/v1/api-docs"))
-            .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
-    }
-
-    @Test
-    fun `internal credential endpoint is hidden while browser credential status remains exported`() {
-        mockMvc
-            .perform(get("/api/v1/api-docs"))
-            .andExpect(jsonPath("$['paths']['/api/v1/internal/credentials']").doesNotExist())
-            .andExpect(jsonPath("$['paths']['/api/v1/credentials/status']").exists())
-    }
-
-    @Test
-    fun `setup endpoints and restart setup fields are exported`() {
-        mockMvc
-            .perform(get("/api/v1/api-docs"))
-            .andExpect(jsonPath("$['paths']['/api/v1/agent-setups']").exists())
-            .andExpect(
-                jsonPath("$['paths']['/api/v1/agent-setups/{setupId}/versions/{version}']").exists(),
-            ).andExpect(
-                jsonPath("$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup']").exists(),
-            ).andExpect(
-                jsonPath(
-                    "$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-preview']",
-                ).exists(),
-            ).andExpect(jsonPath("$['components']['schemas']['RestartAgentSessionHttpRequest']").exists())
-            .andExpect(
-                jsonPath(
-                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['targetSetupId']",
-                ).exists(),
-            ).andExpect(
-                jsonPath(
-                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedSetupId']",
-                ).exists(),
-            ).andExpect(
-                jsonPath(
-                    "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedEpoch']",
-                ).exists(),
-            )
-    }
-
-    private fun resolveOpenApiSpecPath(): Path {
-        // The Gradle task sets `openapi.spec.output` to the canonical
-        // committed location. Fallback to `<cwd>/openapi.json` when run
-        // directly from the IDE so a one-off invocation still works.
-        val override = System.getProperty("openapi.spec.output")
-        if (override != null) {
-            return Paths.get(override)
+    constructor(
+        private val mockMvc: MockMvc,
+    ) {
+        @Test
+        fun exportOpenAPISpecToRepoRoot() {
+            val publicSpecPath = resolveOpenApiSpecPath()
+            OpenApiSliceExporter.writeJson(mockMvc, publicSpecPath, "/api/v1/api-docs")
+            writeClientSpec(publicSpecPath)
         }
-        return Paths.get(System.getProperty("user.dir")).resolve("openapi.json")
+
+        @Test
+        fun sessionStatusEventsEndpointIsHiddenFromOpenAPI() {
+            mockMvc
+                .perform(get("/api/v1/api-docs"))
+                .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
+        }
+
+        @Test
+        fun internalCredentialEndpointIsHiddenWhileBrowserCredentialStatusRemainsExported() {
+            mockMvc
+                .perform(get("/api/v1/api-docs"))
+                .andExpect(jsonPath("$['paths']['/api/v1/internal/credentials']").doesNotExist())
+                .andExpect(jsonPath("$['paths']['/api/v1/credentials/status']").exists())
+        }
+
+        @Test
+        fun setupEndpointsAndRestartSetupFieldsAreExported() {
+            mockMvc
+                .perform(get("/api/v1/api-docs"))
+                .andExpect(jsonPath("$['paths']['/api/v1/agent-setups']").exists())
+                .andExpect(
+                    jsonPath("$['paths']['/api/v1/agent-setups/{setupId}/versions/{version}']").exists(),
+                ).andExpect(
+                    jsonPath("$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup']").exists(),
+                ).andExpect(
+                    jsonPath(
+                        "$['paths']['/api/v1/workspaces/{workspaceId}/sessions/{sessionId}/setup-preview']",
+                    ).exists(),
+                ).andExpect(jsonPath("$['components']['schemas']['RestartAgentSessionHttpRequest']").exists())
+                .andExpect(
+                    jsonPath(
+                        "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['targetSetupId']",
+                    ).exists(),
+                ).andExpect(
+                    jsonPath(
+                        "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedSetupId']",
+                    ).exists(),
+                ).andExpect(
+                    jsonPath(
+                        "$['components']['schemas']['RestartAgentSessionHttpRequest']['properties']['expectedEpoch']",
+                    ).exists(),
+                )
+        }
+
+        private fun resolveOpenApiSpecPath(): Path {
+            // The Gradle task sets `openapi.spec.output` to the canonical
+            // committed location. Fallback to `<cwd>/openapi.json` when run
+            // directly from the IDE so a one-off invocation still works.
+            val override = System.getProperty("openapi.spec.output")
+            if (override != null) {
+                return Paths.get(override)
+            }
+            return Paths.get(System.getProperty("user.dir")).resolve("openapi.json")
+        }
+
+        private fun writeClientSpec(publicSpecPath: Path) {
+            val mapper = ObjectMapper()
+            val root = mapper.readTree(publicSpecPath.toFile()) as ObjectNode
+            val fieldErrorProperties =
+                root.objectNode("/components/schemas/FieldError/properties")
+            fieldErrorProperties.replace(
+                "rejectedValue",
+                mapper.createObjectNode().put("type", "string"),
+            )
+            mapper.writerWithDefaultPrettyPrinter().writeValue(resolveClientSpecPath(publicSpecPath).toFile(), root)
+        }
+
+        private fun resolveClientSpecPath(publicSpecPath: Path): Path =
+            publicSpecPath.resolveSibling("agents-api-client.json")
+
+        private fun ObjectNode.objectNode(pointer: String): ObjectNode = at(pointer) as ObjectNode
+
+        @SpringBootConfiguration
+        class Application
+
+        @TestConfiguration(proxyBeanMethods = false)
+        class AgentCollaborators {
+            @Bean
+            fun agentGatewayClient(): AgentGatewayClient = mockk(relaxed = true)
+
+            @Bean
+            fun agentSetupDiffService(): AgentSetupDiffService = mockk(relaxed = true)
+
+            @Bean
+            fun agentSetupValidationService(): AgentSetupValidationService = mockk(relaxed = true)
+
+            @Bean
+            fun chatAnswerStreamService(): ChatAnswerStreamService = mockk()
+
+            @Bean
+            fun commandBus(): CommandBus = mockk(relaxed = true)
+
+            @Bean
+            fun repositoryVerificationService(): RepositoryVerificationService = mockk(relaxed = true)
+
+            @Bean
+            fun repositoryInstallationStatusService(): RepositoryInstallationStatusService = mockk(relaxed = true)
+
+            @Bean
+            fun restartAgentSessionService(): RestartAgentSessionService = mockk(relaxed = true)
+
+            @Bean
+            fun runnerMaintenanceService(): RunnerMaintenanceService = mockk(relaxed = true)
+
+            @Bean
+            fun sessionStatusBroadcaster(): SessionStatusBroadcaster = mockk(relaxed = true)
+        }
+
+        @TestConfiguration(proxyBeanMethods = false)
+        class QueryCollaborators {
+            @Bean
+            fun chatSessionQueryService(): ChatSessionQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun getConversationQueryService(): GetConversationQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun getMessageQueryService(): GetMessageQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun getTurnHistoryQueryService(): GetTurnHistoryQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun getWorkspaceQueryService(): GetWorkspaceQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun listWorkspacesQueryService(): ListWorkspacesQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun projectQueryService(): ProjectQueryService = mockk(relaxed = true)
+
+            @Bean
+            fun repositoryQueryService(): RepositoryQueryService = mockk(relaxed = true)
+        }
+
+        @TestConfiguration(proxyBeanMethods = false)
+        class RepositoryCollaborators {
+            @Bean
+            fun agentCredentialRepository(): AgentCredentialRepository = mockk(relaxed = true)
+
+            @Bean
+            fun agentSetupRepository(): AgentSetupRepository = mockk(relaxed = true)
+
+            @Bean
+            fun githubLinkRepository(): GithubLinkRepository = mockk(relaxed = true)
+
+            @Bean
+            fun setupRestartEventRepository(): SetupRestartEventRepository = mockk(relaxed = true)
+
+            @Bean
+            fun workspaceAgentSessionRepository(): WorkspaceAgentSessionRepository = mockk(relaxed = true)
+
+            @Bean
+            fun workspaceRepository(): WorkspaceRepository = mockk(relaxed = true)
+        }
+
+        @TestConfiguration(proxyBeanMethods = false)
+        class InfrastructureCollaborators {
+            @Bean
+            fun credentialValidator(): CredentialValidator = mockk(relaxed = true)
+
+            @Bean
+            fun githubAppInstallationTokenClient(): GitHubAppInstallationTokenClient = mockk(relaxed = true)
+
+            @Bean
+            fun httpCredentialWorkerClient(): HttpCredentialWorkerClient = mockk(relaxed = true)
+
+            @Bean
+            fun workspaceRunnerLifecycleService(): WorkspaceRunnerLifecycleService = mockk(relaxed = true)
+        }
     }
-
-    private fun writeClientSpec(publicSpecPath: Path) {
-        val mapper = ObjectMapper()
-        val root = mapper.readTree(publicSpecPath.toFile()) as ObjectNode
-        val fieldErrorProperties =
-            root.objectNode("/components/schemas/FieldError/properties")
-        fieldErrorProperties.replace(
-            "rejectedValue",
-            mapper.createObjectNode().put("type", "string"),
-        )
-        mapper.writerWithDefaultPrettyPrinter().writeValue(resolveClientSpecPath(publicSpecPath).toFile(), root)
-    }
-
-    private fun resolveClientSpecPath(publicSpecPath: Path): Path =
-        publicSpecPath.resolveSibling("agents-api-client.json")
-
-    private fun ObjectNode.objectNode(pointer: String): ObjectNode = at(pointer) as ObjectNode
-
-    @SpringBootConfiguration
-    class Application
-
-    @TestConfiguration(proxyBeanMethods = false)
-    class Collaborators {
-        @Bean
-        fun agentGatewayClient(): AgentGatewayClient = mockk(relaxed = true)
-
-        @Bean
-        fun agentCredentialRepository(): AgentCredentialRepository = mockk(relaxed = true)
-
-        @Bean
-        fun agentSetupDiffService(): AgentSetupDiffService = mockk(relaxed = true)
-
-        @Bean
-        fun agentSetupRepository(): AgentSetupRepository = mockk(relaxed = true)
-
-        @Bean
-        fun agentSetupValidationService(): AgentSetupValidationService = mockk(relaxed = true)
-
-        @Bean
-        fun chatSessionQueryService(): ChatSessionQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun chatAnswerStreamService(): ChatAnswerStreamService = mockk()
-
-        @Bean
-        fun commandBus(): CommandBus = mockk(relaxed = true)
-
-        @Bean
-        fun credentialValidator(): CredentialValidator = mockk(relaxed = true)
-
-        @Bean
-        fun getConversationQueryService(): GetConversationQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun getMessageQueryService(): GetMessageQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun getTurnHistoryQueryService(): GetTurnHistoryQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun getWorkspaceQueryService(): GetWorkspaceQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun githubAppInstallationTokenClient(): GitHubAppInstallationTokenClient = mockk(relaxed = true)
-
-        @Bean
-        fun httpCredentialWorkerClient(): HttpCredentialWorkerClient = mockk(relaxed = true)
-
-        @Bean
-        fun githubLinkRepository(): GithubLinkRepository = mockk(relaxed = true)
-
-        @Bean
-        fun listWorkspacesQueryService(): ListWorkspacesQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun projectQueryService(): ProjectQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun repositoryQueryService(): RepositoryQueryService = mockk(relaxed = true)
-
-        @Bean
-        fun repositoryVerificationService(): RepositoryVerificationService = mockk(relaxed = true)
-
-        @Bean
-        fun repositoryInstallationStatusService(): RepositoryInstallationStatusService = mockk(relaxed = true)
-
-        @Bean
-        fun restartAgentSessionService(): RestartAgentSessionService = mockk(relaxed = true)
-
-        @Bean
-        fun runnerMaintenanceService(): RunnerMaintenanceService = mockk(relaxed = true)
-
-        @Bean
-        fun sessionStatusBroadcaster(): SessionStatusBroadcaster = mockk(relaxed = true)
-
-        @Bean
-        fun setupRestartEventRepository(): SetupRestartEventRepository = mockk(relaxed = true)
-
-        @Bean
-        fun workspaceAgentSessionRepository(): WorkspaceAgentSessionRepository = mockk(relaxed = true)
-
-        @Bean
-        fun workspaceRepository(): WorkspaceRepository = mockk(relaxed = true)
-
-        @Bean
-        fun workspaceRunnerLifecycleService(): WorkspaceRunnerLifecycleService = mockk(relaxed = true)
-    }
-}

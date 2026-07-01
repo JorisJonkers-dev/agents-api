@@ -110,25 +110,18 @@ class JooqWorkspaceRepository(
             .fetch()
             .map { it.toWorkspace() }
 
-    override fun beginRunnerSetupOperation(
-        id: WorkspaceId,
-        expectedGeneration: Long,
-        setupId: AgentSetupId,
-        setupVersion: AgentSetupVersion,
-        operation: RunnerSetupOperation,
-        now: Instant,
-    ): Boolean =
+    override fun beginRunnerSetupOperation(request: WorkspaceRepository.RunnerSetupOperationRequest): Boolean =
         dsl
             .update(WORKSPACES)
-            .set(PENDING_RUNNER_SETUP_ID, setupId.value)
-            .set(PENDING_RUNNER_SETUP_VERSION, setupVersion.value)
-            .set(RUNNER_SETUP_GENERATION, expectedGeneration + 1)
-            .set(RUNNER_SETUP_OPERATION, operation.name)
-            .set(RUNNER_SETUP_OPERATION_STARTED_AT, now.atOffset(ZoneOffset.UTC))
-            .set(RUNNER_SETUP_OPERATION_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .where(ID.eq(id.value))
-            .and(RUNNER_SETUP_GENERATION.eq(expectedGeneration))
+            .set(PENDING_RUNNER_SETUP_ID, request.setupId.value)
+            .set(PENDING_RUNNER_SETUP_VERSION, request.setupVersion.value)
+            .set(RUNNER_SETUP_GENERATION, request.expectedGeneration + 1)
+            .set(RUNNER_SETUP_OPERATION, request.operation.name)
+            .set(RUNNER_SETUP_OPERATION_STARTED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .set(RUNNER_SETUP_OPERATION_UPDATED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(request.id.value))
+            .and(RUNNER_SETUP_GENERATION.eq(request.expectedGeneration))
             .and(RUNNER_SETUP_OPERATION.eq(RunnerSetupOperation.IDLE.name))
             .execute() == 1
 

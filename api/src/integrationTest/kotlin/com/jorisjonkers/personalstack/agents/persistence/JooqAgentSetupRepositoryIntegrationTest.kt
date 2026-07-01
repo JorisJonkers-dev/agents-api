@@ -11,80 +11,85 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 
-class JooqAgentSetupRepositoryIntegrationTest : IntegrationTestBase() {
+class JooqAgentSetupRepositoryIntegrationTest
     @Autowired
-    private lateinit var setups: AgentSetupRepository
+    constructor(
+        private val setups: AgentSetupRepository,
+    ) : IntegrationTestBase {
+        private companion object {
+            const val DOCKER_GROUP_ONE = 44L
+            const val DOCKER_GROUP_TWO = 45L
+        }
 
-    @Test
-    fun `configured default setup is selectable after startup initializer`() {
-        val selected = setups.findDefaultSelectable()
+        @Test
+        fun configuredDefaultSetupIsSelectableAfterStartupInitializer() {
+            val selected = (setups.findDefaultSelectable()).required()
 
-        assertThat(selected).isNotNull
-        assertThat(selected!!.definition.id).isEqualTo(AgentSetupId.default())
-        assertThat(selected.availability.selectable).isTrue()
-        assertThat(selected.availability.defaultSelectable).isTrue()
-    }
+            assertThat(selected.definition.id).isEqualTo(AgentSetupId.default())
+            assertThat(selected.availability.selectable).isTrue()
+            assertThat(selected.availability.defaultSelectable).isTrue()
+        }
 
-    @Test
-    fun `save and find setup definition and availability`() {
-        val definition = definition(AgentSetupId("gpu"), AgentSetupVersion(2))
-        val availability =
-            AgentSetupAvailability(
-                id = definition.id,
-                version = definition.version,
-                selectable = true,
-                defaultSelectable = false,
-                unavailableReason = null,
-                updatedAt = Instant.now(),
+        @Test
+        fun saveAndFindSetupDefinitionAndAvailability() {
+            val definition = definition(AgentSetupId("gpu"), AgentSetupVersion(2))
+            val availability =
+                AgentSetupAvailability(
+                    id = definition.id,
+                    version = definition.version,
+                    selectable = true,
+                    defaultSelectable = false,
+                    unavailableReason = null,
+                    updatedAt = Instant.now(),
+                )
+
+            setups.saveDefinition(definition)
+            setups.saveAvailability(availability)
+
+            val loaded = setups.findDefinition(definition.id, definition.version).required()
+            val selectable = setups.findSelectable()
+
+            assertThat(loaded.id).isEqualTo(definition.id)
+            assertThat(loaded.version).isEqualTo(definition.version)
+            assertThat(loaded.cliTools).containsEntry("codex", "gpu")
+            assertThat(loaded.toolProfiles).containsExactly("frontend", "code-intel")
+            assertThat(loaded.nodeSelector).containsEntry("personal-stack/node", "gpu-node")
+            assertThat(selectable.map { it.definition.id }).contains(AgentSetupId("gpu"))
+        }
+
+        private fun definition(
+            id: AgentSetupId,
+            version: AgentSetupVersion,
+        ): AgentSetupDefinition {
+            val now = Instant.now()
+            return AgentSetupDefinition(
+                id = id,
+                version = version,
+                displayName = "GPU runner",
+                description = "GPU enabled runner",
+                namespace = "agents-system",
+                image = "ghcr.io/example/gpu-runner:2026",
+                imagePullPolicy = "IfNotPresent",
+                serviceAccount = "agent-runner",
+                gatewayPort = 8090,
+                claudeCredentialsPvc = "claude-credentials",
+                codexCredentialsPvc = "codex-credentials",
+                githubDeployKeySecret = "agents-github-deploy-key",
+                cliTools = mapOf("claude" to "default", "codex" to "gpu"),
+                knowledgeBaseUrl = "http://knowledge-api:8080",
+                knowledgeBearerSecret = "agents-kb-bearer",
+                knowledgeBearerSecretKey = "bearer",
+                mcpServersConfigMap = "agents-mcp-servers",
+                defaultMcpProfile = "frontend",
+                connectorConfig = mapOf("profile" to "gpu"),
+                toolProfiles = listOf("frontend", "code-intel"),
+                toolAllowlist = listOf("bash", "rg"),
+                dockerSocketEnabled = true,
+                dockerSocketPath = "/var/run/docker.sock",
+                dockerSocketSupplementalGroups = listOf(DOCKER_GROUP_ONE, DOCKER_GROUP_TWO),
+                nodeSelector = mapOf("personal-stack/node" to "gpu-node"),
+                createdAt = now,
+                updatedAt = now,
             )
-
-        setups.saveDefinition(definition)
-        setups.saveAvailability(availability)
-
-        val loaded = setups.findDefinition(definition.id, definition.version)
-        val selectable = setups.findSelectable()
-
-        assertThat(loaded!!.id).isEqualTo(definition.id)
-        assertThat(loaded.version).isEqualTo(definition.version)
-        assertThat(loaded.cliTools).containsEntry("codex", "gpu")
-        assertThat(loaded.toolProfiles).containsExactly("frontend", "code-intel")
-        assertThat(loaded.nodeSelector).containsEntry("personal-stack/node", "gpu-node")
-        assertThat(selectable.map { it.definition.id }).contains(AgentSetupId("gpu"))
+        }
     }
-
-    private fun definition(
-        id: AgentSetupId,
-        version: AgentSetupVersion,
-    ): AgentSetupDefinition {
-        val now = Instant.now()
-        return AgentSetupDefinition(
-            id = id,
-            version = version,
-            displayName = "GPU runner",
-            description = "GPU enabled runner",
-            namespace = "agents-system",
-            image = "ghcr.io/example/gpu-runner:2026",
-            imagePullPolicy = "IfNotPresent",
-            serviceAccount = "agent-runner",
-            gatewayPort = 8090,
-            claudeCredentialsPvc = "claude-credentials",
-            codexCredentialsPvc = "codex-credentials",
-            githubDeployKeySecret = "agents-github-deploy-key",
-            cliTools = mapOf("claude" to "default", "codex" to "gpu"),
-            knowledgeBaseUrl = "http://knowledge-api:8080",
-            knowledgeBearerSecret = "agents-kb-bearer",
-            knowledgeBearerSecretKey = "bearer",
-            mcpServersConfigMap = "agents-mcp-servers",
-            defaultMcpProfile = "frontend",
-            connectorConfig = mapOf("profile" to "gpu"),
-            toolProfiles = listOf("frontend", "code-intel"),
-            toolAllowlist = listOf("bash", "rg"),
-            dockerSocketEnabled = true,
-            dockerSocketPath = "/var/run/docker.sock",
-            dockerSocketSupplementalGroups = listOf(44L, 45L),
-            nodeSelector = mapOf("personal-stack/node" to "gpu-node"),
-            createdAt = now,
-            updatedAt = now,
-        )
-    }
-}

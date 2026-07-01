@@ -37,31 +37,40 @@ class CredentialControllerTest {
                 .build()
     }
 
-    private fun workerStatus(
-        id: String = "sess-1",
-        provider: String = "claude",
-        phase: String = "starting",
-        authorizeUrl: String? = null,
-        deviceCode: String? = null,
-        verificationUrl: String? = null,
-        needsRedirectUrl: Boolean = false,
-    ) = HttpCredentialWorkerClient.SessionStatus(
-        id = id,
-        provider = provider,
-        phase = phase,
-        authorizeUrl = authorizeUrl,
-        deviceCode = deviceCode,
-        verificationUrl = verificationUrl,
-        needsRedirectUrl = needsRedirectUrl,
-        message = null,
-        error = null,
-        updatedAt = "2026-06-20T10:00:00Z",
-    )
+    private class WorkerStatusOptions {
+        var id: String = "sess-1"
+        var provider: String = "claude"
+        var phase: String = "starting"
+        var authorizeUrl: String? = null
+        var deviceCode: String? = null
+        var verificationUrl: String? = null
+        var needsRedirectUrl: Boolean = false
+    }
+
+    private fun workerStatus(configure: WorkerStatusOptions.() -> Unit = {}) =
+        WorkerStatusOptions().apply(configure).let { options ->
+            HttpCredentialWorkerClient.SessionStatus(
+                id = options.id,
+                provider = options.provider,
+                phase = options.phase,
+                authorizeUrl = options.authorizeUrl,
+                deviceCode = options.deviceCode,
+                verificationUrl = options.verificationUrl,
+                needsRedirectUrl = options.needsRedirectUrl,
+                message = null,
+                error = null,
+                updatedAt = "2026-06-20T10:00:00Z",
+            )
+        }
 
     @Test
     fun `POST sessions starts a claude session and returns 201`() {
         every { worker.start(provider = "claude", updatedBy = any()) } returns
-            workerStatus(provider = "claude", phase = "awaiting_url", authorizeUrl = "https://claude.ai/authorize?x=1")
+            workerStatus {
+                provider = "claude"
+                phase = "awaiting_url"
+                authorizeUrl = "https://claude.ai/authorize?x=1"
+            }
 
         mockMvc
             .perform(
@@ -80,7 +89,7 @@ class CredentialControllerTest {
     fun `POST sessions resolves updatedBy from the principal not the request body`() {
         val updatedBy = slot<String>()
         every { worker.start(provider = "codex", updatedBy = capture(updatedBy)) } returns
-            workerStatus(provider = "codex")
+            workerStatus { provider = "codex" }
 
         mockMvc
             .perform(
@@ -162,13 +171,13 @@ class CredentialControllerTest {
     @Test
     fun `GET session returns the worker status`() {
         every { worker.status("sess-9") } returns
-            workerStatus(
-                id = "sess-9",
-                provider = "codex",
-                phase = "awaiting_device",
-                deviceCode = "ABCD-1234",
-                verificationUrl = "https://auth.openai.com/device",
-            )
+            workerStatus {
+                id = "sess-9"
+                provider = "codex"
+                phase = "awaiting_device"
+                deviceCode = "ABCD-1234"
+                verificationUrl = "https://auth.openai.com/device"
+            }
 
         mockMvc
             .perform(get("/api/v1/credentials/sessions/sess-9").header("X-User-Id", "operator"))

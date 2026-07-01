@@ -28,16 +28,23 @@ class SetupTransitionAuditService(
     private val events: SetupRestartEventRepository,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) {
+    data class Rejection(
+        val workspace: Workspace,
+        val session: WorkspaceAgentSession?,
+        val targetId: AgentSetupId,
+        val targetVersion: AgentSetupVersion,
+        val result: AgentSetupValidationResult,
+    )
+
     @Transactional
     fun recordRejected(
-        workspace: Workspace,
-        session: WorkspaceAgentSession?,
-        targetId: AgentSetupId,
-        targetVersion: AgentSetupVersion,
-        result: AgentSetupValidationResult,
+        rejection: Rejection,
         now: Instant = Instant.now(),
     ): SetupRestartEvent? {
         val startedAt = Instant.now()
+        val workspace = rejection.workspace
+        val session = rejection.session
+        val result = rejection.result
         if (result.valid) {
             recordLifecycle(startedAt, OutcomeLabel.SKIPPED, FailureReasonLabel.NONE)
             return null
@@ -53,8 +60,8 @@ class SetupTransitionAuditService(
                         sessionId = session?.id,
                         fromSetupId = fromSetupId,
                         fromSetupVersion = fromSetupVersion,
-                        toSetupId = targetId,
-                        toSetupVersion = targetVersion,
+                        toSetupId = rejection.targetId,
+                        toSetupVersion = rejection.targetVersion,
                         status = SetupRestartEventStatus.FAILED,
                         reason = REASON_VALIDATION_REJECTED,
                         message = result.message(),

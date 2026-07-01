@@ -240,7 +240,7 @@ class CreateWorkspaceCommandHandler(
         //   * Row not found → NoSuchElementException (404).
         val repos =
             repositories.ifAvailable
-                ?: throw IllegalStateException(
+                ?: error(
                     "Repository feature is not configured; cannot create workspace for repositoryId=${repoId.value}",
                 )
         val repo =
@@ -282,7 +282,7 @@ class CreateWorkspaceCommandHandler(
     ): ResolvedRepo {
         val links =
             githubLinks.ifAvailable
-                ?: throw IllegalStateException(
+                ?: error(
                     "Projects feature is not configured; cannot create workspace for githubLinkId=${linkId.value}",
                 )
         val link =

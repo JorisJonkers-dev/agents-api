@@ -23,16 +23,27 @@ import java.time.Clock
 import java.time.Duration
 
 @Component
+class StopAgentSessionDependencies(
+    val workspaces: WorkspaceRepository,
+    val sessions: WorkspaceAgentSessionRepository,
+    val gateway: AgentGatewayClient,
+    val autoCapture: LessonAutoCapture,
+    val sessionStatus: SessionStatusPublisher,
+    val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
+)
+
+@Component
 class StopAgentSessionCommandHandler(
-    private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
-    private val gateway: AgentGatewayClient,
-    private val autoCapture: LessonAutoCapture,
+    dependencies: StopAgentSessionDependencies,
     private val runtime: AgentRuntimeProperties,
-    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
-    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StopAgentSessionCommand> {
+    private val workspaces = dependencies.workspaces
+    private val sessions = dependencies.sessions
+    private val gateway = dependencies.gateway
+    private val autoCapture = dependencies.autoCapture
+    private val sessionStatus = dependencies.sessionStatus
+    private val telemetry = dependencies.telemetry
     private val log = LoggerFactory.getLogger(StopAgentSessionCommandHandler::class.java)
 
     @Transactional
@@ -77,12 +88,14 @@ class StopAgentSessionCommandHandler(
         val retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds)
         val stopped =
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.STOPPED,
-                retainedUntil = retainedUntil,
-                clearGatewayBinding = true,
-                now = now,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    retainedUntil = retainedUntil,
+                    clearGatewayBinding = true,
+                    now = now,
+                ),
             )
         if (stopped) {
             sessionStatus.publishStatus(session.markStopped(retainedUntil = retainedUntil, now = now))

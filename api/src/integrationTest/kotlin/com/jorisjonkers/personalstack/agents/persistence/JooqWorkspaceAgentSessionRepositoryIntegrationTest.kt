@@ -17,109 +17,114 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 
-class JooqWorkspaceAgentSessionRepositoryIntegrationTest : IntegrationTestBase() {
+class JooqWorkspaceAgentSessionRepositoryIntegrationTest
     @Autowired
-    private lateinit var workspaces: WorkspaceRepository
+    constructor(
+        private val workspaces: WorkspaceRepository,
+        private val sessions: WorkspaceAgentSessionRepository,
+    ) : IntegrationTestBase {
+        @Test
+        fun saveAndFindByIdRoundTripsCurrentAndPendingSetup() {
+            val session =
+                session().requestSetup(
+                    setupId = AgentSetupId("legacy"),
+                    setupVersion = AgentSetupVersion.initial(),
+                )
+            sessions.save(session)
 
-    @Autowired
-    private lateinit var sessions: WorkspaceAgentSessionRepository
+            val loaded = sessions.findById(session.id).required()
 
-    @Test
-    fun `save and findById round-trips current and pending setup`() {
-        val session =
-            session().requestSetup(
-                setupId = AgentSetupId("legacy"),
-                setupVersion = AgentSetupVersion.initial(),
-            )
-        sessions.save(session)
+            assertThat(loaded.required().currentSetupId).isEqualTo(AgentSetupId.default())
+            assertThat(loaded.currentSetupVersion).isEqualTo(AgentSetupVersion.initial())
+            assertThat(loaded.pendingSetupId).isEqualTo(AgentSetupId.legacy())
+        }
 
-        val loaded = sessions.findById(session.id)
+        @Test
+        fun setupCASMethodsStagePromoteAndClearPendingSetup() {
+            val session = sessions.save(session())
 
-        assertThat(loaded!!.currentSetupId).isEqualTo(AgentSetupId.default())
-        assertThat(loaded.currentSetupVersion).isEqualTo(AgentSetupVersion.initial())
-        assertThat(loaded.pendingSetupId).isEqualTo(AgentSetupId.legacy())
-    }
+            val staged =
+                sessions.setPendingSetupIfCurrent(
+                    WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                        id = session.id,
+                        expectedCurrentSetupId = AgentSetupId.default(),
+                        expectedCurrentSetupVersion = AgentSetupVersion.initial(),
+                        pendingSetupId = AgentSetupId.legacy(),
+                        pendingSetupVersion = AgentSetupVersion.initial(),
+                    ),
+                )
+            val staleStage =
+                sessions.setPendingSetupIfCurrent(
+                    WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                        id = session.id,
+                        expectedCurrentSetupId = AgentSetupId("missing"),
+                        expectedCurrentSetupVersion = AgentSetupVersion.initial(),
+                        pendingSetupId = AgentSetupId.legacy(),
+                        pendingSetupVersion = AgentSetupVersion.initial(),
+                    ),
+                )
 
-    @Test
-    fun `setup CAS methods stage promote and clear pending setup`() {
-        val session = sessions.save(session())
+            assertThat(staged).isTrue()
+            assertThat(staleStage).isFalse()
 
-        val staged =
+            val cleared =
+                sessions.clearPendingSetupIfCurrent(
+                    id = session.id,
+                    expectedPendingSetupId = AgentSetupId.legacy(),
+                    expectedPendingSetupVersion = AgentSetupVersion.initial(),
+                )
+            assertThat(cleared).isTrue()
+
             sessions.setPendingSetupIfCurrent(
-                id = session.id,
-                expectedCurrentSetupId = AgentSetupId.default(),
-                expectedCurrentSetupVersion = AgentSetupVersion.initial(),
-                pendingSetupId = AgentSetupId.legacy(),
-                pendingSetupVersion = AgentSetupVersion.initial(),
+                WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                    id = session.id,
+                    expectedCurrentSetupId = AgentSetupId.default(),
+                    expectedCurrentSetupVersion = AgentSetupVersion.initial(),
+                    pendingSetupId = AgentSetupId.legacy(),
+                    pendingSetupVersion = AgentSetupVersion.initial(),
+                ),
             )
-        val staleStage =
-            sessions.setPendingSetupIfCurrent(
-                id = session.id,
-                expectedCurrentSetupId = AgentSetupId("missing"),
-                expectedCurrentSetupVersion = AgentSetupVersion.initial(),
-                pendingSetupId = AgentSetupId.legacy(),
-                pendingSetupVersion = AgentSetupVersion.initial(),
+            val promoted =
+                sessions.promotePendingSetupIfCurrent(
+                    id = session.id,
+                    expectedPendingSetupId = AgentSetupId.legacy(),
+                    expectedPendingSetupVersion = AgentSetupVersion.initial(),
+                )
+
+            val loaded = sessions.findById(session.id).required()
+            assertThat(promoted).isTrue()
+            assertThat(loaded.required().currentSetupId).isEqualTo(AgentSetupId.legacy())
+            assertThat(loaded.pendingSetupId).isNull()
+        }
+
+        private fun session(): WorkspaceAgentSession {
+            val workspace = workspace()
+            workspaces.save(workspace)
+            val now = Instant.now()
+            return WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = workspace.id,
+                kind = WorkspaceAgentKind.CODEX,
+                gatewayAgentId = null,
+                status = WorkspaceAgentSessionStatus.STARTING,
+                createdAt = now,
+                updatedAt = now,
             )
+        }
 
-        assertThat(staged).isTrue()
-        assertThat(staleStage).isFalse()
-
-        val cleared =
-            sessions.clearPendingSetupIfCurrent(
-                id = session.id,
-                expectedPendingSetupId = AgentSetupId.legacy(),
-                expectedPendingSetupVersion = AgentSetupVersion.initial(),
+        private fun workspace(): Workspace {
+            val now = Instant.now()
+            return Workspace(
+                id = WorkspaceId.random(),
+                name = "session-test",
+                repoUrl = null,
+                branch = null,
+                podName = null,
+                pvcName = null,
+                gatewayEndpoint = null,
+                status = WorkspaceStatus.PENDING,
+                createdAt = now,
+                updatedAt = now,
             )
-        assertThat(cleared).isTrue()
-
-        sessions.setPendingSetupIfCurrent(
-            id = session.id,
-            expectedCurrentSetupId = AgentSetupId.default(),
-            expectedCurrentSetupVersion = AgentSetupVersion.initial(),
-            pendingSetupId = AgentSetupId.legacy(),
-            pendingSetupVersion = AgentSetupVersion.initial(),
-        )
-        val promoted =
-            sessions.promotePendingSetupIfCurrent(
-                id = session.id,
-                expectedPendingSetupId = AgentSetupId.legacy(),
-                expectedPendingSetupVersion = AgentSetupVersion.initial(),
-            )
-
-        val loaded = sessions.findById(session.id)
-        assertThat(promoted).isTrue()
-        assertThat(loaded!!.currentSetupId).isEqualTo(AgentSetupId.legacy())
-        assertThat(loaded.pendingSetupId).isNull()
+        }
     }
-
-    private fun session(): WorkspaceAgentSession {
-        val workspace = workspace()
-        workspaces.save(workspace)
-        val now = Instant.now()
-        return WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId.random(),
-            workspaceId = workspace.id,
-            kind = WorkspaceAgentKind.CODEX,
-            gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.STARTING,
-            createdAt = now,
-            updatedAt = now,
-        )
-    }
-
-    private fun workspace(): Workspace {
-        val now = Instant.now()
-        return Workspace(
-            id = WorkspaceId.random(),
-            name = "session-test",
-            repoUrl = null,
-            branch = null,
-            podName = null,
-            pvcName = null,
-            gatewayEndpoint = null,
-            status = WorkspaceStatus.PENDING,
-            createdAt = now,
-            updatedAt = now,
-        )
-    }
-}

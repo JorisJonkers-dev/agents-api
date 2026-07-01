@@ -75,7 +75,7 @@ class GitHubAppInstallationTokenClient(
                     "installation status probe for {} failed: {}{}",
                     repoUrl,
                     ex.message,
-                    detail?.let { " — $it" } ?: "",
+                    detail?.let { " — $it" }.orEmpty(),
                 )
                 GithubAppInstallationState.UNKNOWN
             }
@@ -113,7 +113,12 @@ class GitHubAppInstallationTokenClient(
             InstallationToken(token = resp.token, expiresAt = Instant.parse(resp.expiresAt))
         }.onFailure { ex ->
             val detail = (ex as? RestClientResponseException)?.responseBodyAsString?.takeIf { it.isNotBlank() }
-            log.warn("installation-token mint for {} failed: {}{}", repoUrl, ex.message, detail?.let { " — $it" } ?: "")
+            log.warn(
+                "installation-token mint for {} failed: {}{}",
+                repoUrl,
+                ex.message,
+                detail?.let { " — $it" }.orEmpty(),
+            )
         }.getOrNull()
     }
 

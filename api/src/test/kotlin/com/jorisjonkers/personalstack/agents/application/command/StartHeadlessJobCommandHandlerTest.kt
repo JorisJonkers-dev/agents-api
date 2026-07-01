@@ -49,7 +49,15 @@ class StartHeadlessJobCommandHandlerTest {
                 provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
         every {
-            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, prompt, null, null, sessionId, 1, null)
+            gateway.startHeadlessJob(
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = prompt,
+                    stableSessionId = sessionId,
+                    epoch = 1,
+                ),
+            )
         } returns
             AgentGatewayClient.HeadlessJob(
                 id = "hls-abc123",
@@ -136,7 +144,16 @@ class StartHeadlessJobCommandHandlerTest {
                 provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
         every {
-            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "secret prompt", null, 30, sessionId, 1, null)
+            gateway.startHeadlessJob(
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = "secret prompt",
+                    timeoutSeconds = 30,
+                    stableSessionId = sessionId,
+                    epoch = 1,
+                ),
+            )
         } throws RuntimeException(exceptionMessage)
 
         assertThrows<AgentRunnerUnavailableException> {
@@ -174,7 +191,15 @@ class StartHeadlessJobCommandHandlerTest {
                 provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
         every {
-            gateway.startHeadlessJob(ws, WorkspaceAgentKind.CLAUDE, "persist me", null, null, sessionId, 1, null)
+            gateway.startHeadlessJob(
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = "persist me",
+                    stableSessionId = sessionId,
+                    epoch = 1,
+                ),
+            )
         } returns
             AgentGatewayClient.HeadlessJob(
                 id = "hls-persist-raw",

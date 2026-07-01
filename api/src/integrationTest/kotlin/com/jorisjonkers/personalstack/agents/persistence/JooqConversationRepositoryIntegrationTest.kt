@@ -11,76 +11,75 @@ import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 import java.util.UUID
 
-class JooqConversationRepositoryIntegrationTest : IntegrationTestBase() {
+class JooqConversationRepositoryIntegrationTest
     @Autowired
-    private lateinit var conversationRepository: ConversationRepository
+    constructor(
+        private val conversationRepository: ConversationRepository,
+    ) : IntegrationTestBase {
+        @Test
+        fun saveAndFindByIdReturnsTheSavedConversation() {
+            val conversation = buildConversation(title = "Test Conversation")
+            conversationRepository.save(conversation)
 
-    @Test
-    fun `save and findById returns the saved conversation`() {
-        val conversation = buildConversation(title = "Test Conversation")
-        conversationRepository.save(conversation)
+            val found = (conversationRepository.findById(conversation.id)).required()
 
-        val found = conversationRepository.findById(conversation.id)
+            assertThat(found.title).isEqualTo("Test Conversation")
+            assertThat(found.status).isEqualTo(ConversationStatus.ACTIVE)
+        }
 
-        assertThat(found).isNotNull
-        assertThat(found!!.title).isEqualTo("Test Conversation")
-        assertThat(found.status).isEqualTo(ConversationStatus.ACTIVE)
-    }
+        @Test
+        fun findbyidReturnsNullWhenConversationDoesNotExist() {
+            val result = conversationRepository.findById(ConversationId(UUID.randomUUID()))
 
-    @Test
-    fun `findById returns null when conversation does not exist`() {
-        val result = conversationRepository.findById(ConversationId(UUID.randomUUID()))
+            assertThat(result).isNull()
+        }
 
-        assertThat(result).isNull()
-    }
+        @Test
+        fun findbyuseridReturnsAllConversationsForTheUser() {
+            val userId = UUID.randomUUID()
+            val first = buildConversation(userId = userId, title = "First")
+            val second = buildConversation(userId = userId, title = "Second")
+            val other = buildConversation(title = "Other User")
+            conversationRepository.save(first)
+            conversationRepository.save(second)
+            conversationRepository.save(other)
 
-    @Test
-    fun `findByUserId returns all conversations for the user`() {
-        val userId = UUID.randomUUID()
-        val first = buildConversation(userId = userId, title = "First")
-        val second = buildConversation(userId = userId, title = "Second")
-        val other = buildConversation(title = "Other User")
-        conversationRepository.save(first)
-        conversationRepository.save(second)
-        conversationRepository.save(other)
+            val results = conversationRepository.findByUserId(userId)
 
-        val results = conversationRepository.findByUserId(userId)
+            assertThat(results).hasSize(2)
+            assertThat(results.map { it.title }).containsExactlyInAnyOrder("First", "Second")
+        }
 
-        assertThat(results).hasSize(2)
-        assertThat(results.map { it.title }).containsExactlyInAnyOrder("First", "Second")
-    }
+        @Test
+        fun saveUpdatesExistingConversationOnConflict() {
+            val conversation = buildConversation(title = "Original")
+            conversationRepository.save(conversation)
 
-    @Test
-    fun `save updates existing conversation on conflict`() {
-        val conversation = buildConversation(title = "Original")
-        conversationRepository.save(conversation)
+            val updated =
+                conversation.copy(
+                    title = "Updated",
+                    status = ConversationStatus.ARCHIVED,
+                    updatedAt = Instant.now(),
+                )
+            conversationRepository.save(updated)
 
-        val updated =
-            conversation.copy(
-                title = "Updated",
-                status = ConversationStatus.ARCHIVED,
-                updatedAt = Instant.now(),
+            val found = (conversationRepository.findById(conversation.id)).required()
+            assertThat(found.title).isEqualTo("Updated")
+            assertThat(found.status).isEqualTo(ConversationStatus.ARCHIVED)
+        }
+
+        private fun buildConversation(
+            userId: UUID = UUID.randomUUID(),
+            title: String = "Test",
+        ): Conversation {
+            val now = Instant.now()
+            return Conversation(
+                id = ConversationId(UUID.randomUUID()),
+                userId = userId,
+                title = title,
+                status = ConversationStatus.ACTIVE,
+                createdAt = now,
+                updatedAt = now,
             )
-        conversationRepository.save(updated)
-
-        val found = conversationRepository.findById(conversation.id)
-        assertThat(found).isNotNull
-        assertThat(found!!.title).isEqualTo("Updated")
-        assertThat(found.status).isEqualTo(ConversationStatus.ARCHIVED)
+        }
     }
-
-    private fun buildConversation(
-        userId: UUID = UUID.randomUUID(),
-        title: String = "Test",
-    ): Conversation {
-        val now = Instant.now()
-        return Conversation(
-            id = ConversationId(UUID.randomUUID()),
-            userId = userId,
-            title = title,
-            status = ConversationStatus.ACTIVE,
-            createdAt = now,
-            updatedAt = now,
-        )
-    }
-}

@@ -249,7 +249,7 @@ class AgentSetupValidationService(
     ): AgentSetupValidationIssue =
         AgentSetupValidationIssue(
             code = code,
-            message = "${ref.kind} ${ref.namespace}/${ref.name}${ref.key?.let { ":$it" } ?: ""} is missing",
+            message = "${ref.kind} ${ref.namespace}/${ref.name}${ref.key?.let { ":$it" }.orEmpty()} is missing",
             binding = ref,
         )
 

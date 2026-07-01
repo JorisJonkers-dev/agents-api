@@ -63,15 +63,26 @@ import java.util.concurrent.TimeUnit
  * duplicated the display and wrote escape garbage into the DB.
  */
 @Component
+class SessionAttachDependencies(
+    val sessions: WorkspaceAgentSessionRepository,
+    val workspaces: WorkspaceRepository,
+    val activity: WorkspaceActivityTracker,
+    val connected: ConnectedClientTracker,
+    val binding: RunnerSessionBindingService,
+    val sessionStatus: SessionStatusPublisher,
+)
+
+@Component
 class SessionAttachHandler(
-    private val sessions: WorkspaceAgentSessionRepository,
-    private val workspaces: WorkspaceRepository,
-    private val activity: WorkspaceActivityTracker,
-    private val connected: ConnectedClientTracker,
-    private val binding: RunnerSessionBindingService,
-    private val sessionStatus: SessionStatusPublisher,
+    dependencies: SessionAttachDependencies,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : AbstractWebSocketHandler() {
+    private val sessions = dependencies.sessions
+    private val workspaces = dependencies.workspaces
+    private val activity = dependencies.activity
+    private val connected = dependencies.connected
+    private val binding = dependencies.binding
+    private val sessionStatus = dependencies.sessionStatus
     private val log = LoggerFactory.getLogger(SessionAttachHandler::class.java)
 
     private data class Bridge(
@@ -239,10 +250,13 @@ class SessionAttachHandler(
                 client = clientSession,
                 sessionId = resolved.sessionId,
                 workspaceId = resolved.workspaceId,
-                sessions = sessions,
-                activity = activity,
-                binding = binding,
-                sessionStatus = sessionStatus,
+                relay =
+                    UpstreamRelayDependencies(
+                        sessions = sessions,
+                        activity = activity,
+                        binding = binding,
+                        sessionStatus = sessionStatus,
+                    ),
                 telemetry = telemetry,
             )
         val upstream =
@@ -355,7 +369,7 @@ class SessionAttachHandler(
                 val value = if (pieces.size == 2) decodeQuery(pieces[1]) ?: return@mapNotNull null else ""
                 key to value
             }?.toMap()
-            ?: emptyMap()
+            .orEmpty()
 
     private fun decodeQuery(value: String): String? =
         runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8) }.getOrNull()
@@ -455,16 +469,25 @@ class SessionAttachHandler(
      * browser and record activity so the idle sweep knows the AI is
      * still producing output (even if the user is not typing).
      */
+    private data class UpstreamRelayDependencies(
+        val sessions: WorkspaceAgentSessionRepository,
+        val activity: WorkspaceActivityTracker,
+        val binding: RunnerSessionBindingService,
+        val sessionStatus: SessionStatusPublisher,
+    )
+
     private class UpstreamHandler(
         private val client: WebSocketSession,
         private val sessionId: WorkspaceAgentSessionId,
         private val workspaceId: WorkspaceId,
-        private val sessions: WorkspaceAgentSessionRepository,
-        private val activity: WorkspaceActivityTracker,
-        private val binding: RunnerSessionBindingService,
-        private val sessionStatus: SessionStatusPublisher,
+        private val relay: UpstreamRelayDependencies,
         private val telemetry: AgentsApiTelemetry,
     ) : AbstractWebSocketHandler() {
+        private val sessions = relay.sessions
+        private val activity = relay.activity
+        private val binding = relay.binding
+        private val sessionStatus = relay.sessionStatus
+
         override fun handleTextMessage(
             session: WebSocketSession,
             message: TextMessage,

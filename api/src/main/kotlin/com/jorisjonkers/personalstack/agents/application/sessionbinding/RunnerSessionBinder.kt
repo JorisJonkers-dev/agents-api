@@ -39,19 +39,43 @@ import java.time.Duration
 import java.time.Instant
 
 @Component
+class RunnerSessionBindingDependencies(
+    val workspaces: WorkspaceRepository,
+    val sessions: WorkspaceAgentSessionRepository,
+    val gateway: AgentGatewayClient,
+    val orchestrator: AgentRunnerOrchestrator,
+    val tx: RunnerSessionBindingTransactions,
+)
+
+@Component
+class RunnerSessionNotifications(
+    val sessionStatus: SessionStatusPublisher,
+    val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
+)
+
+@Component
+class RunnerSetupDependencies(
+    val setupSelection: AgentSetupSelectionService,
+    val setupValidation: AgentSetupValidationService,
+)
+
+@Component
 @Suppress("TooManyFunctions", "LargeClass")
 class RunnerSessionBinder(
-    private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
-    private val gateway: AgentGatewayClient,
-    private val orchestrator: AgentRunnerOrchestrator,
-    private val setupSelection: AgentSetupSelectionService,
-    private val setupValidation: AgentSetupValidationService,
-    private val tx: RunnerSessionBindingTransactions,
-    private val sessionStatus: SessionStatusPublisher,
+    bindingDependencies: RunnerSessionBindingDependencies,
+    setupDependencies: RunnerSetupDependencies,
+    notifications: RunnerSessionNotifications,
     private val backoffInitialMs: Long = BACKOFF_INITIAL_MS,
-    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : RunnerSessionBindingService {
+    private val workspaces = bindingDependencies.workspaces
+    private val sessions = bindingDependencies.sessions
+    private val gateway = bindingDependencies.gateway
+    private val orchestrator = bindingDependencies.orchestrator
+    private val tx = bindingDependencies.tx
+    private val sessionStatus = notifications.sessionStatus
+    private val telemetry = notifications.telemetry
+    private val setupSelection = setupDependencies.setupSelection
+    private val setupValidation = setupDependencies.setupValidation
     private val log = LoggerFactory.getLogger(RunnerSessionBinder::class.java)
 
     @Suppress("LongMethod")
@@ -559,15 +583,17 @@ class RunnerSessionBinder(
         repeat(MAX_SPAWN_ATTEMPTS) { attempt ->
             try {
                 return gateway.spawnAgent(
-                    workspace = workspace,
-                    kind = session.kind,
-                    stableSessionId = session.id,
-                    epoch = session.epoch,
-                    continuation = continuation,
-                    // Null on a fresh start; on revival this carries the prior
-                    // native CLI id so the gateway resumes that conversation
-                    // rather than spawning a blank one.
-                    resumeCliSessionId = session.cliSessionId,
+                    AgentGatewayClient.SpawnAgentRequest(
+                        workspace = workspace,
+                        kind = session.kind,
+                        stableSessionId = session.id,
+                        epoch = session.epoch,
+                        continuation = continuation,
+                        // Null on a fresh start; on revival this carries the prior
+                        // native CLI id so the gateway resumes that conversation
+                        // rather than spawning a blank one.
+                        resumeCliSessionId = session.cliSessionId,
+                    ),
                 )
             } catch (ex: ResourceAccessException) {
                 lastFailure = ex
@@ -709,11 +735,13 @@ class RunnerSessionBindingTransactions(
         val pendingVersion = requireNotNull(next.pendingSetupVersion) { "pending setup version is required" }
         val setupChanged =
             sessions.setPendingSetupIfCurrent(
-                id = current.id,
-                expectedCurrentSetupId = current.currentSetupId,
-                expectedCurrentSetupVersion = current.currentSetupVersion,
-                pendingSetupId = pendingId,
-                pendingSetupVersion = pendingVersion,
+                WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                    id = current.id,
+                    expectedCurrentSetupId = current.currentSetupId,
+                    expectedCurrentSetupVersion = current.currentSetupVersion,
+                    pendingSetupId = pendingId,
+                    pendingSetupVersion = pendingVersion,
+                ),
             )
         if (!setupChanged) return false
         val generationChanged =
@@ -774,11 +802,13 @@ class RunnerSessionBindingTransactions(
     fun markFailed(session: WorkspaceAgentSession): Boolean {
         val changed =
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.FAILED,
-                retainedUntil = session.retainedUntil,
-                clearGatewayBinding = true,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.FAILED,
+                    retainedUntil = session.retainedUntil,
+                    clearGatewayBinding = true,
+                ),
             )
         if (changed && session.pendingSetupId != null && session.pendingSetupVersion != null) {
             sessions.clearPendingSetupIfCurrent(
@@ -795,11 +825,13 @@ class RunnerSessionBindingTransactions(
     fun markAwaitingRebind(session: WorkspaceAgentSession): Boolean {
         val changed =
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.RUNNING,
-                retainedUntil = null,
-                clearGatewayBinding = true,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.RUNNING,
+                    retainedUntil = null,
+                    clearGatewayBinding = true,
+                ),
             )
         if (changed && session.pendingSetupId != null && session.pendingSetupVersion != null) {
             val promoted =
@@ -820,11 +852,13 @@ class RunnerSessionBindingTransactions(
         next: Workspace,
     ): Boolean =
         workspaces.beginRunnerSetupOperation(
-            id = current.id,
-            expectedGeneration = current.runnerSetupGeneration,
-            setupId = requireNotNull(next.pendingRunnerSetupId) { "pending runner setup id is required" },
-            setupVersion =
-                requireNotNull(next.pendingRunnerSetupVersion) { "pending runner setup version is required" },
+            WorkspaceRepository.RunnerSetupOperationRequest(
+                id = current.id,
+                expectedGeneration = current.runnerSetupGeneration,
+                setupId = requireNotNull(next.pendingRunnerSetupId) { "pending runner setup id is required" },
+                setupVersion =
+                    requireNotNull(next.pendingRunnerSetupVersion) { "pending runner setup version is required" },
+            ),
         )
 
     @Transactional

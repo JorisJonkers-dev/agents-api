@@ -207,9 +207,9 @@ data class AgentRuntimeProperties(
                     knowledgeBearerSecretKey = setup.knowledgeBearerSecretKey ?: knowledgeBearerSecretKey,
                     mcpServersConfigMap = setup.mcpServersConfigMap ?: mcpServersConfigMap,
                     defaultMcpProfile = setup.defaultMcpProfile ?: defaultMcpProfile,
-                    connectorConfig = setup.connectorConfig ?: emptyMap(),
+                    connectorConfig = setup.connectorConfig.orEmpty(),
                     toolProfiles = setup.toolProfiles ?: listOf(setup.defaultMcpProfile ?: defaultMcpProfile),
-                    toolAllowlist = setup.toolAllowlist ?: emptyList(),
+                    toolAllowlist = setup.toolAllowlist.orEmpty(),
                     dockerSocketEnabled = setup.dockerSocketEnabled ?: dockerSocketEnabled,
                     dockerSocketPath = setup.dockerSocketPath ?: dockerSocketPath,
                     dockerSocketSupplementalGroups =
