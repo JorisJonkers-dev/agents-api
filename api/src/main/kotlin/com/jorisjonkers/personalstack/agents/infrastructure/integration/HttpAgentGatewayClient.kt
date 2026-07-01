@@ -1,4 +1,4 @@
-@file:Suppress("LargeClass", "CyclomaticComplexMethod")
+@file:Suppress("LargeClass")
 
 package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
