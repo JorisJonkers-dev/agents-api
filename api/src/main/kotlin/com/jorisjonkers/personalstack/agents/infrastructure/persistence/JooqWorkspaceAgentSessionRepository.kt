@@ -21,7 +21,6 @@ class JooqWorkspaceAgentSessionRepository(
     private val dsl: DSLContext,
 ) : WorkspaceAgentSessionRepository {
     // Single fluent jOOQ upsert keeps insert/update column parity visible.
-    @Suppress("LongMethod")
     override fun save(session: WorkspaceAgentSession): WorkspaceAgentSession {
         val createdAt = session.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = session.updatedAt.atOffset(ZoneOffset.UTC)

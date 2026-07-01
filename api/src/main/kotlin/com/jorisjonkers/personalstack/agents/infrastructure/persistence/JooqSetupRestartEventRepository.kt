@@ -19,7 +19,6 @@ import java.util.UUID
 class JooqSetupRestartEventRepository(
     private val dsl: DSLContext,
 ) : SetupRestartEventRepository {
-    @Suppress("LongMethod")
     override fun save(event: SetupRestartEvent): SetupRestartEvent {
         dsl
             .insertInto(TABLE)

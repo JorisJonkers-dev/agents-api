@@ -22,10 +22,8 @@ class JooqAgentSetupRepository(
     @param:Qualifier("agentsApiObjectMapper")
     private val objectMapper: ObjectMapper,
 ) : AgentSetupRepository {
-    @Suppress("LongMethod")
     override fun saveDefinition(definition: AgentSetupDefinition): AgentSetupDefinition {
-        val createdAt = definition.createdAt.atOffset(ZoneOffset.UTC)
-        val updatedAt = definition.updatedAt.atOffset(ZoneOffset.UTC)
+        val utc = ZoneOffset.UTC
         dsl
             .insertInto(DEFINITIONS)
             .set(SETUP_ID, definition.id.value)
@@ -53,8 +51,8 @@ class JooqAgentSetupRepository(
             .set(DOCKER_SOCKET_PATH, definition.dockerSocketPath)
             .set(DOCKER_SOCKET_SUPPLEMENTAL_GROUPS, writeJson(definition.dockerSocketSupplementalGroups))
             .set(NODE_SELECTOR, writeJson(definition.nodeSelector))
-            .set(CREATED_AT, createdAt)
-            .set(UPDATED_AT, updatedAt)
+            .set(CREATED_AT, definition.createdAt.atOffset(utc))
+            .set(UPDATED_AT, definition.updatedAt.atOffset(utc))
             .onConflict(SETUP_ID, SETUP_VERSION)
             .doUpdate()
             .set(DISPLAY_NAME, definition.displayName)
@@ -80,7 +78,7 @@ class JooqAgentSetupRepository(
             .set(DOCKER_SOCKET_PATH, definition.dockerSocketPath)
             .set(DOCKER_SOCKET_SUPPLEMENTAL_GROUPS, writeJson(definition.dockerSocketSupplementalGroups))
             .set(NODE_SELECTOR, writeJson(definition.nodeSelector))
-            .set(UPDATED_AT, updatedAt)
+            .set(UPDATED_AT, definition.updatedAt.atOffset(utc))
             .execute()
         return definition
     }
