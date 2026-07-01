@@ -41,23 +41,50 @@ import java.time.Instant
  * every 5 min. All overridable via env.
  */
 @Component
-class IdleScaleDownScheduler(
-    private val workspaces: WorkspaceRepository,
-    private val agentSessions: WorkspaceAgentSessionRepository,
-    private val orchestrator: AgentRunnerOrchestrator,
-    private val gateway: AgentGatewayClient,
-    private val tracker: WorkspaceActivityTracker,
-    private val connected: ConnectedClientTracker,
-    private val sessionStatus: SessionStatusPublisher,
-    private val clock: Clock = Clock.systemUTC(),
-    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
-    @param:Value("\${agent-runtime.idle-after-seconds:1800}")
-    private val idleAfterSeconds: Long,
-    @param:Value("\${agent-runtime.agent-idle-after-seconds:14400}")
-    private val agentIdleAfterSeconds: Long,
-    @param:Value("\${agent-runtime.stale-recycle-quiet-seconds:300}")
-    private val staleRecycleQuietSeconds: Long,
+class IdleScaleDownRuntime(
+    @Value("\${agent-runtime.idle-after-seconds:1800}")
+    idleAfterSeconds: Long,
+    @Value("\${agent-runtime.agent-idle-after-seconds:14400}")
+    agentIdleAfterSeconds: Long,
+    @Value("\${agent-runtime.stale-recycle-quiet-seconds:300}")
+    staleRecycleQuietSeconds: Long,
 ) {
+    val idleAfter: Duration = Duration.ofSeconds(idleAfterSeconds)
+    val agentIdleAfter: Duration = Duration.ofSeconds(agentIdleAfterSeconds)
+    val staleRecycleQuiet: Duration = Duration.ofSeconds(staleRecycleQuietSeconds)
+}
+
+@Component
+class IdleScaleDownStores(
+    val workspaces: WorkspaceRepository,
+    val agentSessions: WorkspaceAgentSessionRepository,
+)
+
+@Component
+class IdleScaleDownDependencies(
+    val orchestrator: AgentRunnerOrchestrator,
+    val gateway: AgentGatewayClient,
+    val tracker: WorkspaceActivityTracker,
+    val connected: ConnectedClientTracker,
+    val sessionStatus: SessionStatusPublisher,
+    val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
+)
+
+@Component
+class IdleScaleDownScheduler(
+    stores: IdleScaleDownStores,
+    dependencies: IdleScaleDownDependencies,
+    private val runtime: IdleScaleDownRuntime,
+    private val clock: Clock = Clock.systemUTC(),
+) {
+    private val workspaces = stores.workspaces
+    private val agentSessions = stores.agentSessions
+    private val orchestrator = dependencies.orchestrator
+    private val gateway = dependencies.gateway
+    private val tracker = dependencies.tracker
+    private val connected = dependencies.connected
+    private val sessionStatus = dependencies.sessionStatus
+    private val telemetry = dependencies.telemetry
     private val log = LoggerFactory.getLogger(IdleScaleDownScheduler::class.java)
 
     @Scheduled(fixedDelayString = "\${agent-runtime.idle-sweep-period-ms:300000}")
@@ -79,21 +106,34 @@ class IdleScaleDownScheduler(
         if (candidates.isNotEmpty()) log.info("idle-sweep scaled down {} workspace(s)", candidates.size)
     }
 
-    @Suppress("ReturnCount")
-    private fun isEligibleForScaleDown(workspace: Workspace): Boolean {
-        if (workspace.hasRunnerSetupGuard()) return false
-        if (connected.isConnected(workspace.id)) return false
-        val sessions = agentSessions.findAllByWorkspaceId(workspace.id)
-        if (sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null }) return false
-        // No client is attached (checked above). If the runner is on an image
-        // from an older release, recycle it so the next attach comes back on
-        // the current image — but only once every running agent has gone quiet,
-        // so an agent that is still working is never interrupted mid-task.
-        if (orchestrator.isRunnerImageStale(workspace)) return staleRunnerSafeToRecycle(workspace, sessions)
+    private fun isEligibleForScaleDown(workspace: Workspace): Boolean =
+        when {
+            workspace.hasRunnerSetupGuard() -> false
+            connected.isConnected(workspace.id) -> false
+            else -> sessionsEligibleForScaleDown(workspace, agentSessions.findAllByWorkspaceId(workspace.id))
+        }
+
+    private fun sessionsEligibleForScaleDown(
+        workspace: Workspace,
+        sessions: List<WorkspaceAgentSession>,
+    ): Boolean =
+        when {
+            sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null } -> false
+            // No client is attached (checked above). If the runner is on an image
+            // from an older release, recycle it so the next attach comes back on
+            // the current image — but only once every running agent has gone quiet,
+            // so an agent that is still working is never interrupted mid-task.
+            orchestrator.isRunnerImageStale(workspace) -> staleRunnerSafeToRecycle(workspace, sessions)
+            else -> idleLongEnough(workspace, sessions)
+        }
+
+    private fun idleLongEnough(
+        workspace: Workspace,
+        sessions: List<WorkspaceAgentSession>,
+    ): Boolean {
         val lastSeen = effectiveLastSeen(workspace)
         val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
-        val threshold =
-            Duration.ofSeconds(if (hasRunning) agentIdleAfterSeconds else idleAfterSeconds)
+        val threshold = if (hasRunning) runtime.agentIdleAfter else runtime.idleAfter
         return !lastSeen.isAfter(clock.instant().minus(threshold))
     }
 
@@ -110,7 +150,7 @@ class IdleScaleDownScheduler(
     ): Boolean {
         val running = sessions.filter { it.status == WorkspaceAgentSessionStatus.RUNNING }
         if (running.isEmpty()) return true
-        val grace = Duration.ofSeconds(staleRecycleQuietSeconds)
+        val grace = runtime.staleRecycleQuiet
         return running.all { session ->
             val agentId = session.gatewayAgentId ?: return@all false
             val idle = gateway.agentIdle(workspace, agentId)

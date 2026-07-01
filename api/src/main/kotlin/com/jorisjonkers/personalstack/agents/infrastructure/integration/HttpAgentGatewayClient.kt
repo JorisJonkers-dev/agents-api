@@ -1,4 +1,4 @@
-@file:Suppress("LargeClass", "CyclomaticComplexMethod")
+@file:Suppress("LargeClass")
 
 package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
@@ -8,12 +8,10 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
 import org.springframework.web.client.ResourceAccessException
@@ -34,11 +32,8 @@ import java.time.Instant
 @Component
 class HttpAgentGatewayClient(
     private val restClient: RestClient,
-    private val props: AgentRuntimeProperties,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : AgentGatewayClient {
-    private val log = LoggerFactory.getLogger(HttpAgentGatewayClient::class.java)
-
     private data class GatewayAgentDto(
         val id: String,
         val kind: WorkspaceAgentKind,
@@ -81,6 +76,10 @@ class HttpAgentGatewayClient(
         val name: String,
     )
 
+    private data class CaptureResponse(
+        val text: String = "",
+    )
+
     private data class CloneBody(
         val repoUrl: String,
         val branch: String? = null,
@@ -102,28 +101,19 @@ class HttpAgentGatewayClient(
     private fun endpoint(workspace: Workspace): String =
         workspace.gatewayEndpoint ?: error("workspace ${workspace.id} not yet provisioned with a gateway endpoint")
 
-    @Suppress("LongParameterList")
-    override fun spawnAgent(
-        workspace: Workspace,
-        kind: WorkspaceAgentKind,
-        workspacePath: String?,
-        stableSessionId: WorkspaceAgentSessionId?,
-        epoch: Long?,
-        continuation: AgentGatewayClient.ContinuationMetadata?,
-        resumeCliSessionId: String?,
-    ): AgentGatewayClient.GatewayAgent {
+    override fun spawnAgent(request: AgentGatewayClient.SpawnAgentRequest): AgentGatewayClient.GatewayAgent {
         val dto =
             restClient
                 .post()
-                .uri("${endpoint(workspace)}/agents")
+                .uri("${endpoint(request.workspace)}/agents")
                 .body(
                     SpawnBody(
-                        kind = kind,
-                        workspacePath = workspacePath,
-                        stableSessionId = stableSessionId?.value?.toString(),
-                        epoch = epoch,
-                        continuation = continuation?.toBody(),
-                        resumeCliSessionId = resumeCliSessionId,
+                        kind = request.kind,
+                        workspacePath = request.workspacePath,
+                        stableSessionId = request.stableSessionId?.value?.toString(),
+                        epoch = request.epoch,
+                        continuation = request.continuation?.toBody(),
+                        resumeCliSessionId = request.resumeCliSessionId,
                     ),
                 ).retrieve()
                 .body(GatewayAgentDto::class.java)
@@ -199,14 +189,13 @@ class HttpAgentGatewayClient(
         workspace: Workspace,
         gatewayAgentId: String,
     ): String {
-        @Suppress("UNCHECKED_CAST")
         val body =
             restClient
                 .get()
                 .uri("${endpoint(workspace)}/agents/$gatewayAgentId/capture")
                 .retrieve()
-                .body(Map::class.java) as Map<String, String>
-        return body["text"] ?: ""
+                .body(CaptureResponse::class.java)
+        return body?.text.orEmpty()
     }
 
     override fun clone(
@@ -288,29 +277,20 @@ class HttpAgentGatewayClient(
         val output: String? = null,
     )
 
-    override fun startHeadlessJob(
-        workspace: Workspace,
-        kind: WorkspaceAgentKind,
-        prompt: String,
-        cliSessionId: String?,
-        timeoutSeconds: Long?,
-        stableSessionId: WorkspaceAgentSessionId?,
-        epoch: Long?,
-        continuation: AgentGatewayClient.ContinuationMetadata?,
-    ): AgentGatewayClient.HeadlessJob {
+    override fun startHeadlessJob(request: AgentGatewayClient.HeadlessJobRequest): AgentGatewayClient.HeadlessJob {
         val dto =
             restClient
                 .post()
-                .uri("${endpoint(workspace)}/agents/headless")
+                .uri("${endpoint(request.workspace)}/agents/headless")
                 .body(
                     HeadlessRequestBody(
-                        kind = kind,
-                        prompt = prompt,
-                        cliSessionId = cliSessionId,
-                        stableSessionId = stableSessionId?.value?.toString(),
-                        epoch = epoch,
-                        continuation = continuation?.toBody(),
-                        timeoutSeconds = timeoutSeconds,
+                        kind = request.kind,
+                        prompt = request.prompt,
+                        cliSessionId = request.cliSessionId,
+                        stableSessionId = request.stableSessionId?.value?.toString(),
+                        epoch = request.epoch,
+                        continuation = request.continuation?.toBody(),
+                        timeoutSeconds = request.timeoutSeconds,
                     ),
                 ).retrieve()
                 .body(HeadlessJobDto::class.java)

@@ -75,7 +75,7 @@ class GitHubAppInstallationTokenClient(
                     "installation status probe for {} failed: {}{}",
                     repoUrl,
                     ex.message,
-                    detail?.let { " — $it" } ?: "",
+                    detail?.let { " — $it" }.orEmpty(),
                 )
                 GithubAppInstallationState.UNKNOWN
             }
@@ -113,7 +113,12 @@ class GitHubAppInstallationTokenClient(
             InstallationToken(token = resp.token, expiresAt = Instant.parse(resp.expiresAt))
         }.onFailure { ex ->
             val detail = (ex as? RestClientResponseException)?.responseBodyAsString?.takeIf { it.isNotBlank() }
-            log.warn("installation-token mint for {} failed: {}{}", repoUrl, ex.message, detail?.let { " — $it" } ?: "")
+            log.warn(
+                "installation-token mint for {} failed: {}{}",
+                repoUrl,
+                ex.message,
+                detail?.let { " — $it" }.orEmpty(),
+            )
         }.getOrNull()
     }
 
@@ -222,13 +227,15 @@ class GitHubAppInstallationTokenClient(
         val permissions: Map<String, String> = emptyMap(),
     )
 
-    // The DER/ASN.1 byte and bit-shift literals below are structural
-    // crypto constants, not tunable values.
-    @Suppress("MagicNumber")
     companion object {
         private const val GH_API_VERSION_HEADER = "X-GitHub-Api-Version"
         private const val GH_API_VERSION = "2022-11-28"
         private const val HTTP_NOT_FOUND = 404
+        private const val ASN1_SEQUENCE_TAG = 0x30
+        private const val ASN1_OCTET_STRING_TAG = 0x04
+        private const val ASN1_SHORT_LENGTH_LIMIT = 0x80
+        private const val DER_LENGTH_BYTE_MASK = 0xff
+        private const val BITS_PER_DER_LENGTH_BYTE = 8
 
         // The permissions a runner token carries: enough for git push,
         // gh pr create/comment, gh run rerun, authoring `.github/workflows`
@@ -309,8 +316,8 @@ class GitHubAppInstallationTokenClient(
                 .replace(Regex("\\s"), "")
 
         private fun wrapPkcs1AsPkcs8(pkcs1: ByteArray): ByteArray {
-            val privateKeyOctet = derTlv(0x04, pkcs1)
-            return derTlv(0x30, RSA_PKCS8_ALG_ID + privateKeyOctet)
+            val privateKeyOctet = derTlv(ASN1_OCTET_STRING_TAG, pkcs1)
+            return derTlv(ASN1_SEQUENCE_TAG, RSA_PKCS8_ALG_ID + privateKeyOctet)
         }
 
         // Emits a DER tag-length-value with definite long-form length.
@@ -321,16 +328,16 @@ class GitHubAppInstallationTokenClient(
             val out = ByteArrayOutputStream()
             out.write(tag)
             val len = content.size
-            if (len < 0x80) {
+            if (len < ASN1_SHORT_LENGTH_LIMIT) {
                 out.write(len)
             } else {
                 val lenBytes =
-                    generateSequence(len) { if (it > 0) it shr 8 else null }
+                    generateSequence(len) { if (it > 0) it shr BITS_PER_DER_LENGTH_BYTE else null }
                         .takeWhile { it > 0 }
-                        .map { (it and 0xff).toByte() }
+                        .map { (it and DER_LENGTH_BYTE_MASK).toByte() }
                         .toList()
                         .reversed()
-                out.write(0x80 or lenBytes.size)
+                out.write(ASN1_SHORT_LENGTH_LIMIT or lenBytes.size)
                 lenBytes.forEach { out.write(it.toInt()) }
             }
             out.write(content)

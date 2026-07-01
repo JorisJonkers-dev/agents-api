@@ -48,7 +48,6 @@ import java.util.UUID
  * session id only — session uniqueness is guaranteed at the
  * persistence layer regardless of the parent workspace.
  */
-@Suppress("UnusedParameter")
 @RestController
 @RequestMapping("/api/v1/workspaces/{workspaceId}/sessions")
 class AgentSessionController(
@@ -80,7 +79,8 @@ class AgentSessionController(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
         @RequestBody req: SendUserInputRequest,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
+        requireSessionInWorkspace(workspaceId, sessionId)
         commandBus.dispatch(
             SendUserInputCommand(
                 sessionId = WorkspaceAgentSessionId(sessionId),
@@ -116,7 +116,6 @@ class AgentSessionController(
             ),
         ],
     )
-    @Suppress("LongMethod")
     fun restart(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
@@ -155,21 +154,12 @@ class AgentSessionController(
         }
     }
 
-    @Suppress("ReturnCount", "CyclomaticComplexMethod", "ComplexCondition")
     private fun restartPreconditionConflict(
         workspaceId: UUID,
         sessionId: UUID,
         req: RestartAgentSessionHttpRequest?,
     ): ResponseEntity<RestartAgentSessionResponse>? {
-        if (
-            req?.expectedEpoch == null &&
-            req?.expectedSetupId == null &&
-            req?.expectedSetupVersion == null &&
-            req?.expectedCurrentSetupId == null &&
-            req?.expectedCurrentSetupVersion == null
-        ) {
-            return null
-        }
+        if (req == null || !req.hasRestartPreconditions()) return null
         val expectedSetupId = req.expectedCurrentSetupId ?: req.expectedSetupId
         val expectedSetupVersion = req.expectedCurrentSetupVersion ?: req.expectedSetupVersion
         require((expectedSetupId == null) == (expectedSetupVersion == null)) {
@@ -178,16 +168,36 @@ class AgentSessionController(
         val workspaceModelId = WorkspaceId(workspaceId)
         val session = sessions.findById(WorkspaceAgentSessionId(sessionId)) ?: return null
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
-        if (req.expectedEpoch != null && req.expectedEpoch != session.epoch) return restartConflict(session)
-        expectedSetupId ?: return null
-        if (
-            expectedSetupId != session.currentSetupId.value ||
-            requireNotNull(expectedSetupVersion) != session.currentSetupVersion.value
-        ) {
-            return restartConflict(session)
-        }
-        return null
+        return restartEpochConflict(session, req.expectedEpoch)
+            ?: restartSetupConflict(session, expectedSetupId, expectedSetupVersion)
     }
+
+    private fun RestartAgentSessionHttpRequest.hasRestartPreconditions(): Boolean =
+        listOf(
+            expectedEpoch,
+            expectedSetupId,
+            expectedSetupVersion,
+            expectedCurrentSetupId,
+            expectedCurrentSetupVersion,
+        ).any { it != null }
+
+    private fun restartSetupConflict(
+        session: WorkspaceAgentSession,
+        expectedSetupId: String?,
+        expectedSetupVersion: Long?,
+    ): ResponseEntity<RestartAgentSessionResponse>? {
+        expectedSetupId ?: return null
+        val setupMatches =
+            expectedSetupId == session.currentSetupId.value &&
+                requireNotNull(expectedSetupVersion) == session.currentSetupVersion.value
+        return if (setupMatches) null else restartConflict(session)
+    }
+
+    private fun restartEpochConflict(
+        session: WorkspaceAgentSession,
+        expectedEpoch: Long?,
+    ): ResponseEntity<RestartAgentSessionResponse>? =
+        if (expectedEpoch != null && expectedEpoch != session.epoch) restartConflict(session) else null
 
     private fun restartConflict(session: WorkspaceAgentSession): ResponseEntity<RestartAgentSessionResponse> =
         ResponseEntity
@@ -222,14 +232,30 @@ class AgentSessionController(
     fun turns(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
-    ): List<TurnResponse> = turnHistory.history(WorkspaceAgentSessionId(sessionId)).map(TurnResponse::of)
+    ): List<TurnResponse> {
+        requireSessionInWorkspace(workspaceId, sessionId)
+        return turnHistory.history(WorkspaceAgentSessionId(sessionId)).map(TurnResponse::of)
+    }
 
     @DeleteMapping("/{sessionId}")
     fun stop(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
+        requireSessionInWorkspace(workspaceId, sessionId)
         commandBus.dispatch(StopAgentSessionCommand(WorkspaceAgentSessionId(sessionId)))
         return ResponseEntity.noContent().build()
+    }
+
+    private fun requireSessionInWorkspace(
+        workspaceId: UUID,
+        sessionId: UUID,
+    ): WorkspaceAgentSession {
+        val workspaceModelId = WorkspaceId(workspaceId)
+        val session =
+            sessions.findById(WorkspaceAgentSessionId(sessionId))
+                ?: error("session not found: $sessionId")
+        require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
+        return session
     }
 }

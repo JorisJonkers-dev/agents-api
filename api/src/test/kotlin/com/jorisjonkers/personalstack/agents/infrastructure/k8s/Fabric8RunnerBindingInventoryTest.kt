@@ -9,6 +9,7 @@ import io.fabric8.kubernetes.client.server.mock.EnableKubernetesMockClient
 import io.fabric8.kubernetes.client.server.mock.KubernetesMockServer
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatCode
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.HttpURLConnection
 import java.time.Instant
@@ -17,6 +18,12 @@ import java.time.Instant
 class Fabric8RunnerBindingInventoryTest {
     private lateinit var server: KubernetesMockServer
     private lateinit var client: KubernetesClient
+
+    @BeforeEach
+    fun keepFabric8InjectedFieldsMutable() {
+        server = server
+        client = client
+    }
 
     /**
      * Regression: listing nodes is cluster-scoped and agents-api may

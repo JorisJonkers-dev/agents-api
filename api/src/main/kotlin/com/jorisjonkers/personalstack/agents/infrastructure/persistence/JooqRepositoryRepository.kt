@@ -119,7 +119,7 @@ class JooqRepositoryRepository(
         // distinguish "never checked" from "checked, all null".
         val everChecked = listOf<Any?>(checkedAt, protected).any { it != null }
         if (!everChecked) return null
-        val messages = this[VERIFY_MESSAGES]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
+        val messages = this[VERIFY_MESSAGES]?.split("\n")?.filter { it.isNotBlank() }.orEmpty()
         return AccessVerification(
             defaultBranchProtected = protected,
             checkedAt = checkedAt,

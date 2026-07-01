@@ -210,7 +210,8 @@ class ActiveDurableSessionGaugeSamplerTest {
             kind: AgentKindLabel,
             runMode: RunModeLabel,
             count: Long,
-        ) = org.assertj.core.groups.Tuple
-            .tuple(status, kind, runMode, count)
+        ): org.assertj.core.groups.Tuple =
+            org.assertj.core.groups.Tuple
+                .tuple(status, kind, runMode, count)
     }
 }

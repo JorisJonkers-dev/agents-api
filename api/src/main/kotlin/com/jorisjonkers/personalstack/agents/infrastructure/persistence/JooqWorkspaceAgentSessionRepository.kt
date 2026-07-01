@@ -21,7 +21,6 @@ class JooqWorkspaceAgentSessionRepository(
     private val dsl: DSLContext,
 ) : WorkspaceAgentSessionRepository {
     // Single fluent jOOQ upsert keeps insert/update column parity visible.
-    @Suppress("LongMethod")
     override fun save(session: WorkspaceAgentSession): WorkspaceAgentSession {
         val createdAt = session.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = session.updatedAt.atOffset(ZoneOffset.UTC)
@@ -134,28 +133,24 @@ class JooqWorkspaceAgentSessionRepository(
             .and(GENERATION.eq(expectedGeneration))
             .execute() == 1
 
-    override fun markLifecycleIfGeneration(
-        id: WorkspaceAgentSessionId,
-        expectedGeneration: Long,
-        status: WorkspaceAgentSessionStatus,
-        retainedUntil: java.time.Instant?,
-        clearGatewayBinding: Boolean,
-        now: java.time.Instant,
-    ): Boolean {
-        val update =
+    override fun markLifecycleIfGeneration(update: WorkspaceAgentSessionRepository.LifecycleUpdate): Boolean {
+        val jooqUpdate =
             dsl
                 .update(WAS)
-                .set(STATUS, status.name)
-                .set(RETAINED_UNTIL, retainedUntil?.atOffset(ZoneOffset.UTC))
-                .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-        if (clearGatewayBinding) {
-            update
-                .set(GATEWAY_AGENT_ID, null as String?)
-                .set(GATEWAY_BOUND_AT, null as OffsetDateTime?)
-        }
-        return update
-            .where(ID.eq(id.value))
-            .and(GENERATION.eq(expectedGeneration))
+                .set(STATUS, update.status.name)
+                .set(RETAINED_UNTIL, update.retainedUntil?.atOffset(ZoneOffset.UTC))
+                .set(UPDATED_AT, update.now.atOffset(ZoneOffset.UTC))
+        val updateWithGatewayBinding =
+            if (update.clearGatewayBinding) {
+                jooqUpdate
+                    .set(GATEWAY_AGENT_ID, null as String?)
+                    .set(GATEWAY_BOUND_AT, null as OffsetDateTime?)
+            } else {
+                jooqUpdate
+            }
+        return updateWithGatewayBinding
+            .where(ID.eq(update.id.value))
+            .and(GENERATION.eq(update.expectedGeneration))
             .execute() == 1
     }
 
@@ -186,22 +181,15 @@ class JooqWorkspaceAgentSessionRepository(
             .and(CLEANUP_REQUESTED_AT.isNull)
             .execute() == 1
 
-    override fun setPendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
-        expectedCurrentSetupId: AgentSetupId,
-        expectedCurrentSetupVersion: AgentSetupVersion,
-        pendingSetupId: AgentSetupId,
-        pendingSetupVersion: AgentSetupVersion,
-        now: java.time.Instant,
-    ): Boolean =
+    override fun setPendingSetupIfCurrent(update: WorkspaceAgentSessionRepository.PendingSetupUpdate): Boolean =
         dsl
             .update(WAS)
-            .set(PENDING_SETUP_ID, pendingSetupId.value)
-            .set(PENDING_SETUP_VERSION, pendingSetupVersion.value)
-            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .where(ID.eq(id.value))
-            .and(CURRENT_SETUP_ID.eq(expectedCurrentSetupId.value))
-            .and(CURRENT_SETUP_VERSION.eq(expectedCurrentSetupVersion.value))
+            .set(PENDING_SETUP_ID, update.pendingSetupId.value)
+            .set(PENDING_SETUP_VERSION, update.pendingSetupVersion.value)
+            .set(UPDATED_AT, update.now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(update.id.value))
+            .and(CURRENT_SETUP_ID.eq(update.expectedCurrentSetupId.value))
+            .and(CURRENT_SETUP_VERSION.eq(update.expectedCurrentSetupVersion.value))
             .and(PENDING_SETUP_ID.isNull)
             .execute() == 1
 

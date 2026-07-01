@@ -1,5 +1,3 @@
-@file:Suppress("LongMethod")
-
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
@@ -11,6 +9,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
@@ -23,16 +24,27 @@ import java.time.Clock
 import java.time.Duration
 
 @Component
+class StopAgentSessionDependencies(
+    val workspaces: WorkspaceRepository,
+    val sessions: WorkspaceAgentSessionRepository,
+    val gateway: AgentGatewayClient,
+    val autoCapture: LessonAutoCapture,
+    val sessionStatus: SessionStatusPublisher,
+    val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
+)
+
+@Component
 class StopAgentSessionCommandHandler(
-    private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
-    private val gateway: AgentGatewayClient,
-    private val autoCapture: LessonAutoCapture,
+    dependencies: StopAgentSessionDependencies,
     private val runtime: AgentRuntimeProperties,
-    private val sessionStatus: SessionStatusPublisher,
     private val clock: Clock = Clock.systemUTC(),
-    private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StopAgentSessionCommand> {
+    private val workspaces = dependencies.workspaces
+    private val sessions = dependencies.sessions
+    private val gateway = dependencies.gateway
+    private val autoCapture = dependencies.autoCapture
+    private val sessionStatus = dependencies.sessionStatus
+    private val telemetry = dependencies.telemetry
     private val log = LoggerFactory.getLogger(StopAgentSessionCommandHandler::class.java)
 
     @Transactional
@@ -50,13 +62,7 @@ class StopAgentSessionCommandHandler(
         if (session.status == WorkspaceAgentSessionStatus.STOPPED ||
             session.status == WorkspaceAgentSessionStatus.FAILED
         ) {
-            val deleted = sessions.delete(session.id)
-            if (deleted) {
-                sessionStatus.publishRemove(session.id)
-                recordStop(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
-            } else {
-                recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
-            }
+            purgeTerminalSession(session.id)
             return
         }
         val workspace =
@@ -65,6 +71,28 @@ class StopAgentSessionCommandHandler(
                     recordStop(OutcomeLabel.FAILURE, FailureReasonLabel.NOT_FOUND)
                     error("workspace ${session.workspaceId} missing for session ${session.id}")
                 }
+        stopActiveSession(session, workspace)
+        // The stop command is a definitive "this session is done"
+        // signal — flush a final auto-capture pass against the
+        // full transcript on the way out.
+        runCatching { autoCapture.capture(session.id) }
+    }
+
+    // Drops a retained terminal row and notifies clients to remove the tab.
+    private fun purgeTerminalSession(id: WorkspaceAgentSessionId) {
+        val deleted = sessions.delete(id)
+        if (deleted) {
+            sessionStatus.publishRemove(id)
+            recordStop(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+        } else {
+            recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
+        }
+    }
+
+    private fun stopActiveSession(
+        session: WorkspaceAgentSession,
+        workspace: Workspace,
+    ) {
         val gatewayId = session.gatewayAgentId
         if (gatewayId != null) {
             runCatching { gateway.stopAgent(workspace, gatewayId) }
@@ -77,12 +105,14 @@ class StopAgentSessionCommandHandler(
         val retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds)
         val stopped =
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = session.generation,
-                status = WorkspaceAgentSessionStatus.STOPPED,
-                retainedUntil = retainedUntil,
-                clearGatewayBinding = true,
-                now = now,
+                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                    id = session.id,
+                    expectedGeneration = session.generation,
+                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    retainedUntil = retainedUntil,
+                    clearGatewayBinding = true,
+                    now = now,
+                ),
             )
         if (stopped) {
             sessionStatus.publishStatus(session.markStopped(retainedUntil = retainedUntil, now = now))
@@ -90,10 +120,6 @@ class StopAgentSessionCommandHandler(
         } else {
             recordStop(OutcomeLabel.FAILURE, FailureReasonLabel.OTHER)
         }
-        // The stop command is a definitive "this session is done"
-        // signal — flush a final auto-capture pass against the
-        // full transcript on the way out.
-        runCatching { autoCapture.capture(session.id) }
     }
 
     private fun recordStop(

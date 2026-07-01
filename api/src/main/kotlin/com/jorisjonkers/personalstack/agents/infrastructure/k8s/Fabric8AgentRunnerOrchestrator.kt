@@ -53,7 +53,7 @@ import java.util.concurrent.TimeUnit
  * readability win. The class stays as a single orchestrator because
  * every helper here operates on the same shared props + client.
  */
-@Suppress("TooManyFunctions", "LargeClass", "DEPRECATION")
+@Suppress("TooManyFunctions", "LargeClass")
 @Component
 @Profile("!system-test")
 class Fabric8AgentRunnerOrchestrator(
@@ -74,50 +74,66 @@ class Fabric8AgentRunnerOrchestrator(
         runnerGeneration: Long,
     ): AgentRunnerOrchestrator.RunnerHandle {
         val short = workspace.id.short()
-        val podName = "agent-runner-$short"
-        val pvcName = "workspace-$short"
-        val serviceName = "agent-runner-$short"
-        val credentialSecret = ensureCredentialSecret(workspace, short)
-        applyResources(workspace, setup, runnerGeneration, podName, pvcName, serviceName, credentialSecret)
-        val endpoint = "http://$serviceName.${props.namespace}.svc.cluster.local:${setup.gatewayPort}"
+        val names =
+            RunnerResourceNames(
+                pod = "agent-runner-$short",
+                pvc = "workspace-$short",
+                service = "agent-runner-$short",
+            )
+        val resources =
+            RunnerResources(
+                workspace = workspace,
+                setup = setup,
+                runnerGeneration = runnerGeneration,
+                names = names,
+                credentialSecret = ensureCredentialSecret(workspace, short),
+            )
+        applyResources(resources)
+        val endpoint = "http://${names.service}.${props.namespace}.svc.cluster.local:${setup.gatewayPort}"
         log.info(
             "provisioned runner pod {} for workspace {} using setup {}@{} generation {}",
-            podName,
+            names.pod,
             workspace.id,
             setup.setupId,
             setup.setupVersion,
             runnerGeneration,
         )
         return AgentRunnerOrchestrator.RunnerHandle(
-            podName = podName,
-            pvcName = pvcName,
+            podName = names.pod,
+            pvcName = names.pvc,
             gatewayEndpoint = endpoint,
         )
     }
 
-    private fun applyResources(
-        workspace: Workspace,
-        setup: RunnerSetupProvisioningSpec,
-        runnerGeneration: Long,
-        podName: String,
-        pvcName: String,
-        serviceName: String,
-        credentialSecret: CredentialSecret?,
-    ) {
+    private data class RunnerResourceNames(
+        val pod: String,
+        val pvc: String,
+        val service: String,
+    )
+
+    private data class RunnerResources(
+        val workspace: Workspace,
+        val setup: RunnerSetupProvisioningSpec,
+        val runnerGeneration: Long,
+        val names: RunnerResourceNames,
+        val credentialSecret: CredentialSecret?,
+    )
+
+    private fun applyResources(resources: RunnerResources) {
         client
             .persistentVolumeClaims()
             .inNamespace(props.namespace)
-            .resource(pvc(pvcName))
+            .resource(pvc(resources.names.pvc))
             .serverSideApply()
         client
             .pods()
             .inNamespace(props.namespace)
-            .resource(pod(workspace, setup, runnerGeneration, podName, pvcName, credentialSecret))
+            .resource(pod(resources))
             .serverSideApply()
         client
             .services()
             .inNamespace(props.namespace)
-            .resource(service(serviceName, podName, setup.gatewayPort))
+            .resource(service(resources.names.service, resources.names.pod, resources.setup.gatewayPort))
             .serverSideApply()
     }
 
@@ -272,7 +288,6 @@ class Fabric8AgentRunnerOrchestrator(
         val hasCodexConfig: Boolean,
     )
 
-    @Suppress("LongMethod")
     private fun ensureCredentialSecret(
         workspace: Workspace,
         short: String,
@@ -376,23 +391,16 @@ class Fabric8AgentRunnerOrchestrator(
     // them into typed vals trips Kotlin overload resolution on
     // fabric8 7.x's `withLabels` / `withRequests` / `withLimits`.
     @Suppress("LongMethod")
-    private fun pod(
-        workspace: Workspace,
-        setup: RunnerSetupProvisioningSpec,
-        runnerGeneration: Long,
-        name: String,
-        workspacePvc: String,
-        credentialSecret: CredentialSecret?,
-    ): Pod =
+    private fun pod(resources: RunnerResources): Pod =
         PodBuilder()
             .withNewMetadata()
-            .withName(name)
+            .withName(resources.names.pod)
             .withNamespace(props.namespace)
-            .withLabels<String, String>(podLabels(workspace, setup, runnerGeneration))
-            .withAnnotations<String, String>(podAnnotations(setup))
+            .withLabels<String, String>(podLabels(resources.workspace, resources.setup, resources.runnerGeneration))
+            .withAnnotations<String, String>(podAnnotations(resources.setup))
             .endMetadata()
             .withNewSpec()
-            .withServiceAccountName(setup.serviceAccount)
+            .withServiceAccountName(resources.setup.serviceAccount)
             // The runner never calls the Kubernetes API itself — cluster
             // reads go through the read-only kubernetes MCP server over
             // HTTP. Don't project the SA token into the Pod, so the agent
@@ -400,24 +408,34 @@ class Fabric8AgentRunnerOrchestrator(
             // cannot reach the API server even if the SA were later granted
             // RBAC by mistake.
             .withAutomountServiceAccountToken(false)
-            .withNodeSelector<String, String>(setup.nodeSelector)
+            .withNodeSelector<String, String>(resources.setup.nodeSelector)
             .withRestartPolicy("Always")
             .withNewSecurityContext()
             .withRunAsUser(RUN_AS_UID)
             .withRunAsGroup(RUN_AS_GID)
             .withFsGroup(FS_GROUP)
-            .withSupplementalGroups(podSupplementalGroups(setup))
+            .withSupplementalGroups(podSupplementalGroups(resources.setup))
             .endSecurityContext()
-            .withInitContainers(agentStateInitContainer(setup))
+            .withInitContainers(agentStateInitContainer(resources.setup))
             .addNewContainer()
             .withName("agent-runner")
             // Pin to the release agents-api itself is on so the running
             // version is a verifiable fact in the Pod spec, not :latest.
-            .withImage(RunnerImageVersions.pin(setup.image, ownReleaseVersion()))
-            .withImagePullPolicy(setup.imagePullPolicy)
-            .withPorts(ContainerPortBuilder().withName("gateway").withContainerPort(setup.gatewayPort).build())
-            .withEnv(podEnv(workspace, setup, runnerGeneration, credentialSecret))
-            .withVolumeMounts(podVolumeMounts(setup, credentialSecret))
+            .withImage(RunnerImageVersions.pin(resources.setup.image, ownReleaseVersion()))
+            .withImagePullPolicy(resources.setup.imagePullPolicy)
+            .withPorts(
+                ContainerPortBuilder()
+                    .withName("gateway")
+                    .withContainerPort(resources.setup.gatewayPort)
+                    .build(),
+            ).withEnv(
+                podEnv(
+                    resources.workspace,
+                    resources.setup,
+                    resources.runnerGeneration,
+                    resources.credentialSecret,
+                ),
+            ).withVolumeMounts(podVolumeMounts(resources.setup, resources.credentialSecret))
             // Startup probe gates liveness + readiness until the gateway's
             // JVM has finished its cold start. Without it the liveness probe
             // (failureThreshold 3 x 10s ~= 30s, no initial delay) killed the
@@ -452,7 +470,7 @@ class Fabric8AgentRunnerOrchestrator(
             .withLimits<String, Quantity>(mapOf("cpu" to Quantity(CPU_LIMIT), "memory" to Quantity(MEMORY_LIMIT)))
             .endResources()
             .endContainer()
-            .withVolumes(podVolumes(workspacePvc, credentialSecret, setup))
+            .withVolumes(podVolumes(resources.names.pvc, resources.credentialSecret, resources.setup))
             .endSpec()
             .build()
 
@@ -473,7 +491,6 @@ class Fabric8AgentRunnerOrchestrator(
     private fun podAnnotations(setup: RunnerSetupProvisioningSpec): Map<String, String> =
         mapOf(RunnerState.ANNOTATION_SETUP_HASH to setup.setupHash)
 
-    @Suppress("LongMethod")
     private fun podEnv(
         workspace: Workspace,
         setup: RunnerSetupProvisioningSpec,
@@ -617,7 +634,6 @@ class Fabric8AgentRunnerOrchestrator(
                 .build(),
         )
 
-    @Suppress("LongMethod")
     private fun agentCredentialEnv(credentialSecret: CredentialSecret?) =
         if (credentialSecret == null) {
             emptyList()
@@ -671,7 +687,6 @@ class Fabric8AgentRunnerOrchestrator(
             }
         }
 
-    @Suppress("LongMethod")
     private fun podVolumeMounts(
         setup: RunnerSetupProvisioningSpec,
         credentialSecret: CredentialSecret?,

@@ -42,9 +42,9 @@ class IdleScaleDownSchedulerTest {
     private class FixedClock(
         var now: Instant,
     ) : Clock() {
-        override fun getZone() = ZoneOffset.UTC
+        override fun getZone(): java.time.ZoneId = ZoneOffset.UTC
 
-        override fun withZone(zone: java.time.ZoneId) = this
+        override fun withZone(zone: java.time.ZoneId): Clock = this
 
         override fun instant(): Instant = now
     }
@@ -61,18 +61,27 @@ class IdleScaleDownSchedulerTest {
     private val telemetry = RecordingTelemetry()
     private val scheduler =
         IdleScaleDownScheduler(
-            workspaces = workspaces,
-            agentSessions = agentSessions,
-            orchestrator = orchestrator,
-            gateway = gateway,
-            tracker = tracker,
-            connected = connected,
-            sessionStatus = sessionStatus,
+            stores =
+                IdleScaleDownStores(
+                    workspaces = workspaces,
+                    agentSessions = agentSessions,
+                ),
+            dependencies =
+                IdleScaleDownDependencies(
+                    orchestrator = orchestrator,
+                    gateway = gateway,
+                    tracker = tracker,
+                    connected = connected,
+                    sessionStatus = sessionStatus,
+                    telemetry = telemetry,
+                ),
+            runtime =
+                IdleScaleDownRuntime(
+                    idleAfterSeconds = 1_800,
+                    agentIdleAfterSeconds = 14_400,
+                    staleRecycleQuietSeconds = 300,
+                ),
             clock = clock,
-            telemetry = telemetry,
-            idleAfterSeconds = 1_800,
-            agentIdleAfterSeconds = 14_400,
-            staleRecycleQuietSeconds = 300,
         )
 
     private fun noRunningSessions(ws: Workspace) {

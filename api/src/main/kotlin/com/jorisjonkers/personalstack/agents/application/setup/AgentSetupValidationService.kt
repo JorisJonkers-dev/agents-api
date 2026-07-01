@@ -26,7 +26,6 @@ import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
-@Suppress("LongParameterList")
 class AgentSetupValidationService(
     private val setups: AgentSetupRepository,
     private val bindingInventory: RunnerBindingInventory,
@@ -88,46 +87,15 @@ class AgentSetupValidationService(
         return AgentSetupCatalogEntry(definition = definition, availability = availability)
     }
 
-    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private fun validateCompatibility(
         target: AgentSetupCatalogEntry,
         request: AgentSetupValidationInput,
         issues: MutableList<AgentSetupValidationIssue>,
     ) {
         val config = target.definition.connectorConfig
-        val agentKinds = config.enumSet<WorkspaceAgentKind>("supportedAgentKinds", "supported-agent-kinds")
-        val requestedKind = request.agentKind ?: request.session?.kind
-        if (requestedKind != null && agentKinds.isNotEmpty() && requestedKind !in agentKinds) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.UNSUPPORTED_AGENT_KIND,
-                    message =
-                        "agent setup ${target.definition.id.value}@${target.definition.version.value} " +
-                            "does not support agent kind $requestedKind",
-                ),
-            )
-        }
-        val workspaceKinds = config.enumSet<WorkspaceKind>("supportedWorkspaceKinds", "supported-workspace-kinds")
-        if (workspaceKinds.isNotEmpty() && request.workspace.kind !in workspaceKinds) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.UNSUPPORTED_WORKSPACE_KIND,
-                    message =
-                        "agent setup ${target.definition.id.value}@${target.definition.version.value} " +
-                            "does not support workspace kind ${request.workspace.kind}",
-                ),
-            )
-        }
-        val allowedProjects = config.uuidSet("allowedProjectIds", "allowed-project-ids")
-        val projectId = request.projectId ?: request.workspace.projectId
-        if (projectId != null && allowedProjects.isNotEmpty() && projectId.value !in allowedProjects) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.PROJECT_NOT_ALLOWED,
-                    message = "project ${projectId.value} is not allowed for setup ${target.definition.id.value}",
-                ),
-            )
-        }
+        AgentSetupCompatibilityChecks.validateAgentKind(target, request, config, issues)
+        AgentSetupCompatibilityChecks.validateWorkspaceKind(target, request, config, issues)
+        AgentSetupCompatibilityChecks.validateProject(target, request, config, issues)
     }
 
     private fun validateRepositories(
@@ -179,44 +147,16 @@ class AgentSetupValidationService(
         }
     }
 
-    @Suppress("LongMethod")
     private fun validateBindings(
         snapshot: RunnerBindingInventorySnapshot,
         issues: MutableList<AgentSetupValidationIssue>,
     ) {
-        if (!snapshot.serviceAccount.exists) {
-            issues.add(bindingIssue(AgentSetupValidationIssueCode.SERVICE_ACCOUNT_MISSING, snapshot.serviceAccount.ref))
-        }
-        snapshot.persistentVolumeClaims
-            .filterNot { it.exists }
-            .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.PVC_MISSING, it.ref)) }
-        snapshot.secrets.forEach { secret ->
-            if (!secret.exists) {
-                issues.add(bindingIssue(AgentSetupValidationIssueCode.SECRET_MISSING, secret.ref))
-            }
-            secret.requiredKeys
-                .filterNot { it.exists }
-                .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.SECRET_KEY_MISSING, it.ref)) }
-        }
-        snapshot.configMaps
-            .filterNot { it.exists }
-            .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.CONFIG_MAP_MISSING, it.ref)) }
-        if (!snapshot.nodeSelector.satisfiable) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.NODE_SELECTOR_UNSATISFIED,
-                    message = "no Kubernetes node satisfies selector ${snapshot.nodeSelector.selector}",
-                ),
-            )
-        }
-        if (snapshot.dockerSocket.enabled && !snapshot.dockerSocket.nodeSelectorSatisfiable) {
-            issues.add(
-                AgentSetupValidationIssue(
-                    code = AgentSetupValidationIssueCode.DOCKER_SOCKET_UNSATISFIED,
-                    message = "Docker socket ${snapshot.dockerSocket.path} requires a satisfiable node selector",
-                ),
-            )
-        }
+        AgentSetupBindingChecks.validateServiceAccount(snapshot, issues)
+        AgentSetupBindingChecks.validatePersistentVolumeClaims(snapshot, issues)
+        AgentSetupBindingChecks.validateSecrets(snapshot, issues)
+        AgentSetupBindingChecks.validateConfigMaps(snapshot, issues)
+        AgentSetupBindingChecks.validateNodeSelector(snapshot, issues)
+        AgentSetupBindingChecks.validateDockerSocket(snapshot, issues)
     }
 
     private fun validateStaleSource(
@@ -242,6 +182,136 @@ class AgentSetupValidationService(
                     .findAllByWorkspaceId(workspace.id)
                     .map { it.repositoryId }
         ).distinct()
+}
+
+private object AgentSetupCompatibilityChecks {
+    fun validateAgentKind(
+        target: AgentSetupCatalogEntry,
+        request: AgentSetupValidationInput,
+        config: Map<String, String>,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        val agentKinds = config.enumSet<WorkspaceAgentKind>("supportedAgentKinds", "supported-agent-kinds")
+        val requestedKind = request.agentKind ?: request.session?.kind
+        if (requestedKind != null && agentKinds.isNotEmpty() && requestedKind !in agentKinds) {
+            issues.add(
+                AgentSetupValidationIssue(
+                    code = AgentSetupValidationIssueCode.UNSUPPORTED_AGENT_KIND,
+                    message =
+                        "agent setup ${target.definition.id.value}@${target.definition.version.value} " +
+                            "does not support agent kind $requestedKind",
+                ),
+            )
+        }
+    }
+
+    fun validateWorkspaceKind(
+        target: AgentSetupCatalogEntry,
+        request: AgentSetupValidationInput,
+        config: Map<String, String>,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        val workspaceKinds = config.enumSet<WorkspaceKind>("supportedWorkspaceKinds", "supported-workspace-kinds")
+        if (workspaceKinds.isNotEmpty() && request.workspace.kind !in workspaceKinds) {
+            issues.add(
+                AgentSetupValidationIssue(
+                    code = AgentSetupValidationIssueCode.UNSUPPORTED_WORKSPACE_KIND,
+                    message =
+                        "agent setup ${target.definition.id.value}@${target.definition.version.value} " +
+                            "does not support workspace kind ${request.workspace.kind}",
+                ),
+            )
+        }
+    }
+
+    fun validateProject(
+        target: AgentSetupCatalogEntry,
+        request: AgentSetupValidationInput,
+        config: Map<String, String>,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        val allowedProjects = config.uuidSet("allowedProjectIds", "allowed-project-ids")
+        val projectId = request.projectId ?: request.workspace.projectId
+        if (projectId != null && allowedProjects.isNotEmpty() && projectId.value !in allowedProjects) {
+            issues.add(
+                AgentSetupValidationIssue(
+                    code = AgentSetupValidationIssueCode.PROJECT_NOT_ALLOWED,
+                    message = "project ${projectId.value} is not allowed for setup ${target.definition.id.value}",
+                ),
+            )
+        }
+    }
+}
+
+private object AgentSetupBindingChecks {
+    fun validateServiceAccount(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        if (!snapshot.serviceAccount.exists) {
+            issues.add(bindingIssue(AgentSetupValidationIssueCode.SERVICE_ACCOUNT_MISSING, snapshot.serviceAccount.ref))
+        }
+    }
+
+    fun validatePersistentVolumeClaims(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        snapshot.persistentVolumeClaims
+            .filterNot { it.exists }
+            .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.PVC_MISSING, it.ref)) }
+    }
+
+    fun validateSecrets(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        snapshot.secrets.forEach { secret ->
+            if (!secret.exists) {
+                issues.add(bindingIssue(AgentSetupValidationIssueCode.SECRET_MISSING, secret.ref))
+            }
+            secret.requiredKeys
+                .filterNot { it.exists }
+                .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.SECRET_KEY_MISSING, it.ref)) }
+        }
+    }
+
+    fun validateConfigMaps(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        snapshot.configMaps
+            .filterNot { it.exists }
+            .forEach { issues.add(bindingIssue(AgentSetupValidationIssueCode.CONFIG_MAP_MISSING, it.ref)) }
+    }
+
+    fun validateNodeSelector(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        if (!snapshot.nodeSelector.satisfiable) {
+            issues.add(
+                AgentSetupValidationIssue(
+                    code = AgentSetupValidationIssueCode.NODE_SELECTOR_UNSATISFIED,
+                    message = "no Kubernetes node satisfies selector ${snapshot.nodeSelector.selector}",
+                ),
+            )
+        }
+    }
+
+    fun validateDockerSocket(
+        snapshot: RunnerBindingInventorySnapshot,
+        issues: MutableList<AgentSetupValidationIssue>,
+    ) {
+        if (snapshot.dockerSocket.enabled && !snapshot.dockerSocket.nodeSelectorSatisfiable) {
+            issues.add(
+                AgentSetupValidationIssue(
+                    code = AgentSetupValidationIssueCode.DOCKER_SOCKET_UNSATISFIED,
+                    message = "Docker socket ${snapshot.dockerSocket.path} requires a satisfiable node selector",
+                ),
+            )
+        }
+    }
 
     private fun bindingIssue(
         code: AgentSetupValidationIssueCode,
@@ -249,31 +319,31 @@ class AgentSetupValidationService(
     ): AgentSetupValidationIssue =
         AgentSetupValidationIssue(
             code = code,
-            message = "${ref.kind} ${ref.namespace}/${ref.name}${ref.key?.let { ":$it" } ?: ""} is missing",
+            message = "${ref.kind} ${ref.namespace}/${ref.name}${ref.key?.let { ":$it" }.orEmpty()} is missing",
             binding = ref,
         )
-
-    private inline fun <reified T : Enum<T>> Map<String, String>.enumSet(vararg keys: String): Set<T> =
-        valueFor(*keys)
-            ?.splitValues()
-            .orEmpty()
-            .mapNotNull { value -> enumValues<T>().firstOrNull { it.name.equals(value, ignoreCase = true) } }
-            .toSet()
-
-    private fun Map<String, String>.uuidSet(vararg keys: String): Set<UUID> =
-        valueFor(*keys)
-            ?.splitValues()
-            .orEmpty()
-            .map { UUID.fromString(it) }
-            .toSet()
-
-    private fun Map<String, String>.valueFor(vararg keys: String): String? = keys.firstNotNullOfOrNull { this[it] }
-
-    private fun String.splitValues(): List<String> =
-        split(',', ';', ' ')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
 }
+
+private inline fun <reified T : Enum<T>> Map<String, String>.enumSet(vararg keys: String): Set<T> =
+    valueFor(*keys)
+        ?.splitValues()
+        .orEmpty()
+        .mapNotNull { value -> enumValues<T>().firstOrNull { it.name.equals(value, ignoreCase = true) } }
+        .toSet()
+
+private fun Map<String, String>.uuidSet(vararg keys: String): Set<UUID> =
+    valueFor(*keys)
+        ?.splitValues()
+        .orEmpty()
+        .map { UUID.fromString(it) }
+        .toSet()
+
+private fun Map<String, String>.valueFor(vararg keys: String): String? = keys.firstNotNullOfOrNull { this[it] }
+
+private fun String.splitValues(): List<String> =
+    split(',', ';', ' ')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
 
 data class AgentSetupValidationInput(
     val workspace: Workspace,

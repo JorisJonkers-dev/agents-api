@@ -56,15 +56,24 @@ class RunnerSessionBindingServiceTest {
     private val setupSpec = RunnerSetupProvisioningSpec.from(setup.definition)
     private val binder =
         RunnerSessionBinder(
-            workspaces = workspaces,
-            sessions = sessions,
-            gateway = gateway,
-            orchestrator = orchestrator,
-            setupSelection = setupSelection,
-            setupValidation = setupValidation,
-            tx = RunnerSessionBindingTransactions(workspaces, sessions, sessionStatus),
-            sessionStatus = sessionStatus,
-            telemetry = telemetry,
+            bindingDependencies =
+                RunnerSessionBindingDependencies(
+                    workspaces = workspaces,
+                    sessions = sessions,
+                    gateway = gateway,
+                    orchestrator = orchestrator,
+                    tx = RunnerSessionBindingTransactions(workspaces, sessions, sessionStatus),
+                ),
+            setupDependencies =
+                RunnerSetupDependencies(
+                    setupSelection = setupSelection,
+                    setupValidation = setupValidation,
+                ),
+            notifications =
+                RunnerSessionNotifications(
+                    sessionStatus = sessionStatus,
+                    telemetry = telemetry,
+                ),
             backoffInitialMs = 0,
         )
 
@@ -91,14 +100,7 @@ class RunnerSessionBindingServiceTest {
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(created)) } answers { created.captured }
         every {
-            gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = sessionId,
-                epoch = 1,
-                continuation = null,
-            )
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         } returns gatewayAgent("abc12345", epoch = 1)
         every {
             sessions.bindIfGeneration(
@@ -242,13 +244,13 @@ class RunnerSessionBindingServiceTest {
         } returns true
         every {
             gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = session.id,
-                epoch = 5,
-                continuation = AgentGatewayClient.ContinuationMetadata(reason = "rebind", previousEpoch = 4),
-                resumeCliSessionId = "native-old",
+                spawnRequest(
+                    workspace = ws,
+                    stableSessionId = session.id,
+                    epoch = 5,
+                    continuation = AgentGatewayClient.ContinuationMetadata(reason = "rebind", previousEpoch = 4),
+                    resumeCliSessionId = "native-old",
+                ),
             )
         } returns gatewayAgent("fresh", epoch = 5)
         every {
@@ -271,7 +273,15 @@ class RunnerSessionBindingServiceTest {
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify { sessions.beginGeneration(session.id, 2, 5, any()) }
-        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 5, any(), "native-old") }
+        verify {
+            gateway.spawnAgent(
+                match {
+                    it.stableSessionId == session.id &&
+                        it.epoch == 5L &&
+                        it.resumeCliSessionId == "native-old"
+                },
+            )
+        }
         verify(exactly = 0) { orchestrator.provision(any(), any(), any()) }
     }
 
@@ -285,14 +295,7 @@ class RunnerSessionBindingServiceTest {
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(created)) } answers { created.captured }
         every {
-            gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = sessionId,
-                epoch = 1,
-                continuation = null,
-            )
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         }.throws(ResourceAccessException("Connection refused"))
             .andThenThrows(ResourceAccessException("Connection refused"))
             .andThen(gatewayAgent("abc12345", epoch = 1))
@@ -317,7 +320,7 @@ class RunnerSessionBindingServiceTest {
         )
 
         verify(exactly = RunnerSessionBinder.MAX_SPAWN_ATTEMPTS) {
-            gateway.spawnAgent(ws, WorkspaceAgentKind.CLAUDE, null, sessionId, 1, null)
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         }
     }
 
@@ -342,12 +345,12 @@ class RunnerSessionBindingServiceTest {
         } returns true
         every {
             workspaces.beginRunnerSetupOperation(
-                ws.id,
-                ws.runnerSetupGeneration,
-                setup.definition.id,
-                setup.definition.version,
-                any(),
-                any(),
+                match {
+                    it.id == ws.id &&
+                        it.expectedGeneration == ws.runnerSetupGeneration &&
+                        it.setupId == setup.definition.id &&
+                        it.setupVersion == setup.definition.version
+                },
             )
         } returns true
         every { orchestrator.scaleDown(any()) } returns Unit
@@ -368,23 +371,23 @@ class RunnerSessionBindingServiceTest {
         every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
         every {
             sessions.setPendingSetupIfCurrent(
-                id = session.id,
-                expectedCurrentSetupId = session.currentSetupId,
-                expectedCurrentSetupVersion = session.currentSetupVersion,
-                pendingSetupId = setup.definition.id,
-                pendingSetupVersion = setup.definition.version,
-                now = any(),
+                match {
+                    it.id == session.id &&
+                        it.expectedCurrentSetupId == session.currentSetupId &&
+                        it.expectedCurrentSetupVersion == session.currentSetupVersion &&
+                        it.pendingSetupId == setup.definition.id &&
+                        it.pendingSetupVersion == setup.definition.version
+                },
             )
         } returns true
         every {
             gateway.spawnAgent(
-                workspace = any(),
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = session.id,
-                epoch = 3,
-                continuation = any(),
-                resumeCliSessionId = "native-old",
+                match {
+                    it.stableSessionId == session.id &&
+                        it.epoch == 3L &&
+                        it.resumeCliSessionId == "native-old" &&
+                        it.continuation != null
+                },
             )
         } returns gatewayAgent("fresh", epoch = 3)
         every {
@@ -418,7 +421,15 @@ class RunnerSessionBindingServiceTest {
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         verify(exactly = 1) { orchestrator.scaleDown(any()) }
         verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
-        verify { gateway.spawnAgent(any(), WorkspaceAgentKind.CLAUDE, null, session.id, 3, any(), "native-old") }
+        verify {
+            gateway.spawnAgent(
+                match {
+                    it.stableSessionId == session.id &&
+                        it.epoch == 3L &&
+                        it.resumeCliSessionId == "native-old"
+                },
+            )
+        }
         assertThat(telemetry.reprovisions)
             .anySatisfy {
                 assertThat(it.outcome).isEqualTo(OutcomeLabel.SUCCESS)
@@ -442,64 +453,7 @@ class RunnerSessionBindingServiceTest {
                 .copy(epoch = 2, generation = 6)
         every { sessions.findById(session.id) } returns session
         every { workspaces.findById(ws.id) } returns ws
-        every {
-            sessions.beginGeneration(id = session.id, expectedGeneration = 6, nextEpoch = 3, now = any())
-        } returns true
-        every {
-            sessions.setPendingSetupIfCurrent(
-                id = session.id,
-                expectedCurrentSetupId = session.currentSetupId,
-                expectedCurrentSetupVersion = session.currentSetupVersion,
-                pendingSetupId = setup.definition.id,
-                pendingSetupVersion = setup.definition.version,
-                now = any(),
-            )
-        } returns true
-        every {
-            workspaces.beginRunnerSetupOperation(
-                ws.id,
-                ws.runnerSetupGeneration,
-                setup.definition.id,
-                setup.definition.version,
-                any(),
-                any(),
-            )
-        } returns true
-        every { orchestrator.scaleDown(any()) } returns Unit
-        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
-            AgentRunnerOrchestrator.RunnerHandle(
-                podName = "agent-runner-fresh001",
-                pvcName = "workspace-abcdef01",
-                gatewayEndpoint = "http://fresh:8090",
-            )
-        every { workspaces.save(any()) } answers { firstArg() }
-        // The fresh runner is still booting (e.g. a cold image pull) within the window.
-        every {
-            orchestrator.isReady(
-                match { it.gatewayEndpoint == "http://fresh:8090" },
-                setupSpec.identity(ws.runnerSetupGeneration + 1),
-            )
-        } returns false
-        every { gateway.isReady(any()) } returns false
-        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
-        every {
-            sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = 7,
-                status = WorkspaceAgentSessionStatus.RUNNING,
-                retainedUntil = null,
-                clearGatewayBinding = true,
-                now = any(),
-            )
-        } returns true
-        every {
-            sessions.promotePendingSetupIfCurrent(
-                id = session.id,
-                expectedPendingSetupId = setup.definition.id,
-                expectedPendingSetupVersion = setup.definition.version,
-                now = any(),
-            )
-        } returns true
+        stubReprovisionedRunnerNotReady(session, ws)
 
         val result =
             binder.restart(
@@ -520,12 +474,13 @@ class RunnerSessionBindingServiceTest {
         verify(exactly = 1) { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) }
         verify(exactly = 1) {
             sessions.markLifecycleIfGeneration(
-                id = session.id,
-                expectedGeneration = 7,
-                status = WorkspaceAgentSessionStatus.RUNNING,
-                retainedUntil = null,
-                clearGatewayBinding = true,
-                now = any(),
+                match {
+                    it.id == session.id &&
+                        it.expectedGeneration == 7L &&
+                        it.status == WorkspaceAgentSessionStatus.RUNNING &&
+                        it.retainedUntil == null &&
+                        it.clearGatewayBinding
+                },
             )
         }
         // No spawn/bind happened — the resume is deferred to the next attach.
@@ -545,23 +500,17 @@ class RunnerSessionBindingServiceTest {
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(created)) } answers { created.captured }
         every {
-            gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = sessionId,
-                epoch = 1,
-                continuation = null,
-            )
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         } throws ResourceAccessException("Connection refused at http://runner.internal/private")
         every {
             sessions.markLifecycleIfGeneration(
-                id = sessionId,
-                expectedGeneration = 1,
-                status = WorkspaceAgentSessionStatus.FAILED,
-                retainedUntil = null,
-                clearGatewayBinding = true,
-                now = any(),
+                match {
+                    it.id == sessionId &&
+                        it.expectedGeneration == 1L &&
+                        it.status == WorkspaceAgentSessionStatus.FAILED &&
+                        it.retainedUntil == null &&
+                        it.clearGatewayBinding
+                },
             )
         } returns true
 
@@ -642,14 +591,7 @@ class RunnerSessionBindingServiceTest {
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(saveSlot)) } answers { saveSlot.captured }
         every {
-            gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = sessionId,
-                epoch = 1,
-                continuation = null,
-            )
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         } returns gatewayAgent("abc12345", epoch = 1)
 
         val result =
@@ -680,14 +622,7 @@ class RunnerSessionBindingServiceTest {
         every { gateway.isReady(ws) } returns true
         every { sessions.save(capture(saveSlot)) } throws RuntimeException("DB unavailable")
         every {
-            gateway.spawnAgent(
-                workspace = ws,
-                kind = WorkspaceAgentKind.CLAUDE,
-                workspacePath = null,
-                stableSessionId = sessionId,
-                epoch = 1,
-                continuation = null,
-            )
+            gateway.spawnAgent(spawnRequest(ws, sessionId, epoch = 1))
         } returns gatewayAgent("abc12345", epoch = 1)
         every { gateway.stopAgent(ws, "abc12345") } returns Unit
 
@@ -772,6 +707,94 @@ class RunnerSessionBindingServiceTest {
         updatedAt = Instant.now(),
         cliSessionId = "native-old",
     )
+
+    private fun spawnRequest(
+        workspace: Workspace,
+        stableSessionId: WorkspaceAgentSessionId,
+        epoch: Long,
+        continuation: AgentGatewayClient.ContinuationMetadata? = null,
+        resumeCliSessionId: String? = null,
+    ) = AgentGatewayClient.SpawnAgentRequest(
+        workspace = workspace,
+        kind = WorkspaceAgentKind.CLAUDE,
+        stableSessionId = stableSessionId,
+        epoch = epoch,
+        continuation = continuation,
+        resumeCliSessionId = resumeCliSessionId,
+    )
+
+    private fun stubReprovisionedRunnerNotReady(
+        session: WorkspaceAgentSession,
+        ws: Workspace,
+    ) {
+        every {
+            sessions.beginGeneration(id = session.id, expectedGeneration = 6, nextEpoch = 3, now = any())
+        } returns true
+        stubPendingSetup(session)
+        stubWorkspaceSetupOperation(ws)
+        every { orchestrator.scaleDown(any()) } returns Unit
+        every { orchestrator.provision(any(), setupSpec, ws.runnerSetupGeneration + 1) } returns
+            AgentRunnerOrchestrator.RunnerHandle(
+                podName = "agent-runner-fresh001",
+                pvcName = "workspace-abcdef01",
+                gatewayEndpoint = "http://fresh:8090",
+            )
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            orchestrator.isReady(
+                match { it.gatewayEndpoint == "http://fresh:8090" },
+                setupSpec.identity(ws.runnerSetupGeneration + 1),
+            )
+        } returns false
+        every { gateway.isReady(any()) } returns false
+        every { workspaces.completeRunnerSetupOperation(ws.id, ws.runnerSetupGeneration + 1, any()) } returns true
+        every {
+            sessions.markLifecycleIfGeneration(
+                match {
+                    it.id == session.id &&
+                        it.expectedGeneration == 7L &&
+                        it.status == WorkspaceAgentSessionStatus.RUNNING &&
+                        it.retainedUntil == null &&
+                        it.clearGatewayBinding
+                },
+            )
+        } returns true
+        every {
+            sessions.promotePendingSetupIfCurrent(
+                id = session.id,
+                expectedPendingSetupId = setup.definition.id,
+                expectedPendingSetupVersion = setup.definition.version,
+                now = any(),
+            )
+        } returns true
+    }
+
+    private fun stubPendingSetup(session: WorkspaceAgentSession) {
+        every {
+            sessions.setPendingSetupIfCurrent(
+                match {
+                    it.id == session.id &&
+                        it.expectedCurrentSetupId == session.currentSetupId &&
+                        it.expectedCurrentSetupVersion == session.currentSetupVersion &&
+                        it.pendingSetupId == setup.definition.id &&
+                        it.pendingSetupVersion == setup.definition.version
+                },
+            )
+        } returns true
+    }
+
+    private fun stubWorkspaceSetupOperation(ws: Workspace) {
+        every {
+            workspaces.beginRunnerSetupOperation(
+                match {
+                    it.id == ws.id &&
+                        it.expectedGeneration == ws.runnerSetupGeneration &&
+                        it.setupId == setup.definition.id &&
+                        it.setupVersion == setup.definition.version
+                },
+            )
+        } returns true
+    }
 
     private fun setupEntry() =
         AgentSetupCatalogEntry(

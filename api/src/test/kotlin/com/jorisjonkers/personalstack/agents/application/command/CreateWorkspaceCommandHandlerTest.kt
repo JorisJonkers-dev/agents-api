@@ -79,10 +79,12 @@ class CreateWorkspaceCommandHandlerTest {
         CreateWorkspaceCommandHandler(
             workspaces,
             lifecycleService,
-            projectRepositoryLinks,
-            workspaceRepositoryLinks,
-            linkProvider,
-            repositoryProvider,
+            CreateWorkspaceRepositories(
+                projectMembership = projectRepositoryLinks,
+                workspaceMembership = workspaceRepositoryLinks,
+                legacyGithubLinks = linkProvider,
+                repositoryLookup = repositoryProvider,
+            ),
             verifyAccess,
             setupSelection,
             tx,
@@ -417,7 +419,7 @@ class CreateWorkspaceCommandHandlerTest {
     }
 
     @Test
-    fun `handle CHAT kind is rejected — chat lives in ChatSession`() {
+    fun `handle CHAT kind is rejected (chat lives in ChatSession)`() {
         assertThrows<IllegalArgumentException> {
             handler.handle(
                 CreateWorkspaceCommand(

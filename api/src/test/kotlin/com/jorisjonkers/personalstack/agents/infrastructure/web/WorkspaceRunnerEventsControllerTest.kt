@@ -7,7 +7,10 @@ import com.jorisjonkers.personalstack.agents.application.workspacerunner.events.
 import com.jorisjonkers.personalstack.agents.config.XUserIdFilter
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.common.web.GlobalExceptionHandler
 import io.mockk.every
 import io.mockk.mockk
@@ -48,7 +51,7 @@ class WorkspaceRunnerEventsControllerTest {
     @Test
     fun `GET workspace events returns SSE response headers`() {
         val id = UUID.randomUUID()
-        every { getQuery.getSummary(WorkspaceId(id)) } returns mockk()
+        every { getQuery.getSummary(WorkspaceId(id)) } returns workspace(id = WorkspaceId(id))
         every { broadcaster.subscribe(WorkspaceId(id)) } returns SseEmitter()
 
         mockMvc
@@ -79,6 +82,23 @@ class WorkspaceRunnerEventsControllerTest {
         mockMvc
             .perform(get("/api/v1/workspaces/${UUID.randomUUID()}/runner-events"))
             .andExpect(status().isUnauthorized)
+    }
+
+    private fun workspace(id: WorkspaceId): Workspace {
+        val now = Instant.now()
+        return Workspace(
+            id = id,
+            name = "demo",
+            repoUrl = null,
+            branch = null,
+            podName = null,
+            pvcName = null,
+            gatewayEndpoint = null,
+            status = WorkspaceStatus.READY,
+            createdAt = now,
+            updatedAt = now,
+            kind = WorkspaceKind.SCRATCH,
+        )
     }
 }
 

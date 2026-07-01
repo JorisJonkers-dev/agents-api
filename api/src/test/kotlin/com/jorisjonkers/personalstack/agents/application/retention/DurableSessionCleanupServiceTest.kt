@@ -47,14 +47,17 @@ class DurableSessionCleanupServiceTest {
     private val telemetry = RecordingTelemetry()
     private val service =
         DurableSessionCleanupService(
-            workspaces = workspaces,
-            sessions = sessions,
-            gateway = gateway,
-            runnerLifecycle = runnerLifecycle,
+            dependencies =
+                DurableSessionCleanupDependencies(
+                    workspaces = workspaces,
+                    sessions = sessions,
+                    gateway = gateway,
+                    runnerLifecycle = runnerLifecycle,
+                    sessionStatus = sessionStatus,
+                    telemetry = telemetry,
+                ),
             runtime = runtime,
-            sessionStatus = sessionStatus,
             clock = Clock.fixed(now, ZoneOffset.UTC),
-            telemetry = telemetry,
         )
 
     @Test

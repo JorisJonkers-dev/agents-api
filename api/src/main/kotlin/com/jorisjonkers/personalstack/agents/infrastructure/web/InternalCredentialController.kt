@@ -25,7 +25,6 @@ class InternalCredentialController(
     private val validator: CredentialValidator,
 ) {
     @PostMapping
-    @Suppress("LongMethod")
     fun ingest(
         @Valid @RequestBody request: InternalCredentialIngestRequest,
     ): ResponseEntity<InternalCredentialIngestResponse> {

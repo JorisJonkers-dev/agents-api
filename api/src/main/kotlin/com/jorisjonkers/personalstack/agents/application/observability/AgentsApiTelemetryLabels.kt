@@ -1,5 +1,3 @@
-@file:Suppress("CyclomaticComplexMethod")
-
 package com.jorisjonkers.personalstack.agents.application.observability
 
 interface TelemetryLabel {
@@ -70,23 +68,10 @@ enum class StatusLabel(
     ;
 
     companion object {
-        fun fromRaw(status: String?): StatusLabel =
-            when (normalize(status)) {
-                null -> UNKNOWN
-                "pending" -> PENDING
-                "starting" -> STARTING
-                "ready" -> READY
-                "idle" -> IDLE
-                "running" -> RUNNING
-                "stopped", "stop" -> STOPPED
-                "requested", "request" -> REQUESTED
-                "started", "start" -> STARTED
-                "completed", "complete", "succeeded", "success" -> COMPLETED
-                "failed", "failure", "error" -> FAILED
-                "cancelled", "canceled" -> CANCELLED
-                "destroyed", "deleted" -> DESTROYED
-                else -> OTHER
-            }
+        fun fromRaw(status: String?): StatusLabel {
+            val normalized = normalize(status) ?: return UNKNOWN
+            return STATUS_ALIASES[normalized] ?: OTHER
+        }
     }
 }
 
@@ -213,20 +198,8 @@ enum class FailureReasonLabel(
     companion object {
         fun fromRaw(reason: String?): FailureReasonLabel {
             val normalized = normalize(reason) ?: return UNKNOWN
-            return when {
-                normalized in setOf("none", "success", "ok") -> NONE
-                normalized in setOf("not_found", "missing", "gone") -> NOT_FOUND
-                normalized in setOf("invalid", "invalid_request", "bad_request") -> INVALID_REQUEST
-                normalized in setOf("unavailable", "upstream_unavailable") -> UPSTREAM_UNAVAILABLE
-                "timeout" in normalized || "timed_out" in normalized -> TIMEOUT
-                normalized in setOf("process_exited", "exit", "exited") -> PROCESS_EXITED
-                normalized in setOf("io", "io_error", "filesystem") -> IO_ERROR
-                normalized in setOf("permission", "permission_denied", "forbidden") -> PERMISSION_DENIED
-                normalized in setOf("capacity", "quota", "storage_full") -> CAPACITY
-                normalized in setOf("cancelled", "canceled") -> CANCELLED
-                normalized == "unknown" -> UNKNOWN
-                else -> OTHER
-            }
+            return FAILURE_REASON_ALIASES[normalized]
+                ?: if ("timeout" in normalized || "timed_out" in normalized) TIMEOUT else OTHER
         }
     }
 }
@@ -235,3 +208,59 @@ private fun normalize(value: String?): String? {
     val trimmed = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
     return trimmed.replace('-', '_').replace('.', '_').replace(' ', '_')
 }
+
+private val STATUS_ALIASES =
+    mapOf(
+        "pending" to StatusLabel.PENDING,
+        "starting" to StatusLabel.STARTING,
+        "ready" to StatusLabel.READY,
+        "idle" to StatusLabel.IDLE,
+        "running" to StatusLabel.RUNNING,
+        "stopped" to StatusLabel.STOPPED,
+        "stop" to StatusLabel.STOPPED,
+        "requested" to StatusLabel.REQUESTED,
+        "request" to StatusLabel.REQUESTED,
+        "started" to StatusLabel.STARTED,
+        "start" to StatusLabel.STARTED,
+        "completed" to StatusLabel.COMPLETED,
+        "complete" to StatusLabel.COMPLETED,
+        "succeeded" to StatusLabel.COMPLETED,
+        "success" to StatusLabel.COMPLETED,
+        "failed" to StatusLabel.FAILED,
+        "failure" to StatusLabel.FAILED,
+        "error" to StatusLabel.FAILED,
+        "cancelled" to StatusLabel.CANCELLED,
+        "canceled" to StatusLabel.CANCELLED,
+        "destroyed" to StatusLabel.DESTROYED,
+        "deleted" to StatusLabel.DESTROYED,
+    )
+
+private val FAILURE_REASON_ALIASES =
+    mapOf(
+        "none" to FailureReasonLabel.NONE,
+        "success" to FailureReasonLabel.NONE,
+        "ok" to FailureReasonLabel.NONE,
+        "not_found" to FailureReasonLabel.NOT_FOUND,
+        "missing" to FailureReasonLabel.NOT_FOUND,
+        "gone" to FailureReasonLabel.NOT_FOUND,
+        "invalid" to FailureReasonLabel.INVALID_REQUEST,
+        "invalid_request" to FailureReasonLabel.INVALID_REQUEST,
+        "bad_request" to FailureReasonLabel.INVALID_REQUEST,
+        "unavailable" to FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+        "upstream_unavailable" to FailureReasonLabel.UPSTREAM_UNAVAILABLE,
+        "process_exited" to FailureReasonLabel.PROCESS_EXITED,
+        "exit" to FailureReasonLabel.PROCESS_EXITED,
+        "exited" to FailureReasonLabel.PROCESS_EXITED,
+        "io" to FailureReasonLabel.IO_ERROR,
+        "io_error" to FailureReasonLabel.IO_ERROR,
+        "filesystem" to FailureReasonLabel.IO_ERROR,
+        "permission" to FailureReasonLabel.PERMISSION_DENIED,
+        "permission_denied" to FailureReasonLabel.PERMISSION_DENIED,
+        "forbidden" to FailureReasonLabel.PERMISSION_DENIED,
+        "capacity" to FailureReasonLabel.CAPACITY,
+        "quota" to FailureReasonLabel.CAPACITY,
+        "storage_full" to FailureReasonLabel.CAPACITY,
+        "cancelled" to FailureReasonLabel.CANCELLED,
+        "canceled" to FailureReasonLabel.CANCELLED,
+        "unknown" to FailureReasonLabel.UNKNOWN,
+    )

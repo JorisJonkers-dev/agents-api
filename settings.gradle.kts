@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        mavenLocal()
         gradlePluginPortal()
         mavenCentral()
         maven {
@@ -39,6 +40,7 @@ plugins {
 
 dependencyResolutionManagement {
     repositories {
+        mavenLocal()
         mavenCentral()
         maven("https://repo.spring.io/milestone")
         maven {

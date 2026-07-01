@@ -9,27 +9,31 @@ import org.junit.jupiter.api.Test
 class ContextBuilderTest {
     private val registry = SimpleMeterRegistry()
 
-    private fun props(
-        enabled: Boolean = true,
-        retrievalEnabled: Boolean = true,
-        captureEnabled: Boolean = true,
-        maxSnippets: Int = 5,
-        maxContextChars: Int = 4_000,
-        minScore: Double = 0.0,
-        recallMode: String = "deep",
-    ): RagProperties =
-        RagProperties(
-            enabled = enabled,
-            retrieval = RagProperties.RetrievalFlags(enabled = retrievalEnabled),
-            capture = RagProperties.CaptureFlags(enabled = captureEnabled),
+    private class RagOptions {
+        var enabled: Boolean = true
+        var retrievalEnabled: Boolean = true
+        var captureEnabled: Boolean = true
+        var maxSnippets: Int = 5
+        var maxContextChars: Int = 4_000
+        var minScore: Double = 0.0
+        var recallMode: String = "deep"
+    }
+
+    private fun props(configure: RagOptions.() -> Unit = {}): RagProperties {
+        val options = RagOptions().apply(configure)
+        return RagProperties(
+            enabled = options.enabled,
+            retrieval = RagProperties.RetrievalFlags(enabled = options.retrievalEnabled),
+            capture = RagProperties.CaptureFlags(enabled = options.captureEnabled),
             knowledgeMcpUrl = "http://kb:8080",
             knowledgeMcpToken = "",
             lightragUrl = "http://lightrag:9621",
-            maxSnippets = maxSnippets,
-            maxContextChars = maxContextChars,
-            minScore = minScore,
-            recallMode = recallMode,
+            maxSnippets = options.maxSnippets,
+            maxContextChars = options.maxContextChars,
+            minScore = options.minScore,
+            recallMode = options.recallMode,
         )
+    }
 
     private class FakeSource(
         private val snippets: List<RetrievalPort.Snippet>,
@@ -42,7 +46,7 @@ class ContextBuilderTest {
 
     @Test
     fun `augment returns plain prompt when RAG disabled`() {
-        val builder = ContextBuilder(emptyList(), props(enabled = false), registry)
+        val builder = ContextBuilder(emptyList(), props { enabled = false }, registry)
         assertThat(builder.augment("hi")).isEqualTo("hi")
     }
 
@@ -117,7 +121,7 @@ class ContextBuilderTest {
                         ),
                     ),
                 ),
-                props(minScore = 0.3),
+                props { minScore = 0.3 },
                 registry,
             )
         val out = builder.augment("q")
@@ -132,7 +136,7 @@ class ContextBuilderTest {
                 listOf(
                     FakeSource(listOf(RetrievalPort.Snippet("kb:a", "low", 0.1))),
                 ),
-                props(minScore = 0.5),
+                props { minScore = 0.5 },
                 registry,
             )
         assertThat(builder.augment("q")).isEqualTo("q")
@@ -148,7 +152,10 @@ class ContextBuilderTest {
                         (1..10).map { RetrievalPort.Snippet("kb:$it", long, 1.0 - it * 0.01) },
                     ),
                 ),
-                props(maxSnippets = 10, maxContextChars = 1_500),
+                props {
+                    maxSnippets = 10
+                    maxContextChars = 1_500
+                },
                 registry,
             )
         val out = builder.augment("q")
@@ -177,14 +184,14 @@ class ContextBuilderTest {
     @Test
     fun `augment returns plain prompt when retrieval flag is off regardless of capture flag`() {
         val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "should not appear", 0.9)))
-        val builder = ContextBuilder(listOf(source), props(retrievalEnabled = false), registry)
+        val builder = ContextBuilder(listOf(source), props { retrievalEnabled = false }, registry)
         assertThat(builder.augment("q")).isEqualTo("q")
     }
 
     @Test
     fun `augment injects context when retrieval is on even if capture flag is off`() {
         val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "snippet text", 0.9)))
-        val builder = ContextBuilder(listOf(source), props(captureEnabled = false), registry)
+        val builder = ContextBuilder(listOf(source), props { captureEnabled = false }, registry)
         val out = builder.augment("q")
         assertThat(out).contains("snippet text")
     }
@@ -205,7 +212,7 @@ class ContextBuilderTest {
                     FakeSource(listOf(RetrievalPort.Snippet("lightrag", "fused answer", 1.0))),
                     FakeSource(listOf(RetrievalPort.Snippet("kb:a", "precise snippet", 0.82))),
                 ),
-                props(minScore = 0.3),
+                props { minScore = 0.3 },
                 registry,
             )
         val out = builder.augment("q")

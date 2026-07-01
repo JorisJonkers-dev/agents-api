@@ -44,24 +44,11 @@ import java.time.Instant
  * the entire create.
  */
 @Component
-@Suppress("DEPRECATION", "LongParameterList")
+@Suppress("DEPRECATION")
 class CreateWorkspaceCommandHandler(
     private val workspaces: WorkspaceRepository,
     private val lifecycleService: WorkspaceRunnerLifecycleService,
-    private val projectRepositories: ProjectRepositoryRepository,
-    private val workspaceRepositories: WorkspaceRepositoryRepository,
-    /**
-     * Optional — present only when the Projects feature is wired
-     * (Vault enabled). When absent, every CreateWorkspace must
-     * either supply repoUrl or stay repo-less.
-     */
-    private val githubLinks: ObjectProvider<GithubLinkRepository>,
-    /**
-     * The new per-Repository lookup. Same wiring rule as
-     * [githubLinks] — `@ConditionalOnProperty` keeps it absent in
-     * tests that disable Vault.
-     */
-    private val repositories: ObjectProvider<RepositoryRepository>,
+    private val repositories: CreateWorkspaceRepositories,
     private val verifyAccess: VerifyRepositoryAccess,
     private val setupSelection: AgentSetupSelectionService,
     private val tx: TransactionTemplate,
@@ -75,7 +62,7 @@ class CreateWorkspaceCommandHandler(
         warnDeprecatedGithubLink(command)
         val resolved = resolveRepo(command)
         if (command.kind == WorkspaceKind.REPO_BACKED && resolved.repoUrl != null) {
-            verifyOrFail(resolved.repoUrl, resolved.branch, resolved.repositoryId)
+            verifyOrFail(resolved.repoUrl, resolved.branch)
         }
         val setup = setupSelection.defaultSelectable()
 
@@ -119,7 +106,6 @@ class CreateWorkspaceCommandHandler(
     private fun verifyOrFail(
         repoUrl: String,
         branch: String?,
-        @Suppress("UNUSED_PARAMETER") repositoryId: RepositoryId?,
     ) {
         val effectiveBranch = branch?.takeIf { it.isNotBlank() } ?: "main"
         val result = verifyAccess.verify(repoUrl, effectiveBranch)
@@ -167,18 +153,18 @@ class CreateWorkspaceCommandHandler(
         command: CreateWorkspaceCommand,
     ) {
         val repoId = workspace.repositoryId ?: return
-        val repoPort = repositories.ifAvailable ?: return
+        val repoPort = repositories.repositoryLookup.ifAvailable ?: return
         val realPrimaryRepoId =
             repoPort
                 .findById(repoId)
                 ?.id
                 ?: return
 
-        workspaceRepositories.attach(workspace.id, realPrimaryRepoId, isPrimary = true)
+        repositories.workspaceMembership.attach(workspace.id, realPrimaryRepoId, isPrimary = true)
         selectedExtraRepositoryIds(command, realPrimaryRepoId)
             .forEach { repositoryId ->
                 val repository = requireRepository(repoPort, repositoryId)
-                workspaceRepositories.attach(
+                repositories.workspaceMembership.attach(
                     workspace.id,
                     repository.id,
                     isPrimary = false,
@@ -195,7 +181,7 @@ class CreateWorkspaceCommandHandler(
                 command.repositoryIds.filterNot { it == primaryRepoId }
             } else {
                 command.projectId
-                    ?.let { projectRepositories.findAllByProjectId(it) }
+                    ?.let { repositories.projectMembership.findAllByProjectId(it) }
                     .orEmpty()
                     .map { it.repositoryId }
                     .filterNot { it == primaryRepoId }
@@ -239,8 +225,8 @@ class CreateWorkspaceCommandHandler(
         //     (config issue, 409 Conflict via GlobalExceptionHandler).
         //   * Row not found → NoSuchElementException (404).
         val repos =
-            repositories.ifAvailable
-                ?: throw IllegalStateException(
+            repositories.repositoryLookup.ifAvailable
+                ?: error(
                     "Repository feature is not configured; cannot create workspace for repositoryId=${repoId.value}",
                 )
         val repo =
@@ -264,7 +250,7 @@ class CreateWorkspaceCommandHandler(
         // retired anyway.
         val legacyLinkId = GithubLinkId(repoId.value)
         val realLegacyId =
-            githubLinks
+            repositories.legacyGithubLinks
                 .ifAvailable
                 ?.findById(legacyLinkId)
                 ?.let { legacyLinkId }
@@ -281,8 +267,8 @@ class CreateWorkspaceCommandHandler(
         linkId: GithubLinkId,
     ): ResolvedRepo {
         val links =
-            githubLinks.ifAvailable
-                ?: throw IllegalStateException(
+            repositories.legacyGithubLinks.ifAvailable
+                ?: error(
                     "Projects feature is not configured; cannot create workspace for githubLinkId=${linkId.value}",
                 )
         val link =
@@ -299,3 +285,15 @@ class CreateWorkspaceCommandHandler(
         )
     }
 }
+
+/**
+ * Optional repositories are present only when the Projects/Vault feature is wired.
+ * When absent, workspace creation must either supply a direct repoUrl or stay repo-less.
+ */
+@Component
+data class CreateWorkspaceRepositories(
+    val projectMembership: ProjectRepositoryRepository,
+    val workspaceMembership: WorkspaceRepositoryRepository,
+    val legacyGithubLinks: ObjectProvider<GithubLinkRepository>,
+    val repositoryLookup: ObjectProvider<RepositoryRepository>,
+)

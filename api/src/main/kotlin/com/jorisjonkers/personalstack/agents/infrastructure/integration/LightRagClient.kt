@@ -71,7 +71,7 @@ class LightRagClient(
                     .body(Req(query = query, topK = limit))
                     .retrieve()
                     .body(Resp::class.java)
-            val text = body?.response ?: ""
+            val text = body?.response.orEmpty()
             if (text.isBlank()) emptyList() else listOf(RetrievalPort.Snippet("lightrag", text, 1.0))
         }.getOrElse {
             log.warn("LightRAG query failed: {}", it.message)
@@ -90,7 +90,7 @@ class LightRagClient(
             retrieve(query, props.maxSnippets)
                 .firstOrNull()
                 ?.text
-                ?: ""
+                .orEmpty()
         if (fallback.isNotBlank()) onChunk(fallback)
         return fallback
     }

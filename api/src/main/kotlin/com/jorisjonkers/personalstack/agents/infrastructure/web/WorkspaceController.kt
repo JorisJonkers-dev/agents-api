@@ -70,7 +70,7 @@ class WorkspaceController(
         )
         val view =
             getQuery.getSummary(id)
-                ?: throw IllegalStateException(
+                ?: error(
                     "Workspace $id was created but not yet visible to the read model; retry the GET in a moment",
                 )
         return ResponseEntity.status(HttpStatus.CREATED).body(WorkspaceResponse.of(view))
@@ -137,7 +137,7 @@ class WorkspaceController(
     fun attachRepository(
         @PathVariable id: UUID,
         @Valid @RequestBody req: AttachWorkspaceRepositoryRequest,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             AttachWorkspaceRepositoryCommand(
                 workspaceId = WorkspaceId(id),
@@ -151,7 +151,7 @@ class WorkspaceController(
     fun detachRepository(
         @PathVariable id: UUID,
         @PathVariable repoId: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(
             DetachWorkspaceRepositoryCommand(
                 workspaceId = WorkspaceId(id),
@@ -164,17 +164,18 @@ class WorkspaceController(
     @DeleteMapping("/{id}")
     fun destroy(
         @PathVariable id: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(DestroyWorkspaceCommand(WorkspaceId(id)))
         return ResponseEntity.noContent().build()
     }
 
     private fun primaryRepositoryId(req: CreateWorkspaceRequest): UUID? {
-        if (req.repositoryId != null &&
-            req.primaryRepositoryId != null &&
-            req.repositoryId != req.primaryRepositoryId
+        require(
+            req.repositoryId == null ||
+                req.primaryRepositoryId == null ||
+                req.repositoryId == req.primaryRepositoryId,
         ) {
-            throw IllegalArgumentException("repositoryId and primaryRepositoryId must match when both are supplied")
+            "repositoryId and primaryRepositoryId must match when both are supplied"
         }
         return req.repositoryId ?: req.primaryRepositoryId ?: req.repositoryIds.orEmpty().firstOrNull()
     }

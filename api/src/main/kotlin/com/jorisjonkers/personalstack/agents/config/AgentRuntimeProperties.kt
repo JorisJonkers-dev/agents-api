@@ -183,58 +183,69 @@ data class AgentRuntimeProperties(
         }
     }
 
-    @Suppress("LongMethod", "CyclomaticComplexMethod")
     fun setupCatalogEntries(now: Instant = Instant.now()): List<AgentSetupCatalogEntry> =
         setups.map { setup ->
             val version = AgentSetupVersion(setup.version)
-            val definition =
-                AgentSetupDefinition(
-                    id = AgentSetupId(setup.id),
-                    version = version,
-                    displayName = setup.displayName,
-                    description = setup.description,
-                    namespace = setup.namespace ?: namespace,
-                    image = setup.image ?: image,
-                    imagePullPolicy = setup.imagePullPolicy ?: imagePullPolicy,
-                    serviceAccount = setup.serviceAccount ?: serviceAccount,
-                    gatewayPort = setup.gatewayPort ?: gatewayPort,
-                    claudeCredentialsPvc = setup.claudeCredentialsPvc ?: claudeCredentialsPvc,
-                    codexCredentialsPvc = setup.codexCredentialsPvc ?: codexCredentialsPvc,
-                    githubDeployKeySecret = setup.githubDeployKeySecret ?: githubDeployKeySecret,
-                    cliTools = setup.cliTools ?: DEFAULT_CLI_TOOLS,
-                    knowledgeBaseUrl = setup.knowledgeBaseUrl ?: knowledgeBaseUrl,
-                    knowledgeBearerSecret = setup.knowledgeBearerSecret ?: knowledgeBearerSecret,
-                    knowledgeBearerSecretKey = setup.knowledgeBearerSecretKey ?: knowledgeBearerSecretKey,
-                    mcpServersConfigMap = setup.mcpServersConfigMap ?: mcpServersConfigMap,
-                    defaultMcpProfile = setup.defaultMcpProfile ?: defaultMcpProfile,
-                    connectorConfig = setup.connectorConfig ?: emptyMap(),
-                    toolProfiles = setup.toolProfiles ?: listOf(setup.defaultMcpProfile ?: defaultMcpProfile),
-                    toolAllowlist = setup.toolAllowlist ?: emptyList(),
-                    dockerSocketEnabled = setup.dockerSocketEnabled ?: dockerSocketEnabled,
-                    dockerSocketPath = setup.dockerSocketPath ?: dockerSocketPath,
-                    dockerSocketSupplementalGroups =
-                        setup.dockerSocketSupplementalGroups ?: dockerSocketSupplementalGroups,
-                    nodeSelector = setup.nodeSelector ?: nodeSelector,
-                    createdAt = now,
-                    updatedAt = now,
-                )
+            val definition = setup.definition(version, now)
             AgentSetupCatalogEntry(
                 definition = definition,
-                availability =
-                    AgentSetupAvailability(
-                        id = definition.id,
-                        version = version,
-                        selectable = setup.selectable,
-                        defaultSelectable = setup.defaultSelectable,
-                        unavailableReason = setup.unavailableReason,
-                        updatedAt = now,
-                    ),
+                availability = setup.availability(definition.id, version, now),
             )
         }
 
+    private fun AgentSetupProperties.definition(
+        version: AgentSetupVersion,
+        now: Instant,
+    ): AgentSetupDefinition {
+        val resolved = AgentSetupResolution(this, this@AgentRuntimeProperties)
+        return AgentSetupDefinition(
+            id = AgentSetupId(id),
+            version = version,
+            displayName = displayName,
+            description = description,
+            namespace = resolved.namespace,
+            image = resolved.image,
+            imagePullPolicy = resolved.imagePullPolicy,
+            serviceAccount = resolved.serviceAccount,
+            gatewayPort = resolved.gatewayPort,
+            claudeCredentialsPvc = resolved.claudeCredentialsPvc,
+            codexCredentialsPvc = resolved.codexCredentialsPvc,
+            githubDeployKeySecret = resolved.githubDeployKeySecret,
+            cliTools = resolved.cliTools,
+            knowledgeBaseUrl = resolved.knowledgeBaseUrl,
+            knowledgeBearerSecret = resolved.knowledgeBearerSecret,
+            knowledgeBearerSecretKey = resolved.knowledgeBearerSecretKey,
+            mcpServersConfigMap = resolved.mcpServersConfigMap,
+            defaultMcpProfile = resolved.defaultMcpProfile,
+            connectorConfig = connectorConfig.orEmpty(),
+            toolProfiles = resolved.toolProfiles,
+            toolAllowlist = toolAllowlist.orEmpty(),
+            dockerSocketEnabled = resolved.dockerSocketEnabled,
+            dockerSocketPath = resolved.dockerSocketPath,
+            dockerSocketSupplementalGroups = resolved.dockerSocketSupplementalGroups,
+            nodeSelector = resolved.nodeSelector,
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
+
+    private fun AgentSetupProperties.availability(
+        id: AgentSetupId,
+        version: AgentSetupVersion,
+        now: Instant,
+    ): AgentSetupAvailability =
+        AgentSetupAvailability(
+            id = id,
+            version = version,
+            selectable = selectable,
+            defaultSelectable = defaultSelectable,
+            unavailableReason = unavailableReason,
+            updatedAt = now,
+        )
+
     companion object {
         private val VALID_SETUP_ID = Regex("[a-z][a-z0-9-]{0,79}")
-        private val DEFAULT_CLI_TOOLS =
+        internal val DEFAULT_CLI_TOOLS =
             mapOf(
                 "claude" to "default",
                 "codex" to "default",
@@ -281,3 +292,29 @@ data class AgentSetupProperties(
     val defaultSelectable: Boolean = false,
     val unavailableReason: String? = null,
 )
+
+private class AgentSetupResolution(
+    setup: AgentSetupProperties,
+    defaults: AgentRuntimeProperties,
+) {
+    val namespace: String = setup.namespace ?: defaults.namespace
+    val image: String = setup.image ?: defaults.image
+    val imagePullPolicy: String = setup.imagePullPolicy ?: defaults.imagePullPolicy
+    val serviceAccount: String = setup.serviceAccount ?: defaults.serviceAccount
+    val gatewayPort: Int = setup.gatewayPort ?: defaults.gatewayPort
+    val claudeCredentialsPvc: String = setup.claudeCredentialsPvc ?: defaults.claudeCredentialsPvc
+    val codexCredentialsPvc: String = setup.codexCredentialsPvc ?: defaults.codexCredentialsPvc
+    val githubDeployKeySecret: String = setup.githubDeployKeySecret ?: defaults.githubDeployKeySecret
+    val cliTools: Map<String, String> = setup.cliTools ?: AgentRuntimeProperties.DEFAULT_CLI_TOOLS
+    val knowledgeBaseUrl: String = setup.knowledgeBaseUrl ?: defaults.knowledgeBaseUrl
+    val knowledgeBearerSecret: String = setup.knowledgeBearerSecret ?: defaults.knowledgeBearerSecret
+    val knowledgeBearerSecretKey: String = setup.knowledgeBearerSecretKey ?: defaults.knowledgeBearerSecretKey
+    val mcpServersConfigMap: String = setup.mcpServersConfigMap ?: defaults.mcpServersConfigMap
+    val defaultMcpProfile: String = setup.defaultMcpProfile ?: defaults.defaultMcpProfile
+    val toolProfiles: List<String> = setup.toolProfiles ?: listOf(defaultMcpProfile)
+    val dockerSocketEnabled: Boolean = setup.dockerSocketEnabled ?: defaults.dockerSocketEnabled
+    val dockerSocketPath: String = setup.dockerSocketPath ?: defaults.dockerSocketPath
+    val dockerSocketSupplementalGroups: List<Long> =
+        setup.dockerSocketSupplementalGroups ?: defaults.dockerSocketSupplementalGroups
+    val nodeSelector: Map<String, String> = setup.nodeSelector ?: defaults.nodeSelector
+}

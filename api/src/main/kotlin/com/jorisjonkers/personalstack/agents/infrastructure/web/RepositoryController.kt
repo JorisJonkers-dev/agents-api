@@ -90,7 +90,7 @@ class RepositoryController(
     @DeleteMapping("/{id}")
     fun delete(
         @PathVariable id: UUID,
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Unit> {
         commandBus.dispatch(DeleteRepositoryCommand(RepositoryId(id)))
         return ResponseEntity.noContent().build()
     }

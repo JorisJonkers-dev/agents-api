@@ -151,62 +151,64 @@ object K3sTestSupport {
                 addAll(listOf("get", "list", "watch", "create", "delete"))
                 if (includePvcPatch) add("patch")
             }
-        val role =
-            RoleBuilder()
-                .withNewMetadata()
-                .withName(ROLE_NAME)
-                .withNamespace(AGENTS_NAMESPACE)
-                .endMetadata()
-                .withRules(
-                    PolicyRuleBuilder()
-                        .withApiGroups("")
-                        .withResources("pods", "pods/log", "services")
-                        .withVerbs("get", "list", "watch", "create", "delete", "patch")
-                        .build(),
-                    // Deliberately omits "patch" — the regression.
-                    PolicyRuleBuilder()
-                        .withApiGroups("")
-                        .withResources("persistentvolumeclaims")
-                        .withVerbs(*pvcVerbs.toTypedArray())
-                        .build(),
-                    PolicyRuleBuilder()
-                        .withApiGroups("")
-                        .withResources("secrets")
-                        .withVerbs("get", "list", "watch", "create", "delete", "patch")
-                        .build(),
-                ).build()
-        val binding =
-            RoleBindingBuilder()
-                .withNewMetadata()
-                .withName(ROLE_NAME)
-                .withNamespace(AGENTS_NAMESPACE)
-                .endMetadata()
-                .withSubjects(
-                    SubjectBuilder()
-                        .withKind("ServiceAccount")
-                        .withName(AGENTS_SERVICE_ACCOUNT)
-                        .withNamespace(AGENTS_NAMESPACE)
-                        .build(),
-                ).withRoleRef(
-                    RoleRefBuilder()
-                        .withKind("Role")
-                        .withName(ROLE_NAME)
-                        .withApiGroup("rbac.authorization.k8s.io")
-                        .build(),
-                ).build()
         admin
             .rbac()
             .roles()
             .inNamespace(AGENTS_NAMESPACE)
-            .resource(role)
+            .resource(runnerControllerRole(pvcVerbs))
             .serverSideApply()
         admin
             .rbac()
             .roleBindings()
             .inNamespace(AGENTS_NAMESPACE)
-            .resource(binding)
+            .resource(runnerControllerBinding())
             .serverSideApply()
     }
+
+    private fun runnerControllerRole(pvcVerbs: List<String>) =
+        RoleBuilder()
+            .withNewMetadata()
+            .withName(ROLE_NAME)
+            .withNamespace(AGENTS_NAMESPACE)
+            .endMetadata()
+            .withRules(
+                PolicyRuleBuilder()
+                    .withApiGroups("")
+                    .withResources("pods", "pods/log", "services")
+                    .withVerbs("get", "list", "watch", "create", "delete", "patch")
+                    .build(),
+                // Deliberately omits "patch" — the regression.
+                PolicyRuleBuilder()
+                    .withApiGroups("")
+                    .withResources("persistentvolumeclaims")
+                    .withVerbs(pvcVerbs)
+                    .build(),
+                PolicyRuleBuilder()
+                    .withApiGroups("")
+                    .withResources("secrets")
+                    .withVerbs("get", "list", "watch", "create", "delete", "patch")
+                    .build(),
+            ).build()
+
+    private fun runnerControllerBinding() =
+        RoleBindingBuilder()
+            .withNewMetadata()
+            .withName(ROLE_NAME)
+            .withNamespace(AGENTS_NAMESPACE)
+            .endMetadata()
+            .withSubjects(
+                SubjectBuilder()
+                    .withKind("ServiceAccount")
+                    .withName(AGENTS_SERVICE_ACCOUNT)
+                    .withNamespace(AGENTS_NAMESPACE)
+                    .build(),
+            ).withRoleRef(
+                RoleRefBuilder()
+                    .withKind("Role")
+                    .withName(ROLE_NAME)
+                    .withApiGroup("rbac.authorization.k8s.io")
+                    .build(),
+            ).build()
 
     /**
      * Build a fresh client that impersonates the agents-api
@@ -222,10 +224,7 @@ object K3sTestSupport {
      * credentials (impersonation requires the underlying client to
      * have `impersonate` verb cluster-admin grants by default).
      */
-    fun createServiceAccountScopedClient(
-        container: K3sContainer,
-        admin: KubernetesClient,
-    ): KubernetesClient {
+    fun createServiceAccountScopedClient(container: K3sContainer): KubernetesClient {
         val cfg =
             ConfigBuilder(
                 io.fabric8.kubernetes.client.Config

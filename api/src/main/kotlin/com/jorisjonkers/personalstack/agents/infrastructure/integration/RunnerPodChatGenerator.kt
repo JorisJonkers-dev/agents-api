@@ -97,8 +97,7 @@ class RunnerPodChatGenerator(
                         ),
                     ).retrieve()
                     .body(Map::class.java)
-            @Suppress("UNCHECKED_CAST")
-            jobId = (response as? Map<String, Any?>)?.get("id")?.toString()
+            jobId = response?.get("id")?.toString()
             if (jobId.isNullOrBlank()) {
                 log.warn("RunnerPodChatGenerator: gateway returned no job id")
                 jobId = null

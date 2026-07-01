@@ -9,6 +9,24 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import java.time.Instant
 
 interface WorkspaceAgentSessionRepository {
+    data class LifecycleUpdate(
+        val id: WorkspaceAgentSessionId,
+        val expectedGeneration: Long,
+        val status: WorkspaceAgentSessionStatus,
+        val retainedUntil: Instant?,
+        val clearGatewayBinding: Boolean,
+        val now: Instant = Instant.now(),
+    )
+
+    data class PendingSetupUpdate(
+        val id: WorkspaceAgentSessionId,
+        val expectedCurrentSetupId: AgentSetupId,
+        val expectedCurrentSetupVersion: AgentSetupVersion,
+        val pendingSetupId: AgentSetupId,
+        val pendingSetupVersion: AgentSetupVersion,
+        val now: Instant = Instant.now(),
+    )
+
     fun save(session: WorkspaceAgentSession): WorkspaceAgentSession
 
     fun findById(id: WorkspaceAgentSessionId): WorkspaceAgentSession?
@@ -36,14 +54,7 @@ interface WorkspaceAgentSessionRepository {
         now: Instant = Instant.now(),
     ): Boolean
 
-    fun markLifecycleIfGeneration(
-        id: WorkspaceAgentSessionId,
-        expectedGeneration: Long,
-        status: WorkspaceAgentSessionStatus,
-        retainedUntil: Instant?,
-        clearGatewayBinding: Boolean,
-        now: Instant = Instant.now(),
-    ): Boolean
+    fun markLifecycleIfGeneration(update: LifecycleUpdate): Boolean
 
     fun findReadyForCleanup(
         now: Instant,
@@ -55,14 +66,7 @@ interface WorkspaceAgentSessionRepository {
         now: Instant = Instant.now(),
     ): Boolean
 
-    fun setPendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
-        expectedCurrentSetupId: AgentSetupId,
-        expectedCurrentSetupVersion: AgentSetupVersion,
-        pendingSetupId: AgentSetupId,
-        pendingSetupVersion: AgentSetupVersion,
-        now: Instant = Instant.now(),
-    ): Boolean
+    fun setPendingSetupIfCurrent(update: PendingSetupUpdate): Boolean
 
     fun promotePendingSetupIfCurrent(
         id: WorkspaceAgentSessionId,

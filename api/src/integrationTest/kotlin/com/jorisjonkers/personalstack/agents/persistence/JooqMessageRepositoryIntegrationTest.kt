@@ -15,100 +15,99 @@ import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 import java.util.UUID
 
-class JooqMessageRepositoryIntegrationTest : IntegrationTestBase() {
+class JooqMessageRepositoryIntegrationTest
     @Autowired
-    private lateinit var conversationRepository: ConversationRepository
+    constructor(
+        private val conversationRepository: ConversationRepository,
+        private val messageRepository: MessageRepository,
+    ) : IntegrationTestBase {
+        @Test
+        fun saveAndFindByConversationIdReturnsSavedMessages() {
+            val conversation = buildConversation()
+            conversationRepository.save(conversation)
 
-    @Autowired
-    private lateinit var messageRepository: MessageRepository
+            val message = buildMessage(conversationId = conversation.id, content = "Hello", role = MessageRole.USER)
+            messageRepository.save(message)
 
-    @Test
-    fun `save and findByConversationId returns saved messages`() {
-        val conversation = buildConversation()
-        conversationRepository.save(conversation)
+            val found = messageRepository.findByConversationId(conversation.id)
 
-        val message = buildMessage(conversationId = conversation.id, content = "Hello", role = MessageRole.USER)
-        messageRepository.save(message)
+            assertThat(found).hasSize(1)
+            assertThat(found[0].content).isEqualTo("Hello")
+            assertThat(found[0].role).isEqualTo(MessageRole.USER)
+        }
 
-        val found = messageRepository.findByConversationId(conversation.id)
+        @Test
+        fun findbyconversationidReturnsEmptyListWhenNoMessagesExist() {
+            val conversation = buildConversation()
+            conversationRepository.save(conversation)
 
-        assertThat(found).hasSize(1)
-        assertThat(found[0].content).isEqualTo("Hello")
-        assertThat(found[0].role).isEqualTo(MessageRole.USER)
-    }
+            val found = messageRepository.findByConversationId(conversation.id)
 
-    @Test
-    fun `findByConversationId returns empty list when no messages exist`() {
-        val conversation = buildConversation()
-        conversationRepository.save(conversation)
+            assertThat(found).isEmpty()
+        }
 
-        val found = messageRepository.findByConversationId(conversation.id)
+        @Test
+        fun findbyconversationidReturnsMessagesInAscendingCreationOrder() {
+            val conversation = buildConversation()
+            conversationRepository.save(conversation)
 
-        assertThat(found).isEmpty()
-    }
+            val first = buildMessage(conversationId = conversation.id, content = "First", role = MessageRole.USER)
+            val second =
+                buildMessage(
+                    conversationId = conversation.id,
+                    content = "Second",
+                    role = MessageRole.ASSISTANT,
+                    createdAt = Instant.now().plusSeconds(1),
+                )
+            messageRepository.save(first)
+            messageRepository.save(second)
 
-    @Test
-    fun `findByConversationId returns messages in ascending creation order`() {
-        val conversation = buildConversation()
-        conversationRepository.save(conversation)
+            val found = messageRepository.findByConversationId(conversation.id)
 
-        val first = buildMessage(conversationId = conversation.id, content = "First", role = MessageRole.USER)
-        val second =
-            buildMessage(
-                conversationId = conversation.id,
-                content = "Second",
-                role = MessageRole.ASSISTANT,
-                createdAt = Instant.now().plusSeconds(1),
+            assertThat(found).hasSize(2)
+            assertThat(found[0].content).isEqualTo("First")
+            assertThat(found[1].content).isEqualTo("Second")
+        }
+
+        @Test
+        fun findbyconversationidDoesNotReturnMessagesForOtherConversations() {
+            val conversation1 = buildConversation()
+            val conversation2 = buildConversation()
+            conversationRepository.save(conversation1)
+            conversationRepository.save(conversation2)
+
+            messageRepository.save(buildMessage(conversationId = conversation1.id, content = "Conv1 message"))
+            messageRepository.save(buildMessage(conversationId = conversation2.id, content = "Conv2 message"))
+
+            val found = messageRepository.findByConversationId(conversation1.id)
+
+            assertThat(found).hasSize(1)
+            assertThat(found[0].content).isEqualTo("Conv1 message")
+        }
+
+        private fun buildConversation(): Conversation {
+            val now = Instant.now()
+            return Conversation(
+                id = ConversationId(UUID.randomUUID()),
+                userId = UUID.randomUUID(),
+                title = "Test Conversation",
+                status = ConversationStatus.ACTIVE,
+                createdAt = now,
+                updatedAt = now,
             )
-        messageRepository.save(first)
-        messageRepository.save(second)
+        }
 
-        val found = messageRepository.findByConversationId(conversation.id)
-
-        assertThat(found).hasSize(2)
-        assertThat(found[0].content).isEqualTo("First")
-        assertThat(found[1].content).isEqualTo("Second")
+        private fun buildMessage(
+            conversationId: ConversationId,
+            content: String = "Test message",
+            role: MessageRole = MessageRole.USER,
+            createdAt: Instant = Instant.now(),
+        ): Message =
+            Message(
+                id = MessageId(UUID.randomUUID()),
+                conversationId = conversationId,
+                role = role,
+                content = content,
+                createdAt = createdAt,
+            )
     }
-
-    @Test
-    fun `findByConversationId does not return messages for other conversations`() {
-        val conversation1 = buildConversation()
-        val conversation2 = buildConversation()
-        conversationRepository.save(conversation1)
-        conversationRepository.save(conversation2)
-
-        messageRepository.save(buildMessage(conversationId = conversation1.id, content = "Conv1 message"))
-        messageRepository.save(buildMessage(conversationId = conversation2.id, content = "Conv2 message"))
-
-        val found = messageRepository.findByConversationId(conversation1.id)
-
-        assertThat(found).hasSize(1)
-        assertThat(found[0].content).isEqualTo("Conv1 message")
-    }
-
-    private fun buildConversation(): Conversation {
-        val now = Instant.now()
-        return Conversation(
-            id = ConversationId(UUID.randomUUID()),
-            userId = UUID.randomUUID(),
-            title = "Test Conversation",
-            status = ConversationStatus.ACTIVE,
-            createdAt = now,
-            updatedAt = now,
-        )
-    }
-
-    private fun buildMessage(
-        conversationId: ConversationId,
-        content: String = "Test message",
-        role: MessageRole = MessageRole.USER,
-        createdAt: Instant = Instant.now(),
-    ): Message =
-        Message(
-            id = MessageId(UUID.randomUUID()),
-            conversationId = conversationId,
-            role = role,
-            content = content,
-            createdAt = createdAt,
-        )
-}

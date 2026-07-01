@@ -36,18 +36,19 @@ interface AgentGatewayClient {
         val name: String,
     )
 
-    @Suppress("LongParameterList")
-    fun spawnAgent(
-        workspace: Workspace,
-        kind: WorkspaceAgentKind,
-        workspacePath: String? = null,
-        stableSessionId: WorkspaceAgentSessionId? = null,
-        epoch: Long? = null,
-        continuation: ContinuationMetadata? = null,
+    data class SpawnAgentRequest(
+        val workspace: Workspace,
+        val kind: WorkspaceAgentKind,
+        val workspacePath: String? = null,
+        val stableSessionId: WorkspaceAgentSessionId? = null,
+        val epoch: Long? = null,
+        val continuation: ContinuationMetadata? = null,
         // When set (session revival), the gateway resumes the prior CLI
         // conversation (`--resume <id>`) instead of starting blank.
-        resumeCliSessionId: String? = null,
-    ): GatewayAgent
+        val resumeCliSessionId: String? = null,
+    )
+
+    fun spawnAgent(request: SpawnAgentRequest): GatewayAgent
 
     fun stopAgent(
         workspace: Workspace,
@@ -114,16 +115,18 @@ interface AgentGatewayClient {
         val output: String?,
     )
 
-    fun startHeadlessJob(
-        workspace: Workspace,
-        kind: WorkspaceAgentKind,
-        prompt: String,
-        cliSessionId: String? = null,
-        timeoutSeconds: Long? = null,
-        stableSessionId: WorkspaceAgentSessionId? = null,
-        epoch: Long? = null,
-        continuation: ContinuationMetadata? = null,
-    ): HeadlessJob
+    data class HeadlessJobRequest(
+        val workspace: Workspace,
+        val kind: WorkspaceAgentKind,
+        val prompt: String,
+        val cliSessionId: String? = null,
+        val timeoutSeconds: Long? = null,
+        val stableSessionId: WorkspaceAgentSessionId? = null,
+        val epoch: Long? = null,
+        val continuation: ContinuationMetadata? = null,
+    )
+
+    fun startHeadlessJob(request: HeadlessJobRequest): HeadlessJob
 
     fun pollHeadlessJob(
         workspace: Workspace,

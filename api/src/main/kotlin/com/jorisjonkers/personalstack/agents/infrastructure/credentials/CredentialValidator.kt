@@ -11,11 +11,15 @@ enum class CredentialValidationResult {
 
 @Component
 class CredentialValidator {
-    @Suppress("UNUSED_PARAMETER")
     fun validate(
         provider: AgentCredentialProvider,
         payload: Map<String, String>,
-    ): CredentialValidationResult = CredentialValidationResult.UNKNOWN
+    ): CredentialValidationResult =
+        if (payloadMatches(provider, payload)) {
+            CredentialValidationResult.UNKNOWN
+        } else {
+            CredentialValidationResult.EXPLICIT_INVALID
+        }
 
     fun fromHttpStatus(statusCode: Int): CredentialValidationResult =
         when (statusCode) {
@@ -23,6 +27,18 @@ class CredentialValidator {
             HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> CredentialValidationResult.EXPLICIT_INVALID
             else -> CredentialValidationResult.UNKNOWN
         }
+
+    private fun payloadMatches(
+        provider: AgentCredentialProvider,
+        payload: Map<String, String>,
+    ): Boolean =
+        when (provider) {
+            AgentCredentialProvider.CLAUDE ->
+                payload["credentials_json"].isPresent() || payload["oauth_token"].isPresent()
+            AgentCredentialProvider.CODEX -> payload["auth_json"].isPresent()
+        }
+
+    private fun String?.isPresent(): Boolean = !isNullOrBlank()
 
     companion object {
         private const val HTTP_OK_MIN = 200

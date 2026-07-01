@@ -39,7 +39,7 @@ class GetWorkspaceQueryService(
             links.map { link ->
                 val repository =
                     repositories.findById(link.repositoryId)
-                        ?: throw IllegalStateException(
+                        ?: error(
                             "Workspace ${id.value} references missing repository ${link.repositoryId.value}",
                         )
                 WorkspaceRepositoryView(repository, link.isPrimary, link.attachedAt)

@@ -23,7 +23,6 @@ class Fabric8RunnerBindingInventory(
 ) : RunnerBindingInventory {
     private val log = LoggerFactory.getLogger(Fabric8RunnerBindingInventory::class.java)
 
-    @Suppress("LongMethod")
     override fun inspect(
         definition: AgentSetupDefinition,
         workspace: Workspace?,
@@ -185,7 +184,6 @@ class Fabric8RunnerBindingInventory(
 @Component
 @Profile("system-test")
 class StubRunnerBindingInventory : RunnerBindingInventory {
-    @Suppress("LongMethod")
     override fun inspect(
         definition: AgentSetupDefinition,
         workspace: Workspace?,

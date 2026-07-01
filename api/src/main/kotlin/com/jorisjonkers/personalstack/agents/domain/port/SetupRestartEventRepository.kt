@@ -8,6 +8,16 @@ import java.time.Instant
 import java.util.UUID
 
 interface SetupRestartEventRepository {
+    data class StatusUpdate(
+        val id: UUID,
+        val expectedStatus: SetupRestartEventStatus,
+        val status: SetupRestartEventStatus,
+        val message: String? = null,
+        val startedAt: Instant? = null,
+        val completedAt: Instant? = null,
+        val now: Instant = Instant.now(),
+    )
+
     fun save(event: SetupRestartEvent): SetupRestartEvent
 
     fun findById(id: UUID): SetupRestartEvent?
@@ -16,13 +26,5 @@ interface SetupRestartEventRepository {
 
     fun findAllBySessionId(sessionId: WorkspaceAgentSessionId): List<SetupRestartEvent>
 
-    fun updateStatusIfCurrent(
-        id: UUID,
-        expectedStatus: SetupRestartEventStatus,
-        status: SetupRestartEventStatus,
-        message: String? = null,
-        startedAt: Instant? = null,
-        completedAt: Instant? = null,
-        now: Instant = Instant.now(),
-    ): Boolean
+    fun updateStatusIfCurrent(update: StatusUpdate): Boolean
 }

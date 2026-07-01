@@ -95,13 +95,15 @@ class SessionAttachHandlerTest {
         telemetry = RecordingTelemetry()
         handler =
             SessionAttachHandler(
-                sessions,
-                workspaces,
-                activity,
-                ConnectedClientTracker(),
-                binding,
-                sessionStatus,
-                telemetry,
+                SessionAttachDependencies(
+                    sessions = sessions,
+                    workspaces = workspaces,
+                    activity = activity,
+                    connected = ConnectedClientTracker(),
+                    binding = binding,
+                    sessionStatus = sessionStatus,
+                ),
+                telemetry = telemetry,
             )
 
         every { sessions.findById(sessionId) } returns agentSession()

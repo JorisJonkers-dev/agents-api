@@ -16,7 +16,6 @@ import org.jooq.Record
 import org.jooq.impl.DSL
 import org.springframework.stereotype.Repository
 import java.time.Instant
-import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -34,7 +33,6 @@ import java.util.UUID
 class JooqWorkspaceRepository(
     private val dsl: DSLContext,
 ) : WorkspaceRepository {
-    @Suppress("LongMethod")
     override fun save(workspace: Workspace): Workspace {
         val createdAt = workspace.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = workspace.updatedAt.atOffset(ZoneOffset.UTC)
@@ -110,25 +108,18 @@ class JooqWorkspaceRepository(
             .fetch()
             .map { it.toWorkspace() }
 
-    override fun beginRunnerSetupOperation(
-        id: WorkspaceId,
-        expectedGeneration: Long,
-        setupId: AgentSetupId,
-        setupVersion: AgentSetupVersion,
-        operation: RunnerSetupOperation,
-        now: Instant,
-    ): Boolean =
+    override fun beginRunnerSetupOperation(request: WorkspaceRepository.RunnerSetupOperationRequest): Boolean =
         dsl
             .update(WORKSPACES)
-            .set(PENDING_RUNNER_SETUP_ID, setupId.value)
-            .set(PENDING_RUNNER_SETUP_VERSION, setupVersion.value)
-            .set(RUNNER_SETUP_GENERATION, expectedGeneration + 1)
-            .set(RUNNER_SETUP_OPERATION, operation.name)
-            .set(RUNNER_SETUP_OPERATION_STARTED_AT, now.atOffset(ZoneOffset.UTC))
-            .set(RUNNER_SETUP_OPERATION_UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .set(UPDATED_AT, now.atOffset(ZoneOffset.UTC))
-            .where(ID.eq(id.value))
-            .and(RUNNER_SETUP_GENERATION.eq(expectedGeneration))
+            .set(PENDING_RUNNER_SETUP_ID, request.setupId.value)
+            .set(PENDING_RUNNER_SETUP_VERSION, request.setupVersion.value)
+            .set(RUNNER_SETUP_GENERATION, request.expectedGeneration + 1)
+            .set(RUNNER_SETUP_OPERATION, request.operation.name)
+            .set(RUNNER_SETUP_OPERATION_STARTED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .set(RUNNER_SETUP_OPERATION_UPDATED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .set(UPDATED_AT, request.now.atOffset(ZoneOffset.UTC))
+            .where(ID.eq(request.id.value))
+            .and(RUNNER_SETUP_GENERATION.eq(request.expectedGeneration))
             .and(RUNNER_SETUP_OPERATION.eq(RunnerSetupOperation.IDLE.name))
             .execute() == 1
 
@@ -254,7 +245,6 @@ class JooqWorkspaceRepository(
         dsl.deleteFrom(WORKSPACES).where(ID.eq(id.value)).execute()
     }
 
-    @Suppress("CyclomaticComplexMethod")
     private fun Record.toWorkspace(): Workspace =
         Workspace(
             id = WorkspaceId(this[ID]),
@@ -348,8 +338,5 @@ class JooqWorkspaceRepository(
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 
         @JvmStatic val UPDATED_AT = DSL.field("updated_at", OffsetDateTime::class.java)
-
-        @Suppress("unused")
-        private val unusedLdt = LocalDateTime::class.java
     }
 }

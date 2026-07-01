@@ -10,20 +10,22 @@ import java.time.Instant
 import java.util.UUID
 
 interface WorkspaceRepository {
+    data class RunnerSetupOperationRequest(
+        val id: WorkspaceId,
+        val expectedGeneration: Long,
+        val setupId: AgentSetupId,
+        val setupVersion: AgentSetupVersion,
+        val operation: RunnerSetupOperation = RunnerSetupOperation.RESTARTING,
+        val now: Instant = Instant.now(),
+    )
+
     fun save(workspace: Workspace): Workspace
 
     fun findById(id: WorkspaceId): Workspace?
 
     fun findAllByStatusNot(status: WorkspaceStatus): List<Workspace>
 
-    fun beginRunnerSetupOperation(
-        id: WorkspaceId,
-        expectedGeneration: Long,
-        setupId: AgentSetupId,
-        setupVersion: AgentSetupVersion,
-        operation: RunnerSetupOperation = RunnerSetupOperation.RESTARTING,
-        now: Instant = Instant.now(),
-    ): Boolean
+    fun beginRunnerSetupOperation(request: RunnerSetupOperationRequest): Boolean
 
     fun completeRunnerSetupOperation(
         id: WorkspaceId,
