@@ -16,7 +16,6 @@ import org.jooq.Record
 import org.jooq.impl.DSL
 import org.springframework.stereotype.Repository
 import java.time.Instant
-import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -341,8 +340,5 @@ class JooqWorkspaceRepository(
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 
         @JvmStatic val UPDATED_AT = DSL.field("updated_at", OffsetDateTime::class.java)
-
-        @Suppress("unused")
-        private val unusedLdt = LocalDateTime::class.java
     }
 }

@@ -1,5 +1,3 @@
-@file:Suppress("ThrowsCount", "TooGenericExceptionCaught")
-
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
@@ -35,60 +33,71 @@ class RestartAgentSessionService(
     private val clock: Clock = Clock.systemUTC(),
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) {
-    @Suppress("LongMethod")
     fun restart(request: RestartAgentSessionInput): RunnerSessionBindingResult {
         val startedAt = Instant.now()
-        try {
-            val workspace =
-                workspaces.findById(request.workspaceId)
-                    ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
-            val session =
-                sessions.findById(request.sessionId)
-                    ?: throw NoSuchElementException("session not found: ${request.sessionId.value}")
-            require(session.workspaceId == request.workspaceId) {
-                "session does not belong to workspace: ${request.sessionId.value}"
+        return runCatching { restartValidated(request, startedAt) }
+            .getOrElse { ex ->
+                recordLifecycle(startedAt, OutcomeLabel.FAILURE, ex.telemetryReason())
+                throw ex
             }
-            require(session.runMode == INTERACTIVE_RUN_MODE) {
-                "session is not interactive: ${request.sessionId.value}"
-            }
-            require(session.isRestartable(clock.instant())) {
-                "session cannot be restarted: ${request.sessionId.value}"
-            }
+    }
 
-            val expectedGeneration = request.expectedGeneration ?: session.generation
-            if (expectedGeneration != session.generation) {
-                return RunnerSessionBindingResult
-                    .Conflict(current = session)
-                    .recorded(startedAt, FailureReasonLabel.CAPACITY)
-            }
-            require((request.targetSetupId == null) == (request.targetSetupVersion == null)) {
-                "target setup id and version must be supplied together"
-            }
-            val targetSetupId = request.targetSetupId ?: session.currentSetupId
-            val targetSetupVersion = request.targetSetupVersion ?: session.currentSetupVersion
-            setupValidation.requireValid(
-                AgentSetupValidationInput(
-                    workspace = workspace,
-                    targetId = targetSetupId,
-                    targetVersion = targetSetupVersion,
-                    session = session,
-                ),
-            )
-            return binding
-                .restart(
-                    RestartRunnerSessionBindingInput(
-                        workspaceId = request.workspaceId,
-                        sessionId = request.sessionId,
-                        expectedGeneration = expectedGeneration,
-                        reason = request.reason,
-                        targetSetupId = targetSetupId,
-                        targetSetupVersion = targetSetupVersion,
-                    ),
-                ).recorded(startedAt, FailureReasonLabel.CAPACITY)
-        } catch (ex: Exception) {
-            recordLifecycle(startedAt, OutcomeLabel.FAILURE, ex.telemetryReason())
-            throw ex
+    private fun restartValidated(
+        request: RestartAgentSessionInput,
+        startedAt: Instant,
+    ): RunnerSessionBindingResult {
+        val workspace = requireWorkspace(request.workspaceId)
+        val session = requireRestartableSession(request)
+        val expectedGeneration = request.expectedGeneration ?: session.generation
+        if (expectedGeneration != session.generation) {
+            return RunnerSessionBindingResult
+                .Conflict(current = session)
+                .recorded(startedAt, FailureReasonLabel.CAPACITY)
         }
+        require((request.targetSetupId == null) == (request.targetSetupVersion == null)) {
+            "target setup id and version must be supplied together"
+        }
+        val targetSetupId = request.targetSetupId ?: session.currentSetupId
+        val targetSetupVersion = request.targetSetupVersion ?: session.currentSetupVersion
+        setupValidation.requireValid(
+            AgentSetupValidationInput(
+                workspace = workspace,
+                targetId = targetSetupId,
+                targetVersion = targetSetupVersion,
+                session = session,
+            ),
+        )
+        return binding
+            .restart(
+                RestartRunnerSessionBindingInput(
+                    workspaceId = request.workspaceId,
+                    sessionId = request.sessionId,
+                    expectedGeneration = expectedGeneration,
+                    reason = request.reason,
+                    targetSetupId = targetSetupId,
+                    targetSetupVersion = targetSetupVersion,
+                ),
+            ).recorded(startedAt, FailureReasonLabel.CAPACITY)
+    }
+
+    private fun requireWorkspace(workspaceId: WorkspaceId) =
+        workspaces.findById(workspaceId)
+            ?: throw NoSuchElementException("workspace not found: ${workspaceId.value}")
+
+    private fun requireRestartableSession(request: RestartAgentSessionInput): WorkspaceAgentSession {
+        val session =
+            sessions.findById(request.sessionId)
+                ?: throw NoSuchElementException("session not found: ${request.sessionId.value}")
+        require(session.workspaceId == request.workspaceId) {
+            "session does not belong to workspace: ${request.sessionId.value}"
+        }
+        require(session.runMode == INTERACTIVE_RUN_MODE) {
+            "session is not interactive: ${request.sessionId.value}"
+        }
+        require(session.isRestartable(clock.instant())) {
+            "session cannot be restarted: ${request.sessionId.value}"
+        }
+        return session
     }
 
     private fun RunnerSessionBindingResult.recorded(

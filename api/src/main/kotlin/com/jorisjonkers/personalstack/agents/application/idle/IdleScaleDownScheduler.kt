@@ -106,17 +106,31 @@ class IdleScaleDownScheduler(
         if (candidates.isNotEmpty()) log.info("idle-sweep scaled down {} workspace(s)", candidates.size)
     }
 
-    @Suppress("ReturnCount")
-    private fun isEligibleForScaleDown(workspace: Workspace): Boolean {
-        if (workspace.hasRunnerSetupGuard()) return false
-        if (connected.isConnected(workspace.id)) return false
-        val sessions = agentSessions.findAllByWorkspaceId(workspace.id)
-        if (sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null }) return false
-        // No client is attached (checked above). If the runner is on an image
-        // from an older release, recycle it so the next attach comes back on
-        // the current image — but only once every running agent has gone quiet,
-        // so an agent that is still working is never interrupted mid-task.
-        if (orchestrator.isRunnerImageStale(workspace)) return staleRunnerSafeToRecycle(workspace, sessions)
+    private fun isEligibleForScaleDown(workspace: Workspace): Boolean =
+        when {
+            workspace.hasRunnerSetupGuard() -> false
+            connected.isConnected(workspace.id) -> false
+            else -> sessionsEligibleForScaleDown(workspace, agentSessions.findAllByWorkspaceId(workspace.id))
+        }
+
+    private fun sessionsEligibleForScaleDown(
+        workspace: Workspace,
+        sessions: List<WorkspaceAgentSession>,
+    ): Boolean =
+        when {
+            sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null } -> false
+            // No client is attached (checked above). If the runner is on an image
+            // from an older release, recycle it so the next attach comes back on
+            // the current image — but only once every running agent has gone quiet,
+            // so an agent that is still working is never interrupted mid-task.
+            orchestrator.isRunnerImageStale(workspace) -> staleRunnerSafeToRecycle(workspace, sessions)
+            else -> idleLongEnough(workspace, sessions)
+        }
+
+    private fun idleLongEnough(
+        workspace: Workspace,
+        sessions: List<WorkspaceAgentSession>,
+    ): Boolean {
         val lastSeen = effectiveLastSeen(workspace)
         val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
         val threshold = if (hasRunning) runtime.agentIdleAfter else runtime.idleAfter

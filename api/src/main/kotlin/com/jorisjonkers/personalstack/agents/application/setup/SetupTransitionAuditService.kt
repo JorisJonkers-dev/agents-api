@@ -1,5 +1,3 @@
-@file:Suppress("LongMethod", "TooGenericExceptionCaught")
-
 package com.jorisjonkers.personalstack.agents.application.setup
 
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
@@ -42,42 +40,46 @@ class SetupTransitionAuditService(
         now: Instant = Instant.now(),
     ): SetupRestartEvent? {
         val startedAt = Instant.now()
-        val workspace = rejection.workspace
-        val session = rejection.session
         val result = rejection.result
         if (result.valid) {
             recordLifecycle(startedAt, OutcomeLabel.SKIPPED, FailureReasonLabel.NONE)
             return null
         }
-        val fromSetupId = session?.currentSetupId ?: workspace.currentRunnerSetupId
-        val fromSetupVersion = session?.currentSetupVersion ?: workspace.currentRunnerSetupVersion
-        try {
-            val saved =
-                events.save(
-                    SetupRestartEvent(
-                        id = UUID.randomUUID(),
-                        workspaceId = workspace.id,
-                        sessionId = session?.id,
-                        fromSetupId = fromSetupId,
-                        fromSetupVersion = fromSetupVersion,
-                        toSetupId = rejection.targetId,
-                        toSetupVersion = rejection.targetVersion,
-                        status = SetupRestartEventStatus.FAILED,
-                        reason = REASON_VALIDATION_REJECTED,
-                        message = result.message(),
-                        requestedAt = now,
-                        startedAt = null,
-                        completedAt = now,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
+        return runCatching {
+            val saved = saveRejected(rejection, now)
             recordLifecycle(startedAt, OutcomeLabel.FAILURE, FailureReasonLabel.INVALID_REQUEST)
-            return saved
-        } catch (ex: Exception) {
+            saved
+        }.getOrElse { ex ->
             recordLifecycle(startedAt, OutcomeLabel.FAILURE, ex.reasonClass())
             throw ex
         }
+    }
+
+    private fun saveRejected(
+        rejection: Rejection,
+        now: Instant,
+    ): SetupRestartEvent {
+        val workspace = rejection.workspace
+        val session = rejection.session
+        return events.save(
+            SetupRestartEvent(
+                id = UUID.randomUUID(),
+                workspaceId = workspace.id,
+                sessionId = session?.id,
+                fromSetupId = session?.currentSetupId ?: workspace.currentRunnerSetupId,
+                fromSetupVersion = session?.currentSetupVersion ?: workspace.currentRunnerSetupVersion,
+                toSetupId = rejection.targetId,
+                toSetupVersion = rejection.targetVersion,
+                status = SetupRestartEventStatus.FAILED,
+                reason = REASON_VALIDATION_REJECTED,
+                message = rejection.result.message(),
+                requestedAt = now,
+                startedAt = null,
+                completedAt = now,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
     }
 
     private fun recordLifecycle(

@@ -76,6 +76,10 @@ class HttpAgentGatewayClient(
         val name: String,
     )
 
+    private data class CaptureResponse(
+        val text: String = "",
+    )
+
     private data class CloneBody(
         val repoUrl: String,
         val branch: String? = null,
@@ -185,14 +189,13 @@ class HttpAgentGatewayClient(
         workspace: Workspace,
         gatewayAgentId: String,
     ): String {
-        @Suppress("UNCHECKED_CAST")
         val body =
             restClient
                 .get()
                 .uri("${endpoint(workspace)}/agents/$gatewayAgentId/capture")
                 .retrieve()
-                .body(Map::class.java) as Map<String, String>
-        return body["text"].orEmpty()
+                .body(CaptureResponse::class.java)
+        return body?.text.orEmpty()
     }
 
     override fun clone(

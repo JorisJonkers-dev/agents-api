@@ -22,13 +22,15 @@ class WorkspaceRunnerEventsController(
     private val getQuery: GetWorkspaceQueryService,
 ) {
     @GetMapping("/{id}/runner-events", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-    @Suppress("UnusedParameter")
     fun events(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,
     ): ResponseEntity<SseEmitter> {
         val workspaceId = WorkspaceId(id)
-        getQuery.getSummary(workspaceId) ?: return ResponseEntity.notFound().build()
+        val workspace = getQuery.getSummary(workspaceId) ?: return ResponseEntity.notFound().build()
+        if (workspace.ownerUserId != null && workspace.ownerUserId != userId) {
+            return ResponseEntity.notFound().build()
+        }
         return ResponseEntity
             .ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)

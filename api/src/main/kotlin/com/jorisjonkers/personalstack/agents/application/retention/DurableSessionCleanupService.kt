@@ -92,24 +92,13 @@ class DurableSessionCleanupService(
             .count { sessions.markCleanupRequested(it.id, now) }
     }
 
-    @Suppress("ReturnCount")
     private fun cleanupPendingSession(session: WorkspaceAgentSession): Boolean {
-        if (session.cleanupRequestedAt == null) {
-            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.INVALID_REQUEST)
+        cleanupSkipReason(session)?.let { reason ->
+            recordCleanup(OutcomeLabel.SKIPPED, reason)
             return false
         }
-        if (session.pendingSetupId != null || session.pendingSetupVersion != null) {
-            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
-            return false
-        }
-        val workspace =
-            workspaces.findById(session.workspaceId)
-                ?: run {
-                    log.warn("cleanup pending session {} has missing workspace {}", session.id, session.workspaceId)
-                    recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
-                    return false
-                }
-        val mountedWorkspace = ensureRunnerMounted(workspace, session) ?: return false
+        val mountedWorkspace = cleanupWorkspace(session)?.let { ensureRunnerMounted(it, session) }
+        if (mountedWorkspace == null) return false
         return runCatching {
             gateway.cleanupStableSession(mountedWorkspace, session.id)
             sessions.delete(session.id).also { deleted ->
@@ -134,16 +123,38 @@ class DurableSessionCleanupService(
         }.getOrDefault(false)
     }
 
-    @Suppress("ReturnCount")
+    private fun cleanupSkipReason(session: WorkspaceAgentSession): FailureReasonLabel? =
+        when {
+            session.cleanupRequestedAt == null -> FailureReasonLabel.INVALID_REQUEST
+            session.pendingSetupId != null || session.pendingSetupVersion != null -> FailureReasonLabel.CANCELLED
+            else -> null
+        }
+
+    private fun cleanupWorkspace(session: WorkspaceAgentSession): Workspace? {
+        val workspace = workspaces.findById(session.workspaceId)
+        if (workspace == null) {
+            log.warn("cleanup pending session {} has missing workspace {}", session.id, session.workspaceId)
+            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
+        }
+        return workspace
+    }
+
     private fun ensureRunnerMounted(
         workspace: Workspace,
         session: WorkspaceAgentSession,
     ): Workspace? {
-        if (workspace.hasRunnerSetupGuard()) {
-            recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
-            return null
+        if (workspace.hasRunnerSetupGuard()) recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
+        return when {
+            workspace.hasRunnerSetupGuard() -> null
+            runCatching { gateway.isReady(workspace) }.getOrDefault(false) -> workspace
+            else -> bootRunnerForCleanup(workspace, session)
         }
-        if (runCatching { gateway.isReady(workspace) }.getOrDefault(false)) return workspace
+    }
+
+    private fun bootRunnerForCleanup(
+        workspace: Workspace,
+        session: WorkspaceAgentSession,
+    ): Workspace? {
         val bootOutcome =
             runCatching {
                 runnerLifecycle.boot(workspaceId = workspace.id, kind = session.kind)

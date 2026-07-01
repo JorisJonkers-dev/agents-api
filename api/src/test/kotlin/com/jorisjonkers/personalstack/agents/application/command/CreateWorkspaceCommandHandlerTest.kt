@@ -79,10 +79,12 @@ class CreateWorkspaceCommandHandlerTest {
         CreateWorkspaceCommandHandler(
             workspaces,
             lifecycleService,
-            projectRepositoryLinks,
-            workspaceRepositoryLinks,
-            linkProvider,
-            repositoryProvider,
+            CreateWorkspaceRepositories(
+                projectMembership = projectRepositoryLinks,
+                workspaceMembership = workspaceRepositoryLinks,
+                legacyGithubLinks = linkProvider,
+                repositoryLookup = repositoryProvider,
+            ),
             verifyAccess,
             setupSelection,
             tx,

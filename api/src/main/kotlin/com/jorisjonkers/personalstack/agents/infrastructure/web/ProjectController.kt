@@ -129,12 +129,14 @@ class ProjectController(
     }
 
     @DeleteMapping("/{projectId}/links/{linkId}")
-    @Suppress("UnusedParameter") // projectId carried in the URL only
     fun removeLink(
         @PathVariable projectId: UUID,
         @PathVariable linkId: UUID,
     ): ResponseEntity<Unit> {
-        commandBus.dispatch(RemoveGithubLinkCommand(GithubLinkId(linkId)))
+        val project = projectQuery.get(ProjectId(projectId)) ?: return ResponseEntity.notFound().build()
+        val githubLinkId = GithubLinkId(linkId)
+        if (project.links.none { it.id == githubLinkId }) return ResponseEntity.notFound().build()
+        commandBus.dispatch(RemoveGithubLinkCommand(githubLinkId))
         return ResponseEntity.noContent().build()
     }
 }

@@ -1,5 +1,3 @@
-@file:Suppress("TooGenericExceptionCaught")
-
 package com.jorisjonkers.personalstack.agents.application.workspacerunner
 
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
@@ -70,7 +68,6 @@ class WorkspaceRunnerLifecycleService(
      * [WorkspaceRepository.completeBootLease]; on failure via
      * [WorkspaceRepository.failBootLease] (which increments the attempt counter).
      */
-    @Suppress("ReturnCount")
     fun boot(
         workspaceId: WorkspaceId,
         kind: WorkspaceAgentKind,
@@ -80,7 +77,15 @@ class WorkspaceRunnerLifecycleService(
         val workspace =
             workspaces.findById(workspaceId)
                 ?: return BootOutcome.Conflict(RunnerUnavailableReason.WORKSPACE_NOT_FOUND)
+        return bootWorkspace(workspace, kind, setupId, setupVersion)
+    }
 
+    private fun bootWorkspace(
+        workspace: Workspace,
+        kind: WorkspaceAgentKind,
+        setupId: AgentSetupId?,
+        setupVersion: AgentSetupVersion?,
+    ): BootOutcome {
         val target = targetResolver.resolve(workspace, kind, setupId, setupVersion)
 
         val identity = target.spec.identity(workspace.runnerSetupGeneration)
@@ -89,23 +94,24 @@ class WorkspaceRunnerLifecycleService(
             return BootOutcome.Ready(workspace, BootProvisioningOutcome.AlreadyReady)
         }
 
-        if (workspace.runnerSetupOperation != RunnerSetupOperation.IDLE ||
-            workspace.pendingRunnerSetupId != null
-        ) {
-            return BootOutcome.Conflict(RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS)
-        }
-
-        if (workspace.runnerBootLeaseId != null) {
-            return BootOutcome.Conflict(RunnerUnavailableReason.BOOT_LEASE_HELD)
-        }
+        bootConflict(workspace)?.let { return it }
 
         val leaseId = UUID.randomUUID()
-        if (!workspaces.acquireBootLease(workspaceId, leaseId)) {
-            return BootOutcome.Conflict(RunnerUnavailableReason.BOOT_LEASE_HELD)
+        return if (workspaces.acquireBootLease(workspace.id, leaseId)) {
+            provision(workspace, target, leaseId)
+        } else {
+            BootOutcome.Conflict(RunnerUnavailableReason.BOOT_LEASE_HELD)
         }
-
-        return provision(workspace, target, leaseId)
     }
+
+    private fun bootConflict(workspace: Workspace): BootOutcome.Conflict? =
+        when {
+            workspace.runnerSetupOperation != RunnerSetupOperation.IDLE ||
+                workspace.pendingRunnerSetupId != null ->
+                BootOutcome.Conflict(RunnerUnavailableReason.SETUP_OPERATION_IN_PROGRESS)
+            workspace.runnerBootLeaseId != null -> BootOutcome.Conflict(RunnerUnavailableReason.BOOT_LEASE_HELD)
+            else -> null
+        }
 
     data class RunnerImageStatus(
         val version: String?,
@@ -132,34 +138,12 @@ class WorkspaceRunnerLifecycleService(
      * is held the state is [RunnerReadinessState.Booting]; otherwise
      * orchestrator readiness is checked live.
      */
-    @Suppress("LongMethod")
     fun readinessSnapshot(workspace: Workspace): RunnerReadinessSnapshot {
         val now = clock.instant()
         val leaseId = workspace.runnerBootLeaseId
-        if (leaseId != null) {
-            return RunnerReadinessSnapshot(
-                workspaceId = workspace.id,
-                setupId = workspace.currentRunnerSetupId,
-                setupVersion = workspace.currentRunnerSetupVersion,
-                state =
-                    RunnerReadinessState.Booting(
-                        leaseId = leaseId,
-                        attempt = workspace.runnerBootAttempt,
-                        startedAt = workspace.runnerBootStartedAt ?: now,
-                    ),
-                checkedAt = now,
-            )
-        }
+        if (leaseId != null) return bootingSnapshot(workspace, leaseId, now)
         val ready = runCatching { orchestrator.isReady(workspace) }.getOrDefault(false)
-        val state =
-            if (ready) {
-                RunnerReadinessState.Ready
-            } else {
-                RunnerReadinessState.Unavailable(
-                    reason = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION,
-                    since = workspace.runnerBootUpdatedAt,
-                )
-            }
+        val state = currentReadinessState(workspace, ready)
         return RunnerReadinessSnapshot(
             workspaceId = workspace.id,
             setupId = workspace.currentRunnerSetupId,
@@ -168,6 +152,24 @@ class WorkspaceRunnerLifecycleService(
             checkedAt = now,
         )
     }
+
+    private fun bootingSnapshot(
+        workspace: Workspace,
+        leaseId: UUID,
+        now: Instant,
+    ): RunnerReadinessSnapshot =
+        RunnerReadinessSnapshot(
+            workspaceId = workspace.id,
+            setupId = workspace.currentRunnerSetupId,
+            setupVersion = workspace.currentRunnerSetupVersion,
+            state =
+                RunnerReadinessState.Booting(
+                    leaseId = leaseId,
+                    attempt = workspace.runnerBootAttempt,
+                    startedAt = workspace.runnerBootStartedAt ?: now,
+                ),
+            checkedAt = now,
+        )
 
     /**
      * Periodic sweep that releases boot leases stuck without completing
@@ -187,7 +189,6 @@ class WorkspaceRunnerLifecycleService(
         if (released > 0) log.info("runner-boot-lease reconciler released {} workspace(s)", released)
     }
 
-    @Suppress("LongMethod")
     private fun provision(
         workspace: Workspace,
         target: RunnerSetupTarget,
@@ -198,12 +199,7 @@ class WorkspaceRunnerLifecycleService(
                 orchestrator.scaleDown(workspace)
                 orchestrator.provision(workspace, target.spec, workspace.runnerSetupGeneration)
             }.getOrElse { ex ->
-                runCatching { workspaces.failBootLease(workspace.id, leaseId) }
-                publish(
-                    unavailableSnapshot(workspace, target, RunnerUnavailableReason.PROVISION_FAILED, clock.instant()),
-                )
-                log.warn("runner provision failed for workspace {}: {}", workspace.id.value, ex.message)
-                return BootOutcome.Conflict(RunnerUnavailableReason.PROVISION_FAILED)
+                return provisionFailed(workspace, target, leaseId, ex)
             }
 
         val booted = workspace.withPodInfo(handle.podName, handle.pvcName, handle.gatewayEndpoint)
@@ -213,7 +209,29 @@ class WorkspaceRunnerLifecycleService(
         val identity = target.spec.identity(saved.runnerSetupGeneration)
         val ready = runCatching { orchestrator.isReady(saved, identity) }.getOrDefault(false)
 
-        return if (ready) {
+        return provisionOutcome(saved, target, leaseId, handle, ready)
+    }
+
+    private fun provisionFailed(
+        workspace: Workspace,
+        target: RunnerSetupTarget,
+        leaseId: UUID,
+        ex: Throwable,
+    ): BootOutcome.Conflict {
+        runCatching { workspaces.failBootLease(workspace.id, leaseId) }
+        publish(unavailableSnapshot(workspace, target, RunnerUnavailableReason.PROVISION_FAILED, clock.instant()))
+        log.warn("runner provision failed for workspace {}: {}", workspace.id.value, ex.message)
+        return BootOutcome.Conflict(RunnerUnavailableReason.PROVISION_FAILED)
+    }
+
+    private fun provisionOutcome(
+        saved: Workspace,
+        target: RunnerSetupTarget,
+        leaseId: UUID,
+        handle: AgentRunnerOrchestrator.RunnerHandle,
+        ready: Boolean,
+    ): BootOutcome =
+        if (ready) {
             workspaces.completeBootLease(saved.id, leaseId)
             publish(readySnapshot(saved, target, clock.instant()))
             BootOutcome.Ready(
@@ -232,7 +250,6 @@ class WorkspaceRunnerLifecycleService(
             )
             BootOutcome.Conflict(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION)
         }
-    }
 
     private fun reclaim(
         workspace: Workspace,
@@ -292,3 +309,16 @@ class WorkspaceRunnerLifecycleService(
         return updatedAt.isBefore(olderThan)
     }
 }
+
+private fun currentReadinessState(
+    workspace: Workspace,
+    ready: Boolean,
+): RunnerReadinessState =
+    if (ready) {
+        RunnerReadinessState.Ready
+    } else {
+        RunnerReadinessState.Unavailable(
+            reason = RunnerUnavailableReason.NOT_READY_AFTER_PROVISION,
+            since = workspace.runnerBootUpdatedAt,
+        )
+    }
