@@ -116,7 +116,6 @@ class AgentSessionController(
             ),
         ],
     )
-    @Suppress("LongMethod")
     fun restart(
         @PathVariable workspaceId: UUID,
         @PathVariable sessionId: UUID,

@@ -37,11 +37,6 @@ import java.net.URI
 class KubernetesExceptionHandler {
     private val log = LoggerFactory.getLogger(KubernetesExceptionHandler::class.java)
 
-    // 31 lines after ktlint expands the log arguments onto their own
-    // lines — extracting one more helper would split the ProblemDetail
-    // builder from the local context it needs (traceId, k8sCode, …)
-    // and obscure rather than clarify.
-    @Suppress("LongMethod")
     @ExceptionHandler(KubernetesClientException::class)
     fun handleKubernetesClient(
         ex: KubernetesClientException,
