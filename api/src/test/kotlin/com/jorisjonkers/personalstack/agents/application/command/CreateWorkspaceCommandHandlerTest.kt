@@ -419,7 +419,7 @@ class CreateWorkspaceCommandHandlerTest {
     }
 
     @Test
-    fun `handle CHAT kind is rejected — chat lives in ChatSession`() {
+    fun `handle CHAT kind is rejected (chat lives in ChatSession)`() {
         assertThrows<IllegalArgumentException> {
             handler.handle(
                 CreateWorkspaceCommand(
