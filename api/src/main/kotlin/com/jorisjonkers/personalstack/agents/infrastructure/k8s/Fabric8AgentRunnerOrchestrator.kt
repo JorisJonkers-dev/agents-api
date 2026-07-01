@@ -18,6 +18,8 @@ import io.fabric8.kubernetes.api.model.PersistentVolumeClaim
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaimBuilder
 import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.api.model.PodBuilder
+import io.fabric8.kubernetes.api.model.Probe
+import io.fabric8.kubernetes.api.model.ProbeBuilder
 import io.fabric8.kubernetes.api.model.Quantity
 import io.fabric8.kubernetes.api.model.SecretBuilder
 import io.fabric8.kubernetes.api.model.ServiceBuilder
@@ -53,7 +55,7 @@ import java.util.concurrent.TimeUnit
  * readability win. The class stays as a single orchestrator because
  * every helper here operates on the same shared props + client.
  */
-@Suppress("TooManyFunctions", "LargeClass", "DEPRECATION")
+@Suppress("TooManyFunctions", "LargeClass")
 @Component
 @Profile("!system-test")
 class Fabric8AgentRunnerOrchestrator(
@@ -288,7 +290,6 @@ class Fabric8AgentRunnerOrchestrator(
         val hasCodexConfig: Boolean,
     )
 
-    @Suppress("LongMethod")
     private fun ensureCredentialSecret(
         workspace: Workspace,
         short: String,
@@ -391,7 +392,6 @@ class Fabric8AgentRunnerOrchestrator(
     // inline `mapOf(...)` calls are likewise intentional: extracting
     // them into typed vals trips Kotlin overload resolution on
     // fabric8 7.x's `withLabels` / `withRequests` / `withLimits`.
-    @Suppress("LongMethod")
     private fun pod(resources: RunnerResources): Pod =
         PodBuilder()
             .withNewMetadata()
@@ -443,29 +443,9 @@ class Fabric8AgentRunnerOrchestrator(
             // booting Spring Boot gateway before it bound :8090, which
             // re-provisioned the runner in a loop and 503'd every
             // start-session. 60 x 5s = 5 min of boot headroom.
-            .withNewStartupProbe()
-            .withNewHttpGet()
-            .withPath("/healthz")
-            .withNewPort("gateway")
-            .endHttpGet()
-            .withPeriodSeconds(STARTUP_PERIOD_SECONDS)
-            .withFailureThreshold(STARTUP_FAILURE_THRESHOLD)
-            .endStartupProbe()
-            .withNewReadinessProbe()
-            .withNewHttpGet()
-            .withPath("/healthz")
-            .withNewPort("gateway")
-            .endHttpGet()
-            .withPeriodSeconds(READINESS_PERIOD_SECONDS)
-            .withFailureThreshold(READINESS_FAILURE_THRESHOLD)
-            .endReadinessProbe()
-            .withNewLivenessProbe()
-            .withNewHttpGet()
-            .withPath("/healthz")
-            .withNewPort("gateway")
-            .endHttpGet()
-            .withPeriodSeconds(LIVENESS_PERIOD_SECONDS)
-            .endLivenessProbe()
+            .withStartupProbe(startupProbe())
+            .withReadinessProbe(readinessProbe())
+            .withLivenessProbe(livenessProbe())
             .withNewResources()
             .withRequests<String, Quantity>(mapOf("cpu" to Quantity(CPU_REQUEST), "memory" to Quantity(MEMORY_REQUEST)))
             .withLimits<String, Quantity>(mapOf("cpu" to Quantity(CPU_LIMIT), "memory" to Quantity(MEMORY_LIMIT)))
@@ -492,7 +472,29 @@ class Fabric8AgentRunnerOrchestrator(
     private fun podAnnotations(setup: RunnerSetupProvisioningSpec): Map<String, String> =
         mapOf(RunnerState.ANNOTATION_SETUP_HASH to setup.setupHash)
 
-    @Suppress("LongMethod")
+    private fun httpProbe(
+        path: String = "/healthz",
+        port: String = "gateway",
+        periodSeconds: Int? = null,
+        failureThreshold: Int? = null,
+    ): Probe =
+        ProbeBuilder()
+            .withNewHttpGet()
+            .withPath(path)
+            .withNewPort(port)
+            .endHttpGet()
+            .also { b -> periodSeconds?.let { b.withPeriodSeconds(it) } }
+            .also { b -> failureThreshold?.let { b.withFailureThreshold(it) } }
+            .build()
+
+    private fun startupProbe(): Probe =
+        httpProbe(periodSeconds = STARTUP_PERIOD_SECONDS, failureThreshold = STARTUP_FAILURE_THRESHOLD)
+
+    private fun readinessProbe(): Probe =
+        httpProbe(periodSeconds = READINESS_PERIOD_SECONDS, failureThreshold = READINESS_FAILURE_THRESHOLD)
+
+    private fun livenessProbe(): Probe = httpProbe(periodSeconds = LIVENESS_PERIOD_SECONDS)
+
     private fun podEnv(
         workspace: Workspace,
         setup: RunnerSetupProvisioningSpec,
@@ -636,7 +638,6 @@ class Fabric8AgentRunnerOrchestrator(
                 .build(),
         )
 
-    @Suppress("LongMethod")
     private fun agentCredentialEnv(credentialSecret: CredentialSecret?) =
         if (credentialSecret == null) {
             emptyList()
@@ -690,7 +691,6 @@ class Fabric8AgentRunnerOrchestrator(
             }
         }
 
-    @Suppress("LongMethod")
     private fun podVolumeMounts(
         setup: RunnerSetupProvisioningSpec,
         credentialSecret: CredentialSecret?,
