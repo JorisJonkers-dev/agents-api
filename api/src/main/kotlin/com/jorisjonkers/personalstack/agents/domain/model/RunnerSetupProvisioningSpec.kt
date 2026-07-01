@@ -3,7 +3,6 @@ package com.jorisjonkers.personalstack.agents.domain.model
 import java.security.MessageDigest
 import java.util.Locale
 
-@Suppress("LongParameterList")
 data class RunnerSetupProvisioningSpec(
     val setupId: AgentSetupId,
     val setupVersion: AgentSetupVersion,
