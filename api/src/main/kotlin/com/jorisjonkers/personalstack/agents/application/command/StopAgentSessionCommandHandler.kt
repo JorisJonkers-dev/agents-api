@@ -1,5 +1,3 @@
-@file:Suppress("LongMethod")
-
 package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
@@ -11,6 +9,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
@@ -61,13 +62,7 @@ class StopAgentSessionCommandHandler(
         if (session.status == WorkspaceAgentSessionStatus.STOPPED ||
             session.status == WorkspaceAgentSessionStatus.FAILED
         ) {
-            val deleted = sessions.delete(session.id)
-            if (deleted) {
-                sessionStatus.publishRemove(session.id)
-                recordStop(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
-            } else {
-                recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
-            }
+            purgeTerminalSession(session.id)
             return
         }
         val workspace =
@@ -76,6 +71,28 @@ class StopAgentSessionCommandHandler(
                     recordStop(OutcomeLabel.FAILURE, FailureReasonLabel.NOT_FOUND)
                     error("workspace ${session.workspaceId} missing for session ${session.id}")
                 }
+        stopActiveSession(session, workspace)
+        // The stop command is a definitive "this session is done"
+        // signal — flush a final auto-capture pass against the
+        // full transcript on the way out.
+        runCatching { autoCapture.capture(session.id) }
+    }
+
+    // Drops a retained terminal row and notifies clients to remove the tab.
+    private fun purgeTerminalSession(id: WorkspaceAgentSessionId) {
+        val deleted = sessions.delete(id)
+        if (deleted) {
+            sessionStatus.publishRemove(id)
+            recordStop(OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+        } else {
+            recordStop(OutcomeLabel.SKIPPED, FailureReasonLabel.NOT_FOUND)
+        }
+    }
+
+    private fun stopActiveSession(
+        session: WorkspaceAgentSession,
+        workspace: Workspace,
+    ) {
         val gatewayId = session.gatewayAgentId
         if (gatewayId != null) {
             runCatching { gateway.stopAgent(workspace, gatewayId) }
@@ -103,10 +120,6 @@ class StopAgentSessionCommandHandler(
         } else {
             recordStop(OutcomeLabel.FAILURE, FailureReasonLabel.OTHER)
         }
-        // The stop command is a definitive "this session is done"
-        // signal — flush a final auto-capture pass against the
-        // full transcript on the way out.
-        runCatching { autoCapture.capture(session.id) }
     }
 
     private fun recordStop(
