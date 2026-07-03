@@ -1,6 +1,8 @@
+import dev.detekt.gradle.extensions.DetektExtension
+
 plugins {
     alias(libs.plugins.jorisjonkers.spring)
-    alias(libs.plugins.jorisjonkers.detekt)
+    alias(libs.plugins.detekt)
     alias(libs.plugins.jorisjonkers.ktlint)
     alias(libs.plugins.jorisjonkers.testing)
     alias(libs.plugins.jorisjonkers.jooq.codegen)
@@ -21,6 +23,30 @@ jooqCodegen {
 
 tasks.named("generateJooq") {
     dependsOn(prepareJooqMigrations)
+}
+
+configure<DetektExtension> {
+    buildUponDefaultConfig = true
+    allRules = false
+}
+
+afterEvaluate {
+    configure<DetektExtension> {
+        val configFile =
+            rootProject.layout.projectDirectory
+                .file(providers.gradleProperty("extratoast.detekt.config").orElse("config/detekt/detekt.yml").get())
+                .asFile
+        val requiredConfigFile =
+            providers
+                .gradleProperty("extratoast.detekt.requiredConfigFile")
+                .map(String::toBoolean)
+                .orElse(false)
+                .get()
+
+        if (configFile.isFile || requiredConfigFile) {
+            config.setFrom(configFile)
+        }
+    }
 }
 
 tasks
