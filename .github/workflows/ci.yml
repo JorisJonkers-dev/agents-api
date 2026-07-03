@@ -23,7 +23,7 @@ env:
 jobs:
   jvm-ci:
     name: JVM CI
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.8.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.10.2
     with:
       gradle-command: ./gradlew
       lint-gradle-args: :api:detektMain :api:detektTest :api:detektIntegrationTest :api:ktlintCheck
@@ -63,7 +63,7 @@ jobs:
 
   client-dry-run:
     name: Client Dry Run
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.8.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/publish-api-clients.yml@v0.10.2
     permissions:
       contents: read
       packages: write
@@ -138,7 +138,7 @@ jobs:
 
   migration-guard:
     name: Migration Guard
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.8.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.10.2
     with:
       migration-regex: '^api/src/main/resources/db/migration/V[0-9][^/]*\.sql$'
       scope-regex: '^(api)/.*'
