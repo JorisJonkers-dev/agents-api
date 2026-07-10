@@ -125,8 +125,8 @@ class JooqAgentSetupSeededImageAlignmentIntegrationTest
         }
 
         /**
-         * The seeded default@3 row must use personal-stack/* node-selector
-         * keys, not the old agents/* prefix that kept runner Pods Pending.
+         * The seeded default@3 row must use personal-stack/(all) node-selector
+         * keys, not the old agents/(all) prefix that kept runner Pods Pending.
          */
         @Test
         fun seededDefaultSetupNodeSelectorUsesPersonalStackKeys() {
