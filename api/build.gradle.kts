@@ -11,6 +11,7 @@ plugins {
 val prepareJooqMigrations by tasks.registering(Sync::class) {
     from("src/main/resources/db/migration") {
         exclude("V21__rebrand_agent_runtime_image.sql")
+        exclude("V22__agent_setup_v018.sql")
     }
     into(layout.buildDirectory.dir("jooq-migration"))
 }
