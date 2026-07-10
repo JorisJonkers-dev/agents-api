@@ -19,9 +19,9 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionS
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -29,11 +29,11 @@ import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 
 class StartHeadlessJobCommandHandlerTest {
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val runnerLifecycle = mockk<WorkspaceRunnerLifecycleService>()
     private val telemetry = RecordingTelemetry()
-    private val handler = StartHeadlessJobCommandHandler(sessions, gateway, runnerLifecycle, telemetry)
+    private val persistence = mockk<HeadlessJobSessionPersistence>()
+    private val handler = StartHeadlessJobCommandHandler(gateway, runnerLifecycle, persistence, telemetry)
 
     @Test
     fun `handle launches headless job and persists session when runner is ready`() {
@@ -64,14 +64,12 @@ class StartHeadlessJobCommandHandlerTest {
                 exitCode = null,
                 output = null,
             )
-        // Two-phase commit: sessions.save() is called twice.
-        // Track all saved sessions to verify both phases.
-        val savedSessions = mutableListOf<WorkspaceAgentSession>()
-        every { sessions.save(any()) } answers {
-            val s: WorkspaceAgentSession = firstArg()
-            savedSessions += s
-            s
-        }
+        // Phase 1: saveStartingSession returns a STARTING session
+        val savedStarting = slot<WorkspaceAgentSession>()
+        every { persistence.saveStartingSession(capture(savedStarting)) } answers { firstArg() }
+        // Phase 2: persistSession records the RUNNING update
+        val savedJob = slot<AgentGatewayClient.HeadlessJob>()
+        every { persistence.persistSession(any(), capture(savedJob)) } returns Unit
 
         handler.handle(
             StartHeadlessJobCommand(
@@ -85,19 +83,15 @@ class StartHeadlessJobCommandHandlerTest {
         )
 
         // Phase 1: STARTING placeholder with no gateway id
-        assertThat(savedSessions).hasSize(2)
-        val phase1 = savedSessions[0]
-        assertThat(phase1.status).isEqualTo(WorkspaceAgentSessionStatus.STARTING)
-        assertThat(phase1.gatewayAgentId).isNull()
-        assertThat(phase1.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
+        assertThat(savedStarting.captured.status).isEqualTo(WorkspaceAgentSessionStatus.STARTING)
+        assertThat(savedStarting.captured.gatewayAgentId).isNull()
+        assertThat(savedStarting.captured.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
+        assertThat(savedStarting.captured.currentSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(savedStarting.captured.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
 
-        // Phase 2: RUNNING with gateway job id
-        val phase2 = savedSessions[1]
-        assertThat(phase2.gatewayAgentId).isEqualTo("hls-abc123")
-        assertThat(phase2.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
-        assertThat(phase2.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
-        assertThat(phase2.currentSetupId).isEqualTo(AgentSetupId("gpu"))
-        assertThat(phase2.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
+        // Phase 2: gateway job passed through with the returned id
+        assertThat(savedJob.captured.id).isEqualTo("hls-abc123")
+
         telemetry.operations.single().let { event ->
             assertThat(event.operation).isEqualTo(OperationLabel.START_SESSION)
             assertThat(event.mode).isEqualTo(ModeLabel.HEADLESS)
@@ -114,7 +108,6 @@ class StartHeadlessJobCommandHandlerTest {
         verify(exactly = 1) {
             runnerLifecycle.boot(ws.id, WorkspaceAgentKind.CLAUDE, AgentSetupId("gpu"), AgentSetupVersion(2))
         }
-        verify(exactly = 2) { sessions.save(any()) }
     }
 
     @Test
@@ -171,8 +164,9 @@ class StartHeadlessJobCommandHandlerTest {
             )
         } throws RuntimeException(exceptionMessage)
         // Phase 1 save (STARTING) succeeds; phase 2 never reached.
-        // markSessionFailed also calls save — stub returns arg as-is.
-        every { sessions.save(any()) } answers { firstArg() }
+        // markSessionFailed also called — stub both to return.
+        every { persistence.saveStartingSession(any()) } answers { firstArg() }
+        every { persistence.markSessionFailed(any()) } returns Unit
 
         assertThrows<AgentRunnerUnavailableException> {
             handler.handle(
@@ -186,8 +180,9 @@ class StartHeadlessJobCommandHandlerTest {
             )
         }
 
-        // Phase 1 (STARTING) + markSessionFailed (FAILED) = 2 saves; no phase 2
-        verify(exactly = 2) { sessions.save(any()) }
+        // Phase 1 save + markSessionFailed; no phase 2
+        verify(exactly = 1) { persistence.saveStartingSession(any()) }
+        verify(exactly = 1) { persistence.markSessionFailed(any()) }
         telemetry.operations.single().let { event ->
             assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
             assertThat(event.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
@@ -228,12 +223,8 @@ class StartHeadlessJobCommandHandlerTest {
                 output = null,
             )
         // Phase 1 (STARTING) succeeds; phase 2 (RUNNING) throws to simulate DB failure after gateway.
-        var saveCount = 0
-        every { sessions.save(any()) } answers {
-            saveCount++
-            if (saveCount >= 2) error(exceptionMessage)
-            firstArg()
-        }
+        every { persistence.saveStartingSession(any()) } answers { firstArg() }
+        every { persistence.persistSession(any(), any()) } throws RuntimeException(exceptionMessage)
 
         val ex =
             assertThrows<RuntimeException> {
