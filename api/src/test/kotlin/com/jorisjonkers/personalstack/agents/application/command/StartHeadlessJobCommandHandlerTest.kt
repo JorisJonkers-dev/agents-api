@@ -231,7 +231,7 @@ class StartHeadlessJobCommandHandlerTest {
         var saveCount = 0
         every { sessions.save(any()) } answers {
             saveCount++
-            if (saveCount >= 2) throw RuntimeException(exceptionMessage)
+            if (saveCount >= 2) throw IllegalStateException(exceptionMessage)
             firstArg()
         }
 

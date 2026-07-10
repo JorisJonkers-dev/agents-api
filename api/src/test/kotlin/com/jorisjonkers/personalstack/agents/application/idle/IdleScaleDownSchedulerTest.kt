@@ -420,7 +420,7 @@ class IdleScaleDownSchedulerHeadlessTest {
     private class FixedClock(
         var now: Instant,
     ) : Clock() {
-        override fun getZone() = java.time.ZoneOffset.UTC
+        override fun getZone(): java.time.ZoneId = java.time.ZoneOffset.UTC
 
         override fun withZone(zone: java.time.ZoneId): Clock = this
 
