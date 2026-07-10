@@ -415,11 +415,16 @@ class IdleScaleDownSchedulerTest {
     )
 }
 
+
 // Tests for headless job idle branching (fix/headless-durability)
 class IdleScaleDownSchedulerHeadlessTest {
-    private class FixedClock(var now: Instant) : Clock() {
+    private class FixedClock(
+        var now: Instant,
+    ) : Clock() {
         override fun getZone() = java.time.ZoneOffset.UTC
+
         override fun withZone(zone: java.time.ZoneId): Clock = this
+
         override fun instant(): Instant = now
     }
 
@@ -443,7 +448,12 @@ class IdleScaleDownSchedulerHeadlessTest {
                     connected = connected,
                     sessionStatus = sessionStatus,
                 ),
-            runtime = IdleScaleDownRuntime(idleAfterSeconds = 1_800, agentIdleAfterSeconds = 14_400, staleRecycleQuietSeconds = 300),
+            runtime =
+                IdleScaleDownRuntime(
+                    idleAfterSeconds = 1_800,
+                    agentIdleAfterSeconds = 14_400,
+                    staleRecycleQuietSeconds = 300,
+                ),
             clock = clock,
         )
 
