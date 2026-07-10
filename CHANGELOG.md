@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.0...v0.18.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* correct context pin to match cluster publicContext (64d00fe) ([f20a306](https://github.com/JorisJonkers-dev/agents-api/commit/f20a3063a5b771a5deef60a0ae0b1b2a5f6e5424))
+
 ## [0.18.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.17.1...v0.18.0) (2026-07-10)
 
 
