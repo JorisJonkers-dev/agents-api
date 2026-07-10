@@ -61,6 +61,7 @@ class LightRagClient(
     override fun retrieve(
         query: String,
         limit: Int,
+        scope: String?,
     ): List<RetrievalPort.Snippet> {
         if (!props.retrievalEnabled) return emptyList()
         return runCatching {

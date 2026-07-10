@@ -17,6 +17,7 @@ interface RetrievalPort {
     fun retrieve(
         query: String,
         limit: Int,
+        scope: String? = null,
     ): List<Snippet>
 }
 

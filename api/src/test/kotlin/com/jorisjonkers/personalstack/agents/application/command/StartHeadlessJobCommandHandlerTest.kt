@@ -22,7 +22,6 @@ import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -65,8 +64,14 @@ class StartHeadlessJobCommandHandlerTest {
                 exitCode = null,
                 output = null,
             )
-        val saved = slot<WorkspaceAgentSession>()
-        every { sessions.save(capture(saved)) } answers { firstArg() }
+        // Two-phase commit: sessions.save() is called twice.
+        // Track all saved sessions to verify both phases.
+        val savedSessions = mutableListOf<WorkspaceAgentSession>()
+        every { sessions.save(any()) } answers {
+            val s: WorkspaceAgentSession = firstArg()
+            savedSessions += s
+            s
+        }
 
         handler.handle(
             StartHeadlessJobCommand(
@@ -79,11 +84,20 @@ class StartHeadlessJobCommandHandlerTest {
             ),
         )
 
-        assertThat(saved.captured.gatewayAgentId).isEqualTo("hls-abc123")
-        assertThat(saved.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
-        assertThat(saved.captured.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
-        assertThat(saved.captured.currentSetupId).isEqualTo(AgentSetupId("gpu"))
-        assertThat(saved.captured.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
+        // Phase 1: STARTING placeholder with no gateway id
+        assertThat(savedSessions).hasSize(2)
+        val phase1 = savedSessions[0]
+        assertThat(phase1.status).isEqualTo(WorkspaceAgentSessionStatus.STARTING)
+        assertThat(phase1.gatewayAgentId).isNull()
+        assertThat(phase1.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
+
+        // Phase 2: RUNNING with gateway job id
+        val phase2 = savedSessions[1]
+        assertThat(phase2.gatewayAgentId).isEqualTo("hls-abc123")
+        assertThat(phase2.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(phase2.runMode).isEqualTo(StartHeadlessJobCommandHandler.HEADLESS_RUN_MODE)
+        assertThat(phase2.currentSetupId).isEqualTo(AgentSetupId("gpu"))
+        assertThat(phase2.currentSetupVersion).isEqualTo(AgentSetupVersion(2))
         telemetry.operations.single().let { event ->
             assertThat(event.operation).isEqualTo(OperationLabel.START_SESSION)
             assertThat(event.mode).isEqualTo(ModeLabel.HEADLESS)
@@ -100,6 +114,7 @@ class StartHeadlessJobCommandHandlerTest {
         verify(exactly = 1) {
             runnerLifecycle.boot(ws.id, WorkspaceAgentKind.CLAUDE, AgentSetupId("gpu"), AgentSetupVersion(2))
         }
+        verify(exactly = 2) { sessions.save(any()) }
     }
 
     @Test
@@ -155,6 +170,9 @@ class StartHeadlessJobCommandHandlerTest {
                 ),
             )
         } throws RuntimeException(exceptionMessage)
+        // Phase 1 save (STARTING) succeeds; phase 2 never reached.
+        // markSessionFailed also calls save — stub returns arg as-is.
+        every { sessions.save(any()) } answers { firstArg() }
 
         assertThrows<AgentRunnerUnavailableException> {
             handler.handle(
@@ -168,6 +186,8 @@ class StartHeadlessJobCommandHandlerTest {
             )
         }
 
+        // Phase 1 (STARTING) + markSessionFailed (FAILED) = 2 saves; no phase 2
+        verify(exactly = 2) { sessions.save(any()) }
         telemetry.operations.single().let { event ->
             assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
             assertThat(event.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
@@ -207,7 +227,13 @@ class StartHeadlessJobCommandHandlerTest {
                 exitCode = null,
                 output = null,
             )
-        every { sessions.save(any()) } throws RuntimeException(exceptionMessage)
+        // Phase 1 (STARTING) succeeds; phase 2 (RUNNING) throws to simulate DB failure after gateway.
+        var saveCount = 0
+        every { sessions.save(any()) } answers {
+            saveCount++
+            if (saveCount >= 2) throw RuntimeException(exceptionMessage)
+            firstArg()
+        }
 
         val ex =
             assertThrows<RuntimeException> {
