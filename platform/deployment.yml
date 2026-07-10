@@ -1,0 +1,24 @@
+apiVersion: deployment.jorisjonkers.dev/v2
+kind: Deployment
+metadata:
+  name: agents-api
+spec:
+  schemaVersion: 0.16.0
+  namespace: agents-system
+  platform:
+    layer: apps-core
+  workloads:
+    - name: agents-api
+      image: agents-api
+      health:
+        path: /api/actuator/health/readiness
+        port: 8082
+        timeoutClass: stateless
+        mandatory: true
+      rollbackTargetRetention:
+        minimumDays: 90
+        acknowledged: true
+      routes:
+        - host: agents.jorisjonkers.dev
+          owner: agents-api
+          authMode: sso
