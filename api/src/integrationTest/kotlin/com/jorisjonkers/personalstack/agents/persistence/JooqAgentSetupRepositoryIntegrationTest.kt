@@ -108,9 +108,7 @@ class JooqAgentSetupSeededImageAlignmentIntegrationTest
          */
         @Test
         fun seededDefaultSetupImageMatchesRuntimePropertiesDefault() {
-            val defaultEntry = requireNotNull(setups.findDefaultSelectable()) {
-                "no default-selectable setup found after migrations"
-            }
+            val defaultEntry = setups.findDefaultSelectable().required()
             assertThat(defaultEntry.definition.image)
                 .describedAs("seeded image must match agent-runtime.image in application.yml")
                 .isEqualTo(props.image)
@@ -122,9 +120,7 @@ class JooqAgentSetupSeededImageAlignmentIntegrationTest
          */
         @Test
         fun seededDefaultSetupNodeSelectorUsesPersonalStackKeys() {
-            val defaultEntry = requireNotNull(setups.findDefaultSelectable()) {
-                "no default-selectable setup found after migrations"
-            }
+            val defaultEntry = setups.findDefaultSelectable().required()
             assertThat(defaultEntry.definition.nodeSelector.keys)
                 .describedAs("node-selector must use personal-stack keys, not the old agents prefix")
                 .allMatch { it.startsWith("personal-stack/") }
