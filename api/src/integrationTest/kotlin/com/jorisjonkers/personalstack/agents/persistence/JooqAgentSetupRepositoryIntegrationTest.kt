@@ -1,11 +1,11 @@
 package com.jorisjonkers.personalstack.agents.persistence
 
 import com.jorisjonkers.personalstack.agents.IntegrationTestBase
+import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
-import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -104,41 +104,31 @@ class JooqAgentSetupSeededImageAlignmentIntegrationTest
         /**
          * Guards against runner-image drift: the V22 migration and
          * application.yml must agree on the image tag for default@3.
-         * If they diverge, workspaces will be scheduled with the wrong
-         * image.  The test fails whenever a new setup version is added
-         * without updating the migration or the yml default.
+         * If they diverge, workspaces will be scheduled with the wrong image.
          */
         @Test
         fun seededDefaultSetupImageMatchesRuntimePropertiesDefault() {
-            val defaultEntry = setups.findDefaultSelectable()
-            requireNotNull(defaultEntry) { "no default-selectable setup found after migrations" }
-
-            val seededImage = defaultEntry.definition.image
-            val configuredImage = props.image
-
-            assertThat(seededImage)
-                .describedAs(
-                    "seeded default setup image must match agent-runtime.image in application.yml; " +
-                        "update V22 (or a new migration) and application.yml together",
-                )
-                .isEqualTo(configuredImage)
+            val defaultEntry = requireNotNull(setups.findDefaultSelectable()) {
+                "no default-selectable setup found after migrations"
+            }
+            assertThat(defaultEntry.definition.image)
+                .describedAs("seeded image must match agent-runtime.image in application.yml")
+                .isEqualTo(props.image)
         }
 
         /**
-         * The seeded default@3 row must use personal-stack/(all) node-selector
-         * keys, not the old agents/(all) prefix that kept runner Pods Pending.
+         * The seeded default@3 row must use personal-stack node-selector
+         * keys, not the old agents prefix that kept runner Pods Pending.
          */
         @Test
         fun seededDefaultSetupNodeSelectorUsesPersonalStackKeys() {
-            val defaultEntry = setups.findDefaultSelectable()
-            requireNotNull(defaultEntry) { "no default-selectable setup found after migrations" }
-
-            val nodeSelector = defaultEntry.definition.nodeSelector
-
-            assertThat(nodeSelector.keys)
-                .describedAs("node-selector must use personal-stack/* keys, not the old agents/* prefix")
+            val defaultEntry = requireNotNull(setups.findDefaultSelectable()) {
+                "no default-selectable setup found after migrations"
+            }
+            assertThat(defaultEntry.definition.nodeSelector.keys)
+                .describedAs("node-selector must use personal-stack keys, not the old agents prefix")
                 .allMatch { it.startsWith("personal-stack/") }
-            assertThat(nodeSelector)
+            assertThat(defaultEntry.definition.nodeSelector)
                 .containsKey("personal-stack/node")
         }
     }
