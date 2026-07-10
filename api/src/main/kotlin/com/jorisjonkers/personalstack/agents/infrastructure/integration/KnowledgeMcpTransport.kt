@@ -95,12 +95,13 @@ class KnowledgeMcpTransport(
         scope: String? = null,
     ): List<RetrievalPort.Snippet> =
         runCatching {
-            val args = buildMap<String, Any?> {
-                put("query", query)
-                put("limit", limit)
-                put("mode", props.recallMode)
-                if (!scope.isNullOrBlank()) put("scope", scope)
-            }
+            val args =
+                buildMap<String, Any?> {
+                    put("query", query)
+                    put("limit", limit)
+                    put("mode", props.recallMode)
+                    if (!scope.isNullOrBlank()) put("scope", scope)
+                }
             val resp =
                 callTool(
                     RECALL_TOOL,
