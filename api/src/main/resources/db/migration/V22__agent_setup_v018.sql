@@ -101,3 +101,15 @@ UPDATE workspace_agent_sessions
 SET current_setup_version = 3
 WHERE current_setup_id      = 'default'
   AND current_setup_version = 2;
+
+-- Migrate any pending setup references still pointing at default@2
+-- so in-flight promote operations do not revive the retired image.
+UPDATE workspaces
+SET pending_runner_setup_version = 3
+WHERE pending_runner_setup_id      = 'default'
+  AND pending_runner_setup_version = 2;
+
+UPDATE workspace_agent_sessions
+SET pending_setup_version = 3
+WHERE pending_setup_id      = 'default'
+  AND pending_setup_version = 2;
