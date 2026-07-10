@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.17.1...v0.18.0) (2026-07-10)
+
+
+### Features
+
+* onboard agents-api onto the deploy platform ([75dcafb](https://github.com/JorisJonkers-dev/agents-api/commit/75dcafb948564d794c3e1e8fe0cab75bfd78d8a6))
+
 ## [0.17.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.17.0...v0.17.1) (2026-06-29)
 
 
