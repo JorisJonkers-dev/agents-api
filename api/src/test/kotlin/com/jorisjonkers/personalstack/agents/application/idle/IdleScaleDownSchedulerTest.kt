@@ -415,7 +415,6 @@ class IdleScaleDownSchedulerTest {
     )
 }
 
-
 // Tests for headless job idle branching (fix/headless-durability)
 class IdleScaleDownSchedulerHeadlessTest {
     private class FixedClock(
