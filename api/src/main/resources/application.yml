@@ -107,7 +107,7 @@ springdoc:
 
 agent-runtime:
   namespace: ${AGENT_RUNTIME_NAMESPACE:agents-system}
-  image: ${AGENT_RUNTIME_IMAGE:ghcr.io/jorisjonkers-dev/agent-runtime/agent-runner:v0.18.0}
+  image: ${AGENT_RUNTIME_IMAGE:ghcr.io/jorisjonkers-dev/agent-runtime/agent-runner:v0.18.1}
   image-pull-policy: ${AGENT_RUNTIME_IMAGE_PULL_POLICY:IfNotPresent}
   service-account: ${AGENT_RUNTIME_SERVICE_ACCOUNT:agent-runner}
   workspace-storage-class: ${AGENT_RUNTIME_WORKSPACE_STORAGE_CLASS:local-path}
@@ -165,7 +165,7 @@ agent-runtime:
   durable-session-cleanup-batch-size: ${AGENT_RUNTIME_DURABLE_SESSION_CLEANUP_BATCH_SIZE:25}
   setups:
     - id: default
-      version: ${AGENT_RUNTIME_SETUP_VERSION:3}
+      version: ${AGENT_RUNTIME_SETUP_VERSION:4}
       display-name: ${AGENT_RUNTIME_SETUP_DISPLAY_NAME:Default runner}
       description: ${AGENT_RUNTIME_SETUP_DESCRIPTION:Runtime-derived default runner setup.}
       cli-tools:
