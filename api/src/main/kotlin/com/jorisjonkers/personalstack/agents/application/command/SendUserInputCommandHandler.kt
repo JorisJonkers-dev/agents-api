@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
 import com.jorisjonkers.personalstack.agents.application.rag.ContextBuilder
+import com.jorisjonkers.personalstack.agents.application.rag.ScopeInference
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
@@ -38,7 +39,8 @@ class SendUserInputCommandHandler(
             ),
         )
 
-        val augmented = contextBuilder.augment(command.text)
+        val scope = ScopeInference.scopeFor(current.workspace)
+        val augmented = contextBuilder.augment(command.text, scope)
         gateway.sendInput(current.workspace, current.gatewayAgent.id, augmented, command.enter)
     }
 

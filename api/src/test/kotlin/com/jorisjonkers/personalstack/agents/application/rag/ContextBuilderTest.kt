@@ -41,6 +41,7 @@ class ContextBuilderTest {
         override fun retrieve(
             query: String,
             limit: Int,
+            scope: String?,
         ): List<RetrievalPort.Snippet> = snippets
     }
 

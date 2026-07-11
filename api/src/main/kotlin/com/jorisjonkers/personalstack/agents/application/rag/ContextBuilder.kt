@@ -38,9 +38,12 @@ class ContextBuilder(
     private val injectedHits = registry.counter("rag.hits.injected")
     private val injectedChars = registry.counter("rag.chars.injected")
 
-    fun augment(userPrompt: String): String {
+    fun augment(
+        userPrompt: String,
+        scope: String? = null,
+    ): String {
         if (!props.retrievalEnabled || sources.isEmpty()) return userPrompt
-        val chunks = buildChunks(dedupedAndFiltered(userPrompt))
+        val chunks = buildChunks(dedupedAndFiltered(userPrompt, scope))
         // Empty when all snippets failed the score floor, the merged list was
         // empty, or the character budget was too tight for even the first chunk.
         if (chunks.isEmpty()) return userPrompt
@@ -83,12 +86,15 @@ class ContextBuilder(
      */
     private fun coexistenceRank(snippets: List<RetrievalPort.Snippet>): List<RetrievalPort.Snippet> = snippets
 
-    private fun dedupedAndFiltered(query: String): List<RetrievalPort.Snippet> {
+    private fun dedupedAndFiltered(
+        query: String,
+        scope: String? = null,
+    ): List<RetrievalPort.Snippet> {
         val seenIds = mutableSetOf<String>()
         val seenTexts = mutableSetOf<String>()
         return coexistenceRank(
             sources
-                .flatMap { it.retrieve(query, props.maxSnippets) }
+                .flatMap { it.retrieve(query, props.maxSnippets, scope) }
                 .filter { it.score >= props.minScore }
                 .sortedByDescending { it.score },
         ).filter { s ->

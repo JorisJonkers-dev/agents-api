@@ -7,15 +7,15 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.rag.ContextBuilder
+import com.jorisjonkers.personalstack.agents.application.rag.ScopeInference
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.time.Instant
 
@@ -24,25 +24,37 @@ import java.time.Instant
  * one-shot headless job to the gateway, and persists a
  * [WorkspaceAgentSession] to track it.
  *
- * Idle sweep protection (skipping workspaces with running headless jobs)
- * depends on N3's `run_mode` column — activate after N3 merges.
+ * Two-phase commit: the session is first saved as STARTING with no
+ * gatewayAgentId (phase 1, committed independently via
+ * [HeadlessJobSessionPersistence]). After the gateway call succeeds the
+ * session is updated to RUNNING with the returned job id (phase 2). If
+ * the process crashes between the two phases the session remains STARTING
+ * and can be reconciled on the next startup sweep. If the gateway call
+ * itself fails the session is updated to FAILED so the STARTING row does
+ * not linger.
+ *
+ * The three transactional operations are delegated to
+ * [HeadlessJobSessionPersistence] to ensure Spring AOP can intercept each
+ * call through the proxy — self-invocation on `this` bypasses the proxy
+ * and loses the REQUIRES_NEW commit guarantee.
  */
 @Component
 class StartHeadlessJobCommandHandler(
-    private val sessions: WorkspaceAgentSessionRepository,
     private val gateway: AgentGatewayClient,
     private val runnerLifecycle: WorkspaceRunnerLifecycleService,
+    private val persistence: HeadlessJobSessionPersistence,
+    private val contextBuilder: ContextBuilder,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StartHeadlessJobCommand> {
     private val log = LoggerFactory.getLogger(StartHeadlessJobCommandHandler::class.java)
 
-    @Transactional
     override fun handle(command: StartHeadlessJobCommand) {
         val startedAt = Instant.now()
         runCatching {
             val runner = bootRunner(command)
-            val job = launchJob(runner, command)
-            persistSession(command, runner, job)
+            val pendingSession = persistence.saveStartingSession(buildStartingSession(command, runner))
+            val job = launchJob(runner, command, pendingSession)
+            persistence.persistSession(pendingSession, job)
             log.info("headless job {} launched for workspace {}", job.id, runner.workspace.id.value)
         }.onSuccess {
             recordCommandOperation(startedAt, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
@@ -70,52 +82,55 @@ class StartHeadlessJobCommandHandler(
         }
     }
 
+    private fun buildStartingSession(
+        command: StartHeadlessJobCommand,
+        runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
+    ): WorkspaceAgentSession {
+        val now = Instant.now()
+        return WorkspaceAgentSession(
+            id = command.sessionId,
+            workspaceId = runner.workspace.id,
+            kind = command.kind,
+            gatewayAgentId = null,
+            status = WorkspaceAgentSessionStatus.STARTING,
+            createdAt = now,
+            updatedAt = now,
+            runMode = HEADLESS_RUN_MODE,
+            currentSetupId = command.setupId ?: runner.workspace.currentRunnerSetupId,
+            currentSetupVersion = command.setupVersion ?: runner.workspace.currentRunnerSetupVersion,
+            epoch = 1,
+            generation = 1,
+        )
+    }
+
     private fun launchJob(
         runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
         command: StartHeadlessJobCommand,
+        pendingSession: WorkspaceAgentSession,
     ): AgentGatewayClient.HeadlessJob =
         runCatching {
+            val scope = ScopeInference.scopeFor(runner.workspace)
+            val augmentedPrompt = contextBuilder.augment(command.prompt, scope)
             gateway.startHeadlessJob(
                 AgentGatewayClient.HeadlessJobRequest(
                     workspace = runner.workspace,
                     kind = command.kind,
-                    prompt = command.prompt,
+                    prompt = augmentedPrompt,
                     timeoutSeconds = command.timeoutSeconds,
                     stableSessionId = command.sessionId,
                     epoch = 1,
                 ),
             )
         }.getOrElse { ex ->
+            // Gateway call failed — mark the already-saved STARTING session as FAILED
+            // so it does not linger as an irreconcilable STARTING row.
+            persistence.markSessionFailed(pendingSession)
             throw AgentRunnerUnavailableException(
                 workspaceId = runner.workspace.id,
                 runnerStatus = "HeadlessLaunchFailed",
                 cause = ex,
             )
         }
-
-    private fun persistSession(
-        command: StartHeadlessJobCommand,
-        runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
-        job: AgentGatewayClient.HeadlessJob,
-    ) {
-        val now = Instant.now()
-        sessions.save(
-            WorkspaceAgentSession(
-                id = command.sessionId,
-                workspaceId = runner.workspace.id,
-                kind = command.kind,
-                gatewayAgentId = job.id,
-                status = WorkspaceAgentSessionStatus.RUNNING,
-                createdAt = now,
-                updatedAt = now,
-                runMode = HEADLESS_RUN_MODE,
-                currentSetupId = command.setupId ?: runner.workspace.currentRunnerSetupId,
-                currentSetupVersion = command.setupVersion ?: runner.workspace.currentRunnerSetupVersion,
-                epoch = 1,
-                generation = 1,
-            ),
-        )
-    }
 
     companion object {
         const val HEADLESS_RUN_MODE = "HEADLESS"

@@ -29,8 +29,9 @@ class KnowledgeRecallClient(
     override fun retrieve(
         query: String,
         limit: Int,
+        scope: String?,
     ): List<RetrievalPort.Snippet> {
         if (!props.retrievalEnabled) return emptyList()
-        return transport.recall(query, limit)
+        return transport.recall(query, limit, scope)
     }
 }

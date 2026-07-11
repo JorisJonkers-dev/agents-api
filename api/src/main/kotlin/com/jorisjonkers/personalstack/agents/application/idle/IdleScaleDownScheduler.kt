@@ -141,8 +141,18 @@ class IdleScaleDownScheduler(
      * A stale runner may only be recycled once every running agent has been
      * idle (no output) for the grace window. A session with no live agent is
      * nothing to interrupt. If any agent is still producing output — or its
-     * idle time can't be confirmed from the gateway — we wait for the next
+     * idle state can't be confirmed from the gateway — we wait for the next
      * sweep rather than risk cutting off an in-progress task.
+     *
+     * Interactive sessions: use [AgentGatewayClient.agentIdle] which hits the
+     * interactive /agents/{id} endpoint.
+     *
+     * Headless sessions: use [AgentGatewayClient.pollHeadlessJob] and treat
+     * any terminal status (COMPLETED/FAILED/CANCELLED) as safe-to-recycle.
+     * The headless job id is stored in [WorkspaceAgentSession.gatewayAgentId];
+     * calling the interactive /agents/{id} endpoint with a headless job id
+     * would return a 404 and force-cancel the idle check, keeping the runner
+     * alive indefinitely.
      */
     private fun staleRunnerSafeToRecycle(
         workspace: Workspace,
@@ -153,10 +163,28 @@ class IdleScaleDownScheduler(
         val grace = runtime.staleRecycleQuiet
         return running.all { session ->
             val agentId = session.gatewayAgentId ?: return@all false
-            val idle = gateway.agentIdle(workspace, agentId)
-            idle != null && idle >= grace
+            if (session.runMode == HEADLESS_RUN_MODE) {
+                headlessJobTerminal(workspace, agentId)
+            } else {
+                val idle = gateway.agentIdle(workspace, agentId)
+                idle != null && idle >= grace
+            }
         }
     }
+
+    /**
+     * Returns true when the headless job has reached a terminal state
+     * (COMPLETED, FAILED, or CANCELLED). Returns false if the job is still
+     * RUNNING or if the gateway cannot be reached.
+     */
+    private fun headlessJobTerminal(
+        workspace: Workspace,
+        headlessJobId: String,
+    ): Boolean =
+        runCatching {
+            val job = gateway.pollHeadlessJob(workspace, headlessJobId)
+            job.status != AgentGatewayClient.HeadlessStatus.RUNNING
+        }.getOrElse { false }
 
     private fun effectiveLastSeen(workspace: Workspace): Instant = tracker.lastSeen(workspace.id) ?: workspace.updatedAt
 
@@ -217,5 +245,9 @@ class IdleScaleDownScheduler(
                 duration = Duration.ZERO,
             ),
         )
+    }
+
+    private companion object {
+        const val HEADLESS_RUN_MODE = "HEADLESS"
     }
 }

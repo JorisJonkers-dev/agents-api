@@ -92,12 +92,20 @@ class KnowledgeMcpTransport(
     fun recall(
         query: String,
         limit: Int,
+        scope: String? = null,
     ): List<RetrievalPort.Snippet> =
         runCatching {
+            val args =
+                buildMap<String, Any?> {
+                    put("query", query)
+                    put("limit", limit)
+                    put("mode", props.recallMode)
+                    if (!scope.isNullOrBlank()) put("scope", scope)
+                }
             val resp =
                 callTool(
                     RECALL_TOOL,
-                    mapOf("query" to query, "limit" to limit, "mode" to props.recallMode),
+                    args,
                 )
             val result = resp?.get("result") ?: return@runCatching emptyList()
             // Prefer structuredContent.hits (MCP 2025-06) for typed parsing;

@@ -32,7 +32,7 @@ class SendUserInputCommandHandlerTest {
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val contextBuilder =
         mockk<ContextBuilder> {
-            every { augment(any()) } answers { firstArg() }
+            every { augment(any(), any()) } answers { firstArg() }
         }
     private val binding = mockk<RunnerSessionBindingService>()
     private val handler = SendUserInputCommandHandler(turns, gateway, contextBuilder, binding)
@@ -61,7 +61,7 @@ class SendUserInputCommandHandlerTest {
             bound(ws, session)
         val savedTurn = slot<Turn>()
         every { turns.save(capture(savedTurn)) } answers { savedTurn.captured }
-        every { contextBuilder.augment("hello") } returns "<context>kb hit</context>\n\nhello"
+        every { contextBuilder.augment("hello", any()) } returns "<context>kb hit</context>\n\nhello"
 
         handler.handle(SendUserInputCommand(sessionId = session.id, text = "hello"))
 

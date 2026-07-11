@@ -414,3 +414,185 @@ class IdleScaleDownSchedulerTest {
         updatedAt = updatedAt,
     )
 }
+
+// Tests for headless job idle branching (fix/headless-durability)
+class IdleScaleDownSchedulerHeadlessTest {
+    private class FixedClock(
+        var now: Instant,
+    ) : Clock() {
+        override fun getZone(): java.time.ZoneId = java.time.ZoneOffset.UTC
+
+        override fun withZone(zone: java.time.ZoneId): Clock = this
+
+        override fun instant(): Instant = now
+    }
+
+    private val now = Instant.parse("2026-05-19T12:00:00Z")
+    private val clock = FixedClock(now)
+    private val workspaces = mockk<WorkspaceRepository>()
+    private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
+    private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
+    private val gateway = mockk<AgentGatewayClient>(relaxed = true)
+    private val tracker = WorkspaceActivityTracker(clock)
+    private val connected = ConnectedClientTracker()
+    private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val scheduler =
+        IdleScaleDownScheduler(
+            stores = IdleScaleDownStores(workspaces = workspaces, agentSessions = agentSessions),
+            dependencies =
+                IdleScaleDownDependencies(
+                    orchestrator = orchestrator,
+                    gateway = gateway,
+                    tracker = tracker,
+                    connected = connected,
+                    sessionStatus = sessionStatus,
+                ),
+            runtime =
+                IdleScaleDownRuntime(
+                    idleAfterSeconds = 1_800,
+                    agentIdleAfterSeconds = 14_400,
+                    staleRecycleQuietSeconds = 300,
+                ),
+            clock = clock,
+        )
+
+    @Test
+    fun `sweep recycles stale runner once headless job has terminated`() {
+        val ws =
+            Workspace(
+                id = WorkspaceId.random(),
+                name = "demo",
+                repoUrl = null,
+                branch = null,
+                podName = "runner-hls",
+                pvcName = "ws-hls",
+                gatewayEndpoint = "http://x:8090",
+                status = WorkspaceStatus.READY,
+                createdAt = now.minusSeconds(7_200),
+                updatedAt = now.minusSeconds(60),
+            )
+        val session =
+            WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CLAUDE,
+                gatewayAgentId = "hls-job-xyz",
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                runMode = "HEADLESS",
+                createdAt = now.minusSeconds(3_600),
+                updatedAt = now.minusSeconds(3_600),
+                epoch = 1,
+                generation = 1,
+            )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        every {
+            gateway.pollHeadlessJob(ws, "hls-job-xyz")
+        } returns
+            AgentGatewayClient.HeadlessJob(
+                id = "hls-job-xyz",
+                status = AgentGatewayClient.HeadlessStatus.COMPLETED,
+                exitCode = 0,
+                output = null,
+            )
+        every { workspaces.save(any()) } answers { firstArg() }
+        every {
+            agentSessions.clearGatewayBindingIfGeneration(
+                id = session.id,
+                expectedGeneration = session.generation,
+                now = now,
+            )
+        } returns true
+
+        scheduler.sweep()
+
+        verify { orchestrator.scaleDown(ws) }
+        verify(exactly = 0) { gateway.agentIdle(any(), any()) }
+    }
+
+    @Test
+    fun `sweep does not recycle stale runner while headless job is still running`() {
+        val ws =
+            Workspace(
+                id = WorkspaceId.random(),
+                name = "demo",
+                repoUrl = null,
+                branch = null,
+                podName = "runner-hls-busy",
+                pvcName = "ws-hls-busy",
+                gatewayEndpoint = "http://x:8090",
+                status = WorkspaceStatus.READY,
+                createdAt = now.minusSeconds(7_200),
+                updatedAt = now.minusSeconds(60),
+            )
+        val session =
+            WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CLAUDE,
+                gatewayAgentId = "hls-job-busy",
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                runMode = "HEADLESS",
+                createdAt = now.minusSeconds(3_600),
+                updatedAt = now.minusSeconds(3_600),
+                epoch = 1,
+                generation = 1,
+            )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        every {
+            gateway.pollHeadlessJob(ws, "hls-job-busy")
+        } returns
+            AgentGatewayClient.HeadlessJob(
+                id = "hls-job-busy",
+                status = AgentGatewayClient.HeadlessStatus.RUNNING,
+                exitCode = null,
+                output = null,
+            )
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        verify(exactly = 0) { gateway.agentIdle(any(), any()) }
+    }
+
+    @Test
+    fun `sweep does not recycle stale runner when headless gateway poll fails`() {
+        val ws =
+            Workspace(
+                id = WorkspaceId.random(),
+                name = "demo",
+                repoUrl = null,
+                branch = null,
+                podName = "runner-hls-err",
+                pvcName = "ws-hls-err",
+                gatewayEndpoint = "http://x:8090",
+                status = WorkspaceStatus.READY,
+                createdAt = now.minusSeconds(7_200),
+                updatedAt = now.minusSeconds(60),
+            )
+        val session =
+            WorkspaceAgentSession(
+                id = WorkspaceAgentSessionId.random(),
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CLAUDE,
+                gatewayAgentId = "hls-job-err",
+                status = WorkspaceAgentSessionStatus.RUNNING,
+                runMode = "HEADLESS",
+                createdAt = now.minusSeconds(3_600),
+                updatedAt = now.minusSeconds(3_600),
+                epoch = 1,
+                generation = 1,
+            )
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
+        every { agentSessions.findAllByWorkspaceId(ws.id) } returns listOf(session)
+        every { orchestrator.isRunnerImageStale(ws) } returns true
+        every { gateway.pollHeadlessJob(ws, "hls-job-err") } throws RuntimeException("gateway unreachable")
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+    }
+}
