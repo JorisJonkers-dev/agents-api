@@ -35,7 +35,14 @@ class StartHeadlessJobCommandHandlerTest {
     private val telemetry = RecordingTelemetry()
     private val persistence = mockk<HeadlessJobSessionPersistence>()
     private val contextBuilder = mockk<ContextBuilder>()
-    private val handler = StartHeadlessJobCommandHandler(gateway, runnerLifecycle, persistence, contextBuilder, telemetry)
+    private val handler =
+        StartHeadlessJobCommandHandler(
+            gateway,
+            runnerLifecycle,
+            persistence,
+            contextBuilder,
+            telemetry,
+        )
 
     @Test
     fun `handle launches headless job and persists session when runner is ready`() {
@@ -290,10 +297,11 @@ class StartHeadlessJobCommandHandlerTest {
         val prompt = "fast headless task"
         every {
             runnerLifecycle.boot(ws.id, WorkspaceAgentKind.CLAUDE, null, null)
-        } returns WorkspaceRunnerLifecycleService.BootOutcome.Ready(
-            workspace = ws,
-            provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
-        )
+        } returns
+            WorkspaceRunnerLifecycleService.BootOutcome.Ready(
+                workspace = ws,
+                provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
+            )
         every { contextBuilder.augment(prompt, any()) } returns prompt
         every {
             gateway.startHeadlessJob(
@@ -305,12 +313,13 @@ class StartHeadlessJobCommandHandlerTest {
                     epoch = 1,
                 ),
             )
-        } returns AgentGatewayClient.HeadlessJob(
-            id = "hls-fast",
-            status = AgentGatewayClient.HeadlessStatus.COMPLETED,
-            exitCode = 0,
-            output = "done",
-        )
+        } returns
+            AgentGatewayClient.HeadlessJob(
+                id = "hls-fast",
+                status = AgentGatewayClient.HeadlessStatus.COMPLETED,
+                exitCode = 0,
+                output = "done",
+            )
         every { persistence.saveStartingSession(any()) } answers { firstArg() }
         val savedJob = slot<AgentGatewayClient.HeadlessJob>()
         every { persistence.persistSession(any(), capture(savedJob)) } returns Unit
