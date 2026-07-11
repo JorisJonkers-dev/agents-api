@@ -30,7 +30,10 @@ class HeadlessJobSessionPersistence(
     fun saveStartingSession(session: WorkspaceAgentSession): WorkspaceAgentSession = sessions.save(session)
 
     /**
-     * Phase 2: updates the STARTING session to RUNNING with the gateway job id.
+     * Phase 2: updates the STARTING session with the gateway job id and its
+     * reported status. Maps the gateway’s HeadlessStatus so that jobs that
+     * complete or fail synchronously (COMPLETED, FAILED, CANCELLED) are not
+     * recorded as RUNNING in the DB.
      * Committed in its own transaction independent of the outer call.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -41,7 +44,7 @@ class HeadlessJobSessionPersistence(
         sessions.save(
             pendingSession.copy(
                 gatewayAgentId = job.id,
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = gatewayStatusToSessionStatus(job.status),
                 updatedAt = Instant.now(),
             ),
         )
@@ -55,4 +58,14 @@ class HeadlessJobSessionPersistence(
     fun markSessionFailed(session: WorkspaceAgentSession) {
         sessions.save(session.markFailed(now = Instant.now()))
     }
+
+    private fun gatewayStatusToSessionStatus(
+        gatewayStatus: AgentGatewayClient.HeadlessStatus,
+    ): WorkspaceAgentSessionStatus =
+        when (gatewayStatus) {
+            AgentGatewayClient.HeadlessStatus.RUNNING -> WorkspaceAgentSessionStatus.RUNNING
+            AgentGatewayClient.HeadlessStatus.COMPLETED -> WorkspaceAgentSessionStatus.STOPPED
+            AgentGatewayClient.HeadlessStatus.CANCELLED -> WorkspaceAgentSessionStatus.STOPPED
+            AgentGatewayClient.HeadlessStatus.FAILED -> WorkspaceAgentSessionStatus.FAILED
+        }
 }

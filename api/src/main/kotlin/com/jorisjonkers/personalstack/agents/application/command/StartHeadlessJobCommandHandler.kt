@@ -7,6 +7,8 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.rag.ContextBuilder
+import com.jorisjonkers.personalstack.agents.application.rag.ScopeInference
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
@@ -41,6 +43,7 @@ class StartHeadlessJobCommandHandler(
     private val gateway: AgentGatewayClient,
     private val runnerLifecycle: WorkspaceRunnerLifecycleService,
     private val persistence: HeadlessJobSessionPersistence,
+    private val contextBuilder: ContextBuilder,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : CommandHandler<StartHeadlessJobCommand> {
     private val log = LoggerFactory.getLogger(StartHeadlessJobCommandHandler::class.java)
@@ -106,11 +109,13 @@ class StartHeadlessJobCommandHandler(
         pendingSession: WorkspaceAgentSession,
     ): AgentGatewayClient.HeadlessJob =
         runCatching {
+            val scope = ScopeInference.scopeFor(runner.workspace)
+            val augmentedPrompt = contextBuilder.augment(command.prompt, scope)
             gateway.startHeadlessJob(
                 AgentGatewayClient.HeadlessJobRequest(
                     workspace = runner.workspace,
                     kind = command.kind,
-                    prompt = command.prompt,
+                    prompt = augmentedPrompt,
                     timeoutSeconds = command.timeoutSeconds,
                     stableSessionId = command.sessionId,
                     epoch = 1,
@@ -118,7 +123,7 @@ class StartHeadlessJobCommandHandler(
             )
         }.getOrElse { ex ->
             // Gateway call failed — mark the already-saved STARTING session as FAILED
-            // so it doesn't linger as an irreconcilable STARTING row.
+            // so it does not linger as an irreconcilable STARTING row.
             persistence.markSessionFailed(pendingSession)
             throw AgentRunnerUnavailableException(
                 workspaceId = runner.workspace.id,

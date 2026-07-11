@@ -7,6 +7,7 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.application.rag.ContextBuilder
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
@@ -33,7 +34,8 @@ class StartHeadlessJobCommandHandlerTest {
     private val runnerLifecycle = mockk<WorkspaceRunnerLifecycleService>()
     private val telemetry = RecordingTelemetry()
     private val persistence = mockk<HeadlessJobSessionPersistence>()
-    private val handler = StartHeadlessJobCommandHandler(gateway, runnerLifecycle, persistence, telemetry)
+    private val contextBuilder = mockk<ContextBuilder>()
+    private val handler = StartHeadlessJobCommandHandler(gateway, runnerLifecycle, persistence, contextBuilder, telemetry)
 
     @Test
     fun `handle launches headless job and persists session when runner is ready`() {
@@ -64,6 +66,8 @@ class StartHeadlessJobCommandHandlerTest {
                 exitCode = null,
                 output = null,
             )
+        // ContextBuilder passes through the prompt unchanged in this test
+        every { contextBuilder.augment(prompt, any()) } returns prompt
         // Phase 1: saveStartingSession returns a STARTING session
         val savedStarting = slot<WorkspaceAgentSession>()
         every { persistence.saveStartingSession(capture(savedStarting)) } answers { firstArg() }
@@ -151,6 +155,7 @@ class StartHeadlessJobCommandHandlerTest {
                 workspace = ws,
                 provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
+        every { contextBuilder.augment("secret prompt", any()) } returns "secret prompt"
         every {
             gateway.startHeadlessJob(
                 AgentGatewayClient.HeadlessJobRequest(
@@ -205,6 +210,7 @@ class StartHeadlessJobCommandHandlerTest {
                 workspace = ws,
                 provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
             )
+        every { contextBuilder.augment("persist me", any()) } returns "persist me"
         every {
             gateway.startHeadlessJob(
                 AgentGatewayClient.HeadlessJobRequest(
@@ -274,6 +280,55 @@ class StartHeadlessJobCommandHandlerTest {
             assertThat(event.outcome).isEqualTo(OutcomeLabel.FAILURE)
             assertThat(event.reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
             assertThat(event.labels()).doesNotContain(missingId.value.toString(), ex.message.orEmpty())
+        }
+    }
+
+    @Test
+    fun `handle persists session as STOPPED when gateway returns COMPLETED immediately`() {
+        val ws = workspace(WorkspaceId.parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc"))
+        val sessionId = WorkspaceAgentSessionId.parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+        val prompt = "fast headless task"
+        every {
+            runnerLifecycle.boot(ws.id, WorkspaceAgentKind.CLAUDE, null, null)
+        } returns WorkspaceRunnerLifecycleService.BootOutcome.Ready(
+            workspace = ws,
+            provisioning = WorkspaceRunnerLifecycleService.BootProvisioningOutcome.AlreadyReady,
+        )
+        every { contextBuilder.augment(prompt, any()) } returns prompt
+        every {
+            gateway.startHeadlessJob(
+                AgentGatewayClient.HeadlessJobRequest(
+                    workspace = ws,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                    prompt = prompt,
+                    stableSessionId = sessionId,
+                    epoch = 1,
+                ),
+            )
+        } returns AgentGatewayClient.HeadlessJob(
+            id = "hls-fast",
+            status = AgentGatewayClient.HeadlessStatus.COMPLETED,
+            exitCode = 0,
+            output = "done",
+        )
+        every { persistence.saveStartingSession(any()) } answers { firstArg() }
+        val savedJob = slot<AgentGatewayClient.HeadlessJob>()
+        every { persistence.persistSession(any(), capture(savedJob)) } returns Unit
+
+        handler.handle(
+            StartHeadlessJobCommand(
+                sessionId = sessionId,
+                workspaceId = ws.id,
+                kind = WorkspaceAgentKind.CLAUDE,
+                prompt = prompt,
+            ),
+        )
+
+        // COMPLETED gateway status must be persisted — persistSession receives the COMPLETED job
+        // and its gatewayStatusToSessionStatus maps it to STOPPED (not RUNNING).
+        assertThat(savedJob.captured.status).isEqualTo(AgentGatewayClient.HeadlessStatus.COMPLETED)
+        telemetry.operations.single().let { event ->
+            assertThat(event.outcome).isEqualTo(OutcomeLabel.SUCCESS)
         }
     }
 
