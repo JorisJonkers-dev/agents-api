@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.2](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.1...v0.18.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* bump runner image seed to agent-runtime v0.18.1 (V23) ([#23](https://github.com/JorisJonkers-dev/agents-api/issues/23)) ([f3d71c1](https://github.com/JorisJonkers-dev/agents-api/commit/f3d71c1abaf97da739251fa4ba0c5f5b2d97b576))
+* bump runner image to v0.18.0 and correct node-selector keys (V22) ([#20](https://github.com/JorisJonkers-dev/agents-api/issues/20)) ([f78a2a5](https://github.com/JorisJonkers-dev/agents-api/commit/f78a2a5d50725538a3b278b131c930370b94d674))
+* headless job durability ([#22](https://github.com/JorisJonkers-dev/agents-api/issues/22)) ([67b1d0a](https://github.com/JorisJonkers-dev/agents-api/commit/67b1d0a0a25d48f7199f7027fc87726026522788))
+
 ## [0.18.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.0...v0.18.1) (2026-07-10)
 
 
