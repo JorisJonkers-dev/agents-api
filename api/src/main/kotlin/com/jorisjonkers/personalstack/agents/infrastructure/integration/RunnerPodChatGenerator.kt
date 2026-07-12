@@ -52,12 +52,17 @@ class RunnerPodChatGenerator(
         prompt: String,
         onChunk: (String) -> Unit,
     ): String {
-        val workspace = resolveWorkspace() ?: return ""
+        val (workspace, gatewayEndpoint) = resolveWorkspace() ?: return ""
         val jobId = startHeadlessJob(workspace, prompt) ?: return ""
-        return streamJobOutput(workspace.gatewayEndpoint!!, jobId, onChunk)
+        return streamJobOutput(gatewayEndpoint, jobId, onChunk)
     }
 
-    private fun resolveWorkspace(): com.jorisjonkers.personalstack.agents.domain.model.Workspace? {
+    /**
+     * Resolves the target workspace and validates that a gateway endpoint is present.
+     * Returns a pair of ([Workspace], gatewayEndpoint) or null when the workspace is
+     * not configured, not found, or has no gateway endpoint yet.
+     */
+    private fun resolveWorkspace(): Pair<com.jorisjonkers.personalstack.agents.domain.model.Workspace, String>? {
         val rawId = props.runnerPodWorkspaceId
         if (rawId.isNullOrBlank()) {
             log.warn("chat.generation.runner-pod-workspace-id is not configured — no answer produced")
@@ -70,14 +75,15 @@ class RunnerPodChatGenerator(
                 log.warn("RunnerPodChatGenerator: workspace {} not found — no answer produced", rawId)
                 return@runCatching null
             }
-            if (workspace.gatewayEndpoint.isNullOrBlank()) {
+            val endpoint = workspace.gatewayEndpoint
+            if (endpoint.isNullOrBlank()) {
                 log.warn(
                     "RunnerPodChatGenerator: workspace {} has no gateway endpoint — no answer produced",
                     rawId,
                 )
                 return@runCatching null
             }
-            workspace
+            workspace to endpoint
         }.onFailure { ex ->
             log.warn("RunnerPodChatGenerator: failed to resolve workspace {}: {}", rawId, ex.message)
         }.getOrNull()
