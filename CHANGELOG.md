@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.2...v0.18.3) (2026-07-12)
+
+
+### Bug Fixes
+
+* route RunnerPodChatGenerator through AgentGatewayClient with typed agent kind ([#24](https://github.com/JorisJonkers-dev/agents-api/issues/24)) ([a8efe1d](https://github.com/JorisJonkers-dev/agents-api/commit/a8efe1d86756a0a932dda9bbc98a433b28ab4e59))
+
 ## [0.18.2](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.1...v0.18.2) (2026-07-11)
 
 
