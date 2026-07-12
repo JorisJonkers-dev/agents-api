@@ -124,6 +124,12 @@ interface AgentGatewayClient {
         val stableSessionId: WorkspaceAgentSessionId? = null,
         val epoch: Long? = null,
         val continuation: ContinuationMetadata? = null,
+        /**
+         * When false (the default), the gateway injects KB_AUTO_MCP_DISABLED=1
+         * so the headless worker does not fire auto-KB recall/capture hooks.
+         * Set to true only for runs that explicitly need KB hook access.
+         */
+        val enableKbHooks: Boolean = false,
     )
 
     fun startHeadlessJob(request: HeadlessJobRequest): HeadlessJob

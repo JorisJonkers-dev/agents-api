@@ -1,13 +1,21 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
 import com.jorisjonkers.personalstack.agents.config.ChatGenerationProperties
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.web.client.RestClient
+import java.time.Instant
+import java.util.UUID
 
 class RunnerPodChatGeneratorTest {
     // region: parseStreamJsonLine unit tests
@@ -93,9 +101,10 @@ class RunnerPodChatGeneratorTest {
     @Test
     fun `generate returns empty string when runnerPodWorkspaceId is null`() {
         val props = ChatGenerationProperties(backend = "runner-pod", runnerPodWorkspaceId = null)
+        val gateway = mockk<AgentGatewayClient>()
         val restClient = mockk<RestClient>()
         val workspaceRepo = mockk<WorkspaceRepository>()
-        val generator = RunnerPodChatGenerator(restClient, workspaceRepo, props)
+        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
 
         val chunks = mutableListOf<String>()
         val result = generator.generate("some prompt") { chunks.add(it) }
@@ -108,11 +117,12 @@ class RunnerPodChatGeneratorTest {
     fun `generate returns empty string when workspace is not found`() {
         val wsId = "11111111-1111-4111-8111-111111111111"
         val props = ChatGenerationProperties(backend = "runner-pod", runnerPodWorkspaceId = wsId)
+        val gateway = mockk<AgentGatewayClient>()
         val restClient = mockk<RestClient>()
         val workspaceRepo = mockk<WorkspaceRepository>()
         every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns null
 
-        val generator = RunnerPodChatGenerator(restClient, workspaceRepo, props)
+        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
         val chunks = mutableListOf<String>()
         val result = generator.generate("some prompt") { chunks.add(it) }
 
@@ -121,4 +131,103 @@ class RunnerPodChatGeneratorTest {
     }
 
     // endregion
+
+    // region: gateway routing and typed kind
+
+    @Test
+    fun `startHeadlessJob routes through AgentGatewayClient with typed kind`() {
+        val wsId = "22222222-2222-4222-8222-222222222222"
+        val props =
+            ChatGenerationProperties(
+                backend = "runner-pod",
+                runnerPodWorkspaceId = wsId,
+                runnerPodAgentKind = WorkspaceAgentKind.CODEX,
+                runnerPodEnableKbHooks = false,
+            )
+        val workspace = stubWorkspace(wsId, "http://gateway:8080")
+        val workspaceRepo = mockk<WorkspaceRepository>()
+        every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns workspace
+
+        val capturedRequest = slot<AgentGatewayClient.HeadlessJobRequest>()
+        val gateway = mockk<AgentGatewayClient>()
+        every { gateway.startHeadlessJob(capture(capturedRequest)) } throws RuntimeException("stream not needed")
+
+        val restClient = mockk<RestClient>()
+        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
+
+        generator.generate("my prompt") {}
+
+        // gateway was called
+        verify(exactly = 1) { gateway.startHeadlessJob(any()) }
+        // typed kind is forwarded
+        assertThat(capturedRequest.captured.kind).isEqualTo(WorkspaceAgentKind.CODEX)
+        // prompt is forwarded
+        assertThat(capturedRequest.captured.prompt).isEqualTo("my prompt")
+        // kb hooks default off
+        assertThat(capturedRequest.captured.enableKbHooks).isFalse()
+        // workspace object is the resolved one
+        assertThat(capturedRequest.captured.workspace).isSameAs(workspace)
+    }
+
+    @Test
+    fun `startHeadlessJob forwards enableKbHooks=true when configured`() {
+        val wsId = "33333333-3333-4333-8333-333333333333"
+        val props =
+            ChatGenerationProperties(
+                backend = "runner-pod",
+                runnerPodWorkspaceId = wsId,
+                runnerPodAgentKind = WorkspaceAgentKind.CLAUDE,
+                runnerPodEnableKbHooks = true,
+            )
+        val workspace = stubWorkspace(wsId, "http://gateway:8080")
+        val workspaceRepo = mockk<WorkspaceRepository>()
+        every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns workspace
+
+        val capturedRequest = slot<AgentGatewayClient.HeadlessJobRequest>()
+        val gateway = mockk<AgentGatewayClient>()
+        every { gateway.startHeadlessJob(capture(capturedRequest)) } throws RuntimeException("stream not needed")
+
+        val restClient = mockk<RestClient>()
+        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
+
+        generator.generate("kb prompt") {}
+
+        assertThat(capturedRequest.captured.enableKbHooks).isTrue()
+    }
+
+    @Test
+    fun `generate returns empty when workspace has no gateway endpoint`() {
+        val wsId = "44444444-4444-4444-8444-444444444444"
+        val props = ChatGenerationProperties(backend = "runner-pod", runnerPodWorkspaceId = wsId)
+        val workspace = stubWorkspace(wsId, gatewayEndpoint = null)
+        val workspaceRepo = mockk<WorkspaceRepository>()
+        every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns workspace
+
+        val gateway = mockk<AgentGatewayClient>()
+        val restClient = mockk<RestClient>()
+        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
+
+        val result = generator.generate("prompt") {}
+
+        assertThat(result).isEmpty()
+        verify(exactly = 0) { gateway.startHeadlessJob(any()) }
+    }
+
+    // endregion
+
+    private fun stubWorkspace(
+        id: String,
+        gatewayEndpoint: String?,
+    ) = Workspace(
+        id = WorkspaceId.parse(id),
+        name = "test-workspace",
+        repoUrl = null,
+        branch = null,
+        podName = "pod-1",
+        pvcName = "pvc-1",
+        gatewayEndpoint = gatewayEndpoint,
+        status = WorkspaceStatus.READY,
+        createdAt = Instant.EPOCH,
+        updatedAt = Instant.EPOCH,
+    )
 }
