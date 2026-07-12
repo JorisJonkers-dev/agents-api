@@ -13,6 +13,12 @@ import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.http.HttpMethod
+import org.springframework.http.MediaType
+import org.springframework.test.web.client.MockRestServiceServer
+import org.springframework.test.web.client.match.MockRestRequestMatchers.method
+import org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo
+import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.web.client.RestClient
 import java.time.Instant
 
@@ -164,6 +170,8 @@ class RunnerPodChatGeneratorTest {
         assertThat(capturedRequest.captured.prompt).isEqualTo("my prompt")
         // kb hooks default off
         assertThat(capturedRequest.captured.enableKbHooks).isFalse()
+        // partial-messages always on for SSE streaming
+        assertThat(capturedRequest.captured.partialMessages).isTrue()
         // workspace object is the resolved one
         assertThat(capturedRequest.captured.workspace).isSameAs(workspace)
     }
@@ -213,6 +221,51 @@ class RunnerPodChatGeneratorTest {
     }
 
     // endregion
+
+    @Test
+    fun `generate streams SSE output on successful job launch`() {
+        val wsId = "55555555-5555-4555-8555-555555555555"
+        val props =
+            ChatGenerationProperties(
+                backend = "runner-pod",
+                runnerPodWorkspaceId = wsId,
+                runnerPodAgentKind = WorkspaceAgentKind.CLAUDE,
+            )
+        val workspace = stubWorkspace(wsId, "http://gateway:8080")
+        val workspaceRepo = mockk<WorkspaceRepository>()
+        every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns workspace
+
+        val job =
+            AgentGatewayClient.HeadlessJob(
+                id = "job-stream-1",
+                status = AgentGatewayClient.HeadlessStatus.RUNNING,
+                exitCode = null,
+                output = null,
+            )
+        val gateway = mockk<AgentGatewayClient>()
+        every { gateway.startHeadlessJob(any()) } returns job
+
+        // Use a mock RestClient that returns a single SSE result line
+        val sseBody =
+            """
+            event:line
+            data:{"type":"result","subtype":"success","result":"streaming answer"}
+
+            """.trimIndent()
+        val restClientBuilder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(restClientBuilder).build()
+        server
+            .expect(requestTo("http://gateway:8080/agents/headless/job-stream-1/stream"))
+            .andExpect(method(HttpMethod.GET))
+            .andRespond(withSuccess(sseBody, MediaType.TEXT_EVENT_STREAM))
+
+        val generator = RunnerPodChatGenerator(gateway, restClientBuilder.build(), workspaceRepo, props)
+        val chunks = mutableListOf<String>()
+        val result = generator.generate("stream prompt") { chunks.add(it) }
+
+        assertThat(result).isEqualTo("streaming answer")
+        server.verify()
+    }
 
     private fun stubWorkspace(
         id: String,

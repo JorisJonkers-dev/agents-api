@@ -101,6 +101,10 @@ class RunnerPodChatGenerator(
                         kind = props.runnerPodAgentKind,
                         prompt = prompt,
                         enableKbHooks = props.runnerPodEnableKbHooks,
+                        // Token-level streaming is always enabled for chat-generation runs so
+                        // the SseChatAccumulator receives incremental deltas rather than waiting
+                        // for the full assistant turn before delivering any output.
+                        partialMessages = true,
                     ),
                 )
             job.id

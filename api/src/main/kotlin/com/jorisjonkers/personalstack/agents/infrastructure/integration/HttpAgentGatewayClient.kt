@@ -269,6 +269,7 @@ class HttpAgentGatewayClient(
         val continuation: ContinuationBody? = null,
         val timeoutSeconds: Long? = null,
         val enableKbHooks: Boolean = false,
+        val partialMessages: Boolean = false,
     )
 
     private data class HeadlessJobDto(
@@ -293,6 +294,7 @@ class HttpAgentGatewayClient(
                         continuation = request.continuation?.toBody(),
                         timeoutSeconds = request.timeoutSeconds,
                         enableKbHooks = request.enableKbHooks,
+                        partialMessages = request.partialMessages,
                     ),
                 ).retrieve()
                 .body(HeadlessJobDto::class.java)

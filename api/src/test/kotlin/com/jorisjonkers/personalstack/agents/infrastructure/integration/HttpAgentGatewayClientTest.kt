@@ -246,7 +246,7 @@ class HttpAgentGatewayClientTest {
     }
 
     @Test
-    fun `startHeadlessJob forwards enableKbHooks to gateway`() {
+    fun `startHeadlessJob forwards enableKbHooks and partialMessages to gateway`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val client = HttpAgentGatewayClient(builder.build())
@@ -257,6 +257,7 @@ class HttpAgentGatewayClientTest {
             .expect(requestTo("http://runner:8090/agents/headless"))
             .andExpect(method(HttpMethod.POST))
             .andExpect(jsonPath("$.enableKbHooks").value(true))
+            .andExpect(jsonPath("$.partialMessages").value(true))
             .andRespond(
                 withSuccess(
                     """{"id":"job-kbhooks-1","status":"RUNNING","exitCode":null,"output":null}""",
@@ -271,6 +272,7 @@ class HttpAgentGatewayClientTest {
                     kind = WorkspaceAgentKind.CLAUDE,
                     prompt = prompt,
                     enableKbHooks = true,
+                    partialMessages = true,
                 ),
             )
 
