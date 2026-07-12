@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.config
 
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
@@ -13,10 +14,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *
  * `runnerPodWorkspaceId` and `runnerPodAgentKind` are only consulted when
  * `backend=runner-pod`.
+ *
+ * `runnerPodEnableKbHooks` opts the chat-generation headless job into KB
+ * auto-recall/capture hooks. Defaults to false: the gateway sets
+ * KB_AUTO_MCP_DISABLED=1 so chat workers do not fire accidental KB writes.
  */
 @ConfigurationProperties(prefix = "chat.generation")
 data class ChatGenerationProperties(
     val backend: String = "lightrag",
     val runnerPodWorkspaceId: String? = null,
-    val runnerPodAgentKind: String = "CLAUDE",
+    val runnerPodAgentKind: WorkspaceAgentKind = WorkspaceAgentKind.CLAUDE,
+    val runnerPodEnableKbHooks: Boolean = false,
 )

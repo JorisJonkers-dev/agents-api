@@ -124,6 +124,18 @@ interface AgentGatewayClient {
         val stableSessionId: WorkspaceAgentSessionId? = null,
         val epoch: Long? = null,
         val continuation: ContinuationMetadata? = null,
+        /**
+         * When false (the default), the gateway injects KB_AUTO_MCP_DISABLED=1
+         * so the headless worker does not fire auto-KB recall/capture hooks.
+         * Set to true only for runs that explicitly need KB hook access.
+         */
+        val enableKbHooks: Boolean = false,
+        /**
+         * Opts into token-level streaming via Claude `--include-partial-messages`.
+         * Should be set to true when the caller is consuming the SSE stream directly
+         * (e.g. [RunnerPodChatGenerator]), so token deltas arrive incrementally.
+         */
+        val partialMessages: Boolean = false,
     )
 
     fun startHeadlessJob(request: HeadlessJobRequest): HeadlessJob

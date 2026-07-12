@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.jorisjonkers.personalstack.agents.config.ChatGenerationProperties
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.ChatGenerationPort
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
@@ -16,15 +17,20 @@ import java.util.UUID
 
 /**
  * [ChatGenerationPort] adapter that routes a chat prompt through a headless
- * agent job on the runner Pod.
+ * agent job on the runner Pod via the shared [AgentGatewayClient].
  *
  * Flow:
  * 1. Resolve the target workspace via [ChatGenerationProperties.runnerPodWorkspaceId].
- * 2. POST `{gatewayEndpoint}/agents/headless` with `kind` + `prompt`; read
- *    back the job `id`.
+ * 2. Submit the job via [AgentGatewayClient.startHeadlessJob] with the configured
+ *    [ChatGenerationProperties.runnerPodAgentKind]; receive back the job id.
  * 3. GET `{gatewayEndpoint}/agents/headless/{id}/stream` as text/event-stream;
  *    parse Spring SSE format (event:/data: pairs) and delegate each line to
  *    [parseStreamJsonLine] to extract assistant text chunks.
+ *
+ * Using the shared gateway client (step 2) ensures the job is submitted through
+ * the same typed request path as [StartHeadlessJobCommandHandler], so
+ * [AgentGatewayClient.HeadlessJobRequest.enableKbHooks] and any future
+ * request-level fields are honoured uniformly.
  *
  * Active only when `chat.generation.backend=runner-pod`.
  */
@@ -35,6 +41,7 @@ import java.util.UUID
     havingValue = "runner-pod",
 )
 class RunnerPodChatGenerator(
+    private val gateway: AgentGatewayClient,
     private val restClient: RestClient,
     private val workspaces: WorkspaceRepository,
     private val props: ChatGenerationProperties,
@@ -45,68 +52,65 @@ class RunnerPodChatGenerator(
         prompt: String,
         onChunk: (String) -> Unit,
     ): String {
-        val gatewayEndpoint = resolveGatewayEndpoint() ?: return ""
-        val jobId = startHeadlessJob(gatewayEndpoint, prompt) ?: return ""
+        val (workspace, gatewayEndpoint) = resolveWorkspace() ?: return ""
+        val jobId = startHeadlessJob(workspace, prompt) ?: return ""
         return streamJobOutput(gatewayEndpoint, jobId, onChunk)
     }
 
-    private fun resolveGatewayEndpoint(): String? {
+    /**
+     * Resolves the target workspace and validates that a gateway endpoint is present.
+     * Returns a pair of ([Workspace], gatewayEndpoint) or null when the workspace is
+     * not configured, not found, or has no gateway endpoint yet.
+     */
+    private fun resolveWorkspace(): Pair<com.jorisjonkers.personalstack.agents.domain.model.Workspace, String>? {
         val rawId = props.runnerPodWorkspaceId
         if (rawId.isNullOrBlank()) {
             log.warn("chat.generation.runner-pod-workspace-id is not configured — no answer produced")
             return null
         }
-        var endpoint: String? = null
-        runCatching {
+        return runCatching {
             val workspaceId = WorkspaceId(UUID.fromString(rawId))
             val workspace = workspaces.findById(workspaceId)
             if (workspace == null) {
                 log.warn("RunnerPodChatGenerator: workspace {} not found — no answer produced", rawId)
-                return@runCatching
+                return@runCatching null
             }
-            val ep = workspace.gatewayEndpoint
-            if (ep.isNullOrBlank()) {
+            val endpoint = workspace.gatewayEndpoint
+            if (endpoint.isNullOrBlank()) {
                 log.warn(
                     "RunnerPodChatGenerator: workspace {} has no gateway endpoint — no answer produced",
                     rawId,
                 )
-                return@runCatching
+                return@runCatching null
             }
-            endpoint = ep
+            workspace to endpoint
         }.onFailure { ex ->
             log.warn("RunnerPodChatGenerator: failed to resolve workspace {}: {}", rawId, ex.message)
-        }
-        return endpoint
+        }.getOrNull()
     }
 
     private fun startHeadlessJob(
-        gatewayEndpoint: String,
+        workspace: com.jorisjonkers.personalstack.agents.domain.model.Workspace,
         prompt: String,
-    ): String? {
-        var jobId: String? = null
+    ): String? =
         runCatching {
-            val response =
-                restClient
-                    .post()
-                    .uri("$gatewayEndpoint/agents/headless")
-                    .body(
-                        mapOf(
-                            "kind" to props.runnerPodAgentKind,
-                            "prompt" to prompt,
-                            "partialMessages" to true,
-                        ),
-                    ).retrieve()
-                    .body(Map::class.java)
-            jobId = response?.get("id")?.toString()
-            if (jobId.isNullOrBlank()) {
-                log.warn("RunnerPodChatGenerator: gateway returned no job id")
-                jobId = null
-            }
+            val job =
+                gateway.startHeadlessJob(
+                    AgentGatewayClient.HeadlessJobRequest(
+                        workspace = workspace,
+                        kind = props.runnerPodAgentKind,
+                        prompt = prompt,
+                        enableKbHooks = props.runnerPodEnableKbHooks,
+                        // Token-level streaming is always enabled for chat-generation runs so
+                        // the SseChatAccumulator receives incremental deltas rather than waiting
+                        // for the full assistant turn before delivering any output.
+                        partialMessages = true,
+                    ),
+                )
+            job.id
         }.onFailure { ex ->
             log.warn("RunnerPodChatGenerator: failed to start headless job: {}", ex.message)
-        }
-        return jobId
-    }
+        }.getOrNull()
 
     private fun streamJobOutput(
         gatewayEndpoint: String,
