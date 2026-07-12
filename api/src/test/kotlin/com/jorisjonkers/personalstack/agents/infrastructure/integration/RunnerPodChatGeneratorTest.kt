@@ -15,7 +15,6 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.web.client.RestClient
 import java.time.Instant
-import java.util.UUID
 
 class RunnerPodChatGeneratorTest {
     // region: parseStreamJsonLine unit tests
