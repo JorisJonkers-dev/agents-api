@@ -10,9 +10,7 @@ import io.fabric8.kubernetes.api.model.Pod
  * Extracted from Fabric8AgentRunnerOrchestrator to keep that class below
  * the TooManyFunctions and LargeClass thresholds.
  */
-internal class RunnerStateReader(
-    private val ownReleaseVersion: () -> String?,
-) {
+internal class RunnerStateReader {
     fun runnerState(pod: Pod): RunnerState {
         val containerReady =
             pod.status

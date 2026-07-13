@@ -47,7 +47,7 @@ class Fabric8AgentRunnerOrchestrator(
     private val log = LoggerFactory.getLogger(Fabric8AgentRunnerOrchestrator::class.java)
     private val credentials = RunnerCredentialSecretManager(client, props, credentialsProvider)
     private val podSpec = RunnerPodSpecBuilder(props, workspaceRepos, repositories, ::ownReleaseVersion)
-    private val stateReader = RunnerStateReader(::ownReleaseVersion)
+    private val stateReader = RunnerStateReader()
 
     override fun provision(workspace: Workspace): AgentRunnerOrchestrator.RunnerHandle =
         provision(workspace, legacySetupSpec(), workspace.runnerSetupGeneration)

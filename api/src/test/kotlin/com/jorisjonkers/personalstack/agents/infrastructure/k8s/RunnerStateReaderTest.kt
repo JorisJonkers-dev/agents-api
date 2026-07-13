@@ -12,7 +12,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class RunnerStateReaderTest {
-    private val reader = RunnerStateReader { "v0.18.0" }
+    private val reader = RunnerStateReader()
 
     @Test
     fun `runnerState maps ready pod with all labels to domain model`() {
