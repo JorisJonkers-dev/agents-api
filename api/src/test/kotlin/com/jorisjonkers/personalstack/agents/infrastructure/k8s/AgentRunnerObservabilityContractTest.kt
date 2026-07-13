@@ -9,13 +9,14 @@ import java.nio.file.Path
 class AgentRunnerObservabilityContractTest {
     @Test
     fun `runner pod env pins gateway service identity and otlp transport`() {
-        val orchestrator =
+        // Pod env is built in RunnerPodSpecBuilder after the class split.
+        val podSpecBuilder =
             readProjectFile(
                 "src/main/kotlin/com/jorisjonkers/personalstack/agents/infrastructure/k8s/" +
-                    "Fabric8AgentRunnerOrchestrator.kt",
+                    "RunnerPodSpecBuilder.kt",
             )
 
-        assertThat(orchestrator).contains(
+        assertThat(podSpecBuilder).contains(
             "EnvVarBuilder().withName(\"OTEL_SERVICE_NAME\").withValue(\"agent-gateway\")",
             "EnvVarBuilder()",
             ".withName(\"OTEL_EXPORTER_OTLP_ENDPOINT\")",
@@ -26,18 +27,19 @@ class AgentRunnerObservabilityContractTest {
 
     @Test
     fun `runner kubernetes probes remain on healthz`() {
-        val orchestrator =
+        // Probe configuration lives in RunnerPodSpecBuilder after the class split.
+        val podSpecBuilder =
             readProjectFile(
                 "src/main/kotlin/com/jorisjonkers/personalstack/agents/infrastructure/k8s/" +
-                    "Fabric8AgentRunnerOrchestrator.kt",
+                    "RunnerPodSpecBuilder.kt",
             )
 
-        assertThat(orchestrator).contains(
+        assertThat(podSpecBuilder).contains(
             ".withNewStartupProbe()",
             ".withNewReadinessProbe()",
             ".withNewLivenessProbe()",
         )
-        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(orchestrator).count()).isEqualTo(3)
+        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(podSpecBuilder).count()).isEqualTo(3)
     }
 
     @Test
