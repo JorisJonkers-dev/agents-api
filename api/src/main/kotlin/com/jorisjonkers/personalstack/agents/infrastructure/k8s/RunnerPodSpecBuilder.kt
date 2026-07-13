@@ -275,23 +275,38 @@ internal class RunnerContainerEnvBuilder(
         runnerGeneration: Long,
         credentialSecret: CredentialSecret?,
     ) = buildList {
-        add(EnvVarBuilder().withName("HOME").withValue("/home/agent").build())
-        add(EnvVarBuilder().withName("CODEX_HOME").withValue("/home/agent/.codex").build())
-        add(EnvVarBuilder().withName("DEPLOYMENT_ENVIRONMENT").withValue("production").build())
-        add(EnvVarBuilder().withName("OTEL_SERVICE_NAME").withValue("agent-gateway").build())
-        add(
+        addAll(baseEnv())
+        addAll(setupEnv(setup, runnerGeneration))
+        addAll(dockerEnv(setup))
+        addAll(knowledgeEnv(setup))
+        addAll(githubAppTokenEnv())
+        addAll(agentCredentialEnv(credentialSecret))
+        addAll(repoEnv(workspace))
+    }
+
+    private fun baseEnv() =
+        listOf(
+            EnvVarBuilder().withName("HOME").withValue("/home/agent").build(),
+            EnvVarBuilder().withName("CODEX_HOME").withValue("/home/agent/.codex").build(),
+            EnvVarBuilder().withName("DEPLOYMENT_ENVIRONMENT").withValue("production").build(),
+            EnvVarBuilder().withName("OTEL_SERVICE_NAME").withValue("agent-gateway").build(),
             EnvVarBuilder()
                 .withName("OTEL_EXPORTER_OTLP_ENDPOINT")
                 .withValue("http://alloy.observability.svc.cluster.local:4318")
                 .build(),
+            EnvVarBuilder().withName("OTEL_EXPORTER_OTLP_PROTOCOL").withValue("http/protobuf").build(),
+            // The runner Pod is the outer sandbox for the agent process.
+            // Docker socket access is the explicit host-equivalent exception
+            // for Testcontainers and Docker CLI workflows. IS_SANDBOX tells
+            // Claude Code so that --dangerously-skip-permissions runs without
+            // the bypass-mode warning + acceptance prompt.
+            EnvVarBuilder().withName("IS_SANDBOX").withValue("1").build(),
         )
-        add(EnvVarBuilder().withName("OTEL_EXPORTER_OTLP_PROTOCOL").withValue("http/protobuf").build())
-        // The runner Pod is the outer sandbox for the agent process.
-        // Docker socket access is the explicit host-equivalent exception
-        // for Testcontainers and Docker CLI workflows. IS_SANDBOX tells
-        // Claude Code so that --dangerously-skip-permissions runs without
-        // the bypass-mode warning + acceptance prompt.
-        add(EnvVarBuilder().withName("IS_SANDBOX").withValue("1").build())
+
+    private fun setupEnv(
+        setup: RunnerSetupProvisioningSpec,
+        runnerGeneration: Long,
+    ) = buildList {
         add(EnvVarBuilder().withName("AGENT_MCP_PROFILE").withValue(setup.mcpProfile).build())
         add(EnvVarBuilder().withName("AGENT_MCP_DIR").withValue(setup.mcpDir).build())
         setup.claudeMcpServersFile?.let {
@@ -320,27 +335,27 @@ internal class RunnerContainerEnvBuilder(
                 .withValue(runnerGeneration.toString())
                 .build(),
         )
-        addAll(dockerEnv(setup))
-        addAll(knowledgeEnv(setup))
-        addAll(githubAppTokenEnv())
-        addAll(agentCredentialEnv(credentialSecret))
-        // REPO_URL/REPO_BRANCH drive the entrypoint's boot-time clone
-        // into /workspace/<repo-name>. Cloning in the runner removes the race that
-        // left repo-backed workspaces empty: the old create-time
-        // gateway.clone fired before the runner gateway was up and was
-        // swallowed. Only repo-backed workspaces carry a repoUrl.
-        workspace.repoUrl?.let { url ->
-            add(EnvVarBuilder().withName("REPO_URL").withValue(url).build())
-            workspace.branch?.let { add(EnvVarBuilder().withName("REPO_BRANCH").withValue(it).build()) }
-        }
-        // REPO_URLS carries the workspace's additional repos (everything
-        // attached that is not the primary), as url#branch entries. The
-        // entrypoint clones each into /workspace/<repo-name> over the
-        // App-token credential helper.
-        additionalRepoUrls(workspace).takeIf { it.isNotEmpty() }?.let { urls ->
-            add(EnvVarBuilder().withName("REPO_URLS").withValue(urls.joinToString(" ")).build())
-        }
     }
+
+    private fun repoEnv(workspace: Workspace) =
+        buildList {
+            // REPO_URL/REPO_BRANCH drive the entrypoint's boot-time clone
+            // into /workspace/<repo-name>. Cloning in the runner removes the race that
+            // left repo-backed workspaces empty: the old create-time
+            // gateway.clone fired before the runner gateway was up and was
+            // swallowed. Only repo-backed workspaces carry a repoUrl.
+            workspace.repoUrl?.let { url ->
+                add(EnvVarBuilder().withName("REPO_URL").withValue(url).build())
+                workspace.branch?.let { add(EnvVarBuilder().withName("REPO_BRANCH").withValue(it).build()) }
+            }
+            // REPO_URLS carries the workspace's additional repos (everything
+            // attached that is not the primary), as url#branch entries. The
+            // entrypoint clones each into /workspace/<repo-name> over the
+            // App-token credential helper.
+            additionalRepoUrls(workspace).takeIf { it.isNotEmpty() }?.let { urls ->
+                add(EnvVarBuilder().withName("REPO_URLS").withValue(urls.joinToString(" ")).build())
+            }
+        }
 
     private fun additionalRepoUrls(workspace: Workspace): List<String> {
         val links = workspaceRepos.ifAvailable ?: return emptyList()
