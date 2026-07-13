@@ -1,26 +1,17 @@
-@file:Suppress("TooManyFunctions", "LargeClass")
-
 package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
-import com.jorisjonkers.personalstack.agents.application.observability.AgentKindLabel
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
-import com.jorisjonkers.personalstack.agents.application.observability.AttachAttemptTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
 import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.observability.RunModeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
-import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
-import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
-import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
@@ -41,7 +32,6 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -61,6 +51,9 @@ import java.util.concurrent.TimeUnit
  * already shows it and the terminal holds screen state, so buffering
  * raw PTY bytes (including ANSI escapes) into the transcript only
  * duplicated the display and wrote escape garbage into the DB.
+ *
+ * Precondition checking is delegated to AttachPreconditionChecker to keep this
+ * class below the TooManyFunctions and LargeClass thresholds.
  */
 @Component
 class SessionAttachDependencies(
@@ -78,12 +71,18 @@ class SessionAttachHandler(
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : AbstractWebSocketHandler() {
     private val sessions = dependencies.sessions
-    private val workspaces = dependencies.workspaces
     private val activity = dependencies.activity
     private val connected = dependencies.connected
     private val binding = dependencies.binding
     private val sessionStatus = dependencies.sessionStatus
     private val log = LoggerFactory.getLogger(SessionAttachHandler::class.java)
+    private val preconditions =
+        AttachPreconditionChecker(
+            sessions = dependencies.sessions,
+            workspaces = dependencies.workspaces,
+            binding = dependencies.binding,
+            telemetry = telemetry,
+        )
 
     private data class Bridge(
         val sessionId: WorkspaceAgentSessionId,
@@ -107,199 +106,18 @@ class SessionAttachHandler(
             },
         )
 
-    private data class ResolvedAttach(
-        val sessionId: WorkspaceAgentSessionId,
-        val workspaceId: WorkspaceId,
-        val upstreamUri: URI,
-        val kind: AgentKindLabel,
-    )
-
     private data class BrowserCursor(
         val epoch: String?,
         val offset: String?,
     )
 
-    /** Outcome of the full attach precondition check. */
-    private sealed interface AttachOutcome {
-        /** All preconditions passed; the attach can proceed. */
-        data class Ready(
-            val sessionId: WorkspaceAgentSessionId,
-            val workspace: Workspace,
-            val gatewayAgentId: String,
-            val gatewayEndpoint: String,
-            val kind: AgentKindLabel,
-        ) : AttachOutcome
-
-        /** A precondition failed; close the client with this status. */
-        data class Rejected(
-            val reason: String,
-            val status: CloseStatus,
-            val failureReason: FailureReasonLabel,
-            val kind: AgentKindLabel = AgentKindLabel.OTHER,
-        ) : AttachOutcome
-    }
-
-    /**
-     * Resolves the client WS into the upstream URI plus the
-     * workspace id we need to mark "active". Returns null when
-     * the client WS has already been closed with a labelled error.
-     */
-    private fun resolveAttach(clientSession: WebSocketSession): ResolvedAttach? {
-        val outcome = checkAttachPreconditions(clientSession)
-        if (outcome is AttachOutcome.Rejected) return closeAndReturn(clientSession, outcome)
-        val ready = outcome as AttachOutcome.Ready
-        val upstreamUri = upstreamUri(ready.gatewayEndpoint, ready.gatewayAgentId, browserCursorOf(clientSession))
-        return ResolvedAttach(ready.sessionId, ready.workspace.id, upstreamUri, ready.kind)
-    }
-
-    private data class LoadedSession(
-        val sessionId: WorkspaceAgentSessionId,
-        val session: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession,
-        val rejection: AttachOutcome.Rejected?,
-    )
-
-    private fun loadSession(clientSession: WebSocketSession): LoadedSession? {
-        val sessionId = sessionIdOf(clientSession) ?: return null
-        val agentSession = sessions.findById(sessionId) ?: return null
-        return LoadedSession(sessionId, agentSession, null)
-    }
-
-    private fun sessionRejection(clientSession: WebSocketSession): AttachOutcome.Rejected =
-        if (sessionIdOf(clientSession) == null) {
-            AttachOutcome.Rejected("malformed sessionId", CloseStatus.BAD_DATA, FailureReasonLabel.INVALID_REQUEST)
-        } else {
-            AttachOutcome.Rejected("unknown session", CloseStatus.BAD_DATA, FailureReasonLabel.NOT_FOUND)
-        }
-
-    /**
-     * Runs all attach preconditions (sessionId, session lookup,
-     * rebind path, status, workspace, setup guards, gateway binding)
-     * and returns either Ready (all pass) or Rejected (first failure).
-     */
-    private fun checkAttachPreconditions(clientSession: WebSocketSession): AttachOutcome {
-        val loaded = loadSession(clientSession) ?: return sessionRejection(clientSession)
-        var agentSession = loaded.session
-        val kind = AgentKindLabel.fromRaw(agentSession.kind.name)
-        var reboundWorkspace: Workspace? = null
-        if (agentSession.status == WorkspaceAgentSessionStatus.RUNNING && agentSession.gatewayAgentId == null) {
-            val rebind = attemptRebind(loaded.sessionId, kind)
-            if (rebind.rejection != null) return rebind.rejection
-            agentSession = rebind.session ?: agentSession
-            reboundWorkspace = rebind.workspace
-        }
-        return checkWorkspacePreconditions(loaded.sessionId, agentSession, reboundWorkspace, kind)
-    }
-
-    private data class RebindResult(
-        val session: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession?,
-        val workspace: Workspace?,
-        val rejection: AttachOutcome.Rejected?,
-    )
-
-    private fun attemptRebind(
-        sessionId: WorkspaceAgentSessionId,
-        kind: AgentKindLabel,
-    ): RebindResult =
-        when (val result = binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))) {
-            is RunnerSessionBindingResult.Bound ->
-                RebindResult(result.session, result.workspace, null)
-            is RunnerSessionBindingResult.Conflict ->
-                RebindResult(
-                    null,
-                    null,
-                    AttachOutcome.Rejected(
-                        "session binding changed",
-                        CloseStatus.SERVICE_RESTARTED,
-                        FailureReasonLabel.OTHER,
-                        kind,
-                    ),
-                )
-            is RunnerSessionBindingResult.Unavailable ->
-                RebindResult(
-                    null,
-                    null,
-                    AttachOutcome.Rejected(
-                        "runner provisioning",
-                        CloseStatus.SERVICE_RESTARTED,
-                        FailureReasonLabel.UPSTREAM_UNAVAILABLE,
-                        kind,
-                    ),
-                )
-        }
-
-    private fun checkWorkspacePreconditions(
-        sessionId: WorkspaceAgentSessionId,
-        agentSession: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession,
-        reboundWorkspace: Workspace?,
-        kind: AgentKindLabel,
-    ): AttachOutcome {
-        if (agentSession.status == WorkspaceAgentSessionStatus.STARTING) {
-            return AttachOutcome.Rejected(
-                "runner provisioning",
-                CloseStatus.SERVICE_RESTARTED,
-                FailureReasonLabel.UPSTREAM_UNAVAILABLE,
-                kind,
-            )
-        }
-        val workspace =
-            reboundWorkspace ?: workspaces.findById(agentSession.workspaceId)
-                ?: return AttachOutcome.Rejected(
-                    "workspace gone",
-                    CloseStatus.SERVER_ERROR,
-                    FailureReasonLabel.NOT_FOUND,
-                    kind,
-                )
-        return checkGatewayPreconditions(sessionId, agentSession, workspace, kind)
-    }
-
-    private fun checkGatewayPreconditions(
-        sessionId: WorkspaceAgentSessionId,
-        agentSession: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession,
-        workspace: Workspace,
-        kind: AgentKindLabel,
-    ): AttachOutcome {
-        if (isSetupTransitionInProgress(agentSession, workspace)) {
-            return AttachOutcome.Rejected(
-                "runner setup transition",
-                CloseStatus.SERVICE_RESTARTED,
-                FailureReasonLabel.UPSTREAM_UNAVAILABLE,
-                kind,
-            )
-        }
-        val gatewayAgentId =
-            agentSession.gatewayAgentId
-                ?: return AttachOutcome.Rejected(
-                    "session not bound to a gateway agent",
-                    CloseStatus.SERVER_ERROR,
-                    FailureReasonLabel.UPSTREAM_UNAVAILABLE,
-                    kind,
-                )
-        return workspace.gatewayEndpoint?.let { endpoint ->
-            AttachOutcome.Ready(sessionId, workspace, gatewayAgentId, endpoint, kind)
-        } ?: AttachOutcome.Rejected(
-            "workspace has no gateway endpoint",
-            CloseStatus.SERVER_ERROR,
-            FailureReasonLabel.UPSTREAM_UNAVAILABLE,
-            kind,
-        )
-    }
-
-    private fun closeAndReturn(
-        session: WebSocketSession,
-        rejection: AttachOutcome.Rejected,
-    ): ResolvedAttach? {
-        recordAttach(rejection.kind, OutcomeLabel.FAILURE, rejection.failureReason)
-        session.close(rejection.status.withReason(rejection.reason))
-        return null
-    }
-
     override fun afterConnectionEstablished(clientSession: WebSocketSession) {
-        val resolved = resolveAttach(clientSession) ?: return
+        val ready = preconditions.resolveAttach(clientSession) ?: return
         val upstreamHandler =
             UpstreamHandler(
                 client = clientSession,
-                sessionId = resolved.sessionId,
-                workspaceId = resolved.workspaceId,
+                sessionId = ready.sessionId,
+                workspaceId = ready.workspace.id,
                 relay =
                     UpstreamRelayDependencies(
                         sessions = sessions,
@@ -309,25 +127,26 @@ class SessionAttachHandler(
                     ),
                 telemetry = telemetry,
             )
+        val upstreamUri = upstreamUri(ready.gatewayEndpoint, ready.gatewayAgentId, browserCursorOf(clientSession))
         val upstream =
             runCatching {
                 client
-                    .execute(upstreamHandler, resolved.upstreamUri.toString())
+                    .execute(upstreamHandler, upstreamUri.toString())
                     .get(UPSTREAM_HANDSHAKE_SECONDS, TimeUnit.SECONDS)
             }.getOrElse {
-                recordAttach(resolved.kind, OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+                preconditions.recordAttach(ready.kind, OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
                 clientSession.close(CloseStatus.SERVICE_RESTARTED.withReason("runner attach unavailable"))
                 return
             }
-        recordAttach(resolved.kind, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
-        bridges[clientSession.id] = Bridge(resolved.sessionId, resolved.workspaceId, upstream)
-        connected.attach(resolved.workspaceId)
-        activity.touch(resolved.workspaceId)
+        preconditions.recordAttach(ready.kind, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+        bridges[clientSession.id] = Bridge(ready.sessionId, ready.workspace.id, upstream)
+        connected.attach(ready.workspace.id)
+        activity.touch(ready.workspace.id)
         log.info(
             "attached client {} to session {} via {}",
             clientSession.id,
-            resolved.sessionId,
-            resolved.upstreamUri,
+            ready.sessionId,
+            upstreamUri,
         )
     }
 
@@ -393,13 +212,6 @@ class SessionAttachHandler(
         }
     }
 
-    private fun sessionIdOf(session: WebSocketSession): WorkspaceAgentSessionId? {
-        val match =
-            Regex("/api/v1/ws/sessions/([^/]+)/attach").find(session.uri?.path ?: return null)
-                ?: return null
-        return runCatching { WorkspaceAgentSessionId(UUID.fromString(match.groupValues[1])) }.getOrNull()
-    }
-
     private fun browserCursorOf(session: WebSocketSession): BrowserCursor {
         val query = queryOf(session)
         return BrowserCursor(
@@ -427,21 +239,6 @@ class SessionAttachHandler(
     private fun nonNegativeInteger(value: String?): String? =
         value?.takeIf { it.matches(NON_NEGATIVE_INTEGER) && it.toLongOrNull() != null }
 
-    private fun Workspace.hasRunnerSetupGuard(): Boolean =
-        runnerSetupOperation != RunnerSetupOperation.IDLE ||
-            pendingRunnerSetupId != null ||
-            pendingRunnerSetupVersion != null
-
-    private fun isSetupTransitionInProgress(
-        agentSession: com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession,
-        workspace: Workspace,
-    ): Boolean =
-        agentSession.pendingSetupId != null ||
-            agentSession.pendingSetupVersion != null ||
-            workspace.hasRunnerSetupGuard() ||
-            workspace.currentRunnerSetupId != agentSession.currentSetupId ||
-            workspace.currentRunnerSetupVersion != agentSession.currentSetupVersion
-
     private fun upstreamUri(
         gatewayBase: String,
         gatewayAgentId: String,
@@ -463,6 +260,21 @@ class SessionAttachHandler(
         cursor.epoch?.let { builder.queryParam("epoch", it) }
         cursor.offset?.let { builder.queryParam("offset", it) }
         return builder.build().toUri()
+    }
+
+    private fun recordAttachOperation(
+        outcome: OutcomeLabel,
+        reason: FailureReasonLabel,
+    ) {
+        telemetry.recordOperation(
+            OperationTelemetry(
+                operation = OperationLabel.ATTACH_SESSION,
+                mode = ModeLabel.INTERACTIVE,
+                outcome = outcome,
+                reason = reason,
+                duration = Duration.ZERO,
+            ),
+        )
     }
 
     companion object {
@@ -490,38 +302,6 @@ class SessionAttachHandler(
                 CloseStatus.SERVICE_RESTARTED.code -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
                 else -> FailureReasonLabel.OTHER
             }
-    }
-
-    private fun recordAttach(
-        kind: AgentKindLabel,
-        outcome: OutcomeLabel,
-        reason: FailureReasonLabel,
-    ) {
-        val event =
-            AttachAttemptTelemetry(
-                kind = kind,
-                runMode = RunModeLabel.INTERACTIVE,
-                outcome = outcome,
-                reason = reason,
-            )
-        telemetry.recordAttachAttempt(event)
-        if (outcome == OutcomeLabel.FAILURE) telemetry.recordAttachFailure(event)
-        recordAttachOperation(outcome, reason)
-    }
-
-    private fun recordAttachOperation(
-        outcome: OutcomeLabel,
-        reason: FailureReasonLabel,
-    ) {
-        telemetry.recordOperation(
-            OperationTelemetry(
-                operation = OperationLabel.ATTACH_SESSION,
-                mode = ModeLabel.INTERACTIVE,
-                outcome = outcome,
-                reason = reason,
-                duration = Duration.ZERO,
-            ),
-        )
     }
 
     /**
@@ -636,6 +416,24 @@ class SessionAttachHandler(
                     duration = Duration.ZERO,
                 ),
             )
+        }
+
+        companion object {
+            private fun outcomeOf(status: CloseStatus): OutcomeLabel =
+                when (status.code) {
+                    CloseStatus.NORMAL.code -> OutcomeLabel.SUCCESS
+                    CloseStatus.GOING_AWAY.code -> OutcomeLabel.CANCELLED
+                    else -> OutcomeLabel.FAILURE
+                }
+
+            private fun failureReasonOf(status: CloseStatus): FailureReasonLabel =
+                when (status.code) {
+                    CloseStatus.NORMAL.code -> FailureReasonLabel.NONE
+                    CloseStatus.GOING_AWAY.code -> FailureReasonLabel.CANCELLED
+                    CloseStatus.BAD_DATA.code -> FailureReasonLabel.INVALID_REQUEST
+                    CloseStatus.SERVICE_RESTARTED.code -> FailureReasonLabel.UPSTREAM_UNAVAILABLE
+                    else -> FailureReasonLabel.OTHER
+                }
         }
     }
 }

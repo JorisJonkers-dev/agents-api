@@ -9,13 +9,15 @@ import java.nio.file.Path
 class AgentRunnerObservabilityContractTest {
     @Test
     fun `runner pod env pins gateway service identity and otlp transport`() {
-        val orchestrator =
+        // Pod env is built by RunnerContainerEnvBuilder (in RunnerPodSpecBuilder.kt)
+        // after the class split.
+        val podSpecBuilder =
             readProjectFile(
                 "src/main/kotlin/com/jorisjonkers/personalstack/agents/infrastructure/k8s/" +
-                    "Fabric8AgentRunnerOrchestrator.kt",
+                    "RunnerPodSpecBuilder.kt",
             )
 
-        assertThat(orchestrator).contains(
+        assertThat(podSpecBuilder).contains(
             "EnvVarBuilder().withName(\"OTEL_SERVICE_NAME\").withValue(\"agent-gateway\")",
             "EnvVarBuilder()",
             ".withName(\"OTEL_EXPORTER_OTLP_ENDPOINT\")",
@@ -26,18 +28,20 @@ class AgentRunnerObservabilityContractTest {
 
     @Test
     fun `runner kubernetes probes remain on healthz`() {
-        val orchestrator =
+        // Probe configuration lives in RunnerPodSpecBuilder after the class split.
+        val podSpecBuilder =
             readProjectFile(
                 "src/main/kotlin/com/jorisjonkers/personalstack/agents/infrastructure/k8s/" +
-                    "Fabric8AgentRunnerOrchestrator.kt",
+                    "RunnerPodSpecBuilder.kt",
             )
 
-        assertThat(orchestrator).contains(
-            ".withNewStartupProbe()",
-            ".withNewReadinessProbe()",
-            ".withNewLivenessProbe()",
+        assertThat(podSpecBuilder).contains(
+            ".withStartupProbe(httpProbe(STARTUP_PERIOD_SECONDS, STARTUP_FAILURE_THRESHOLD))",
+            ".withReadinessProbe(httpProbe(READINESS_PERIOD_SECONDS, READINESS_FAILURE_THRESHOLD))",
+            ".withLivenessProbe(httpProbe(LIVENESS_PERIOD_SECONDS))",
         )
-        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(orchestrator).count()).isEqualTo(3)
+        // All three probes share the single httpProbe(...) helper on /healthz.
+        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(podSpecBuilder).count()).isEqualTo(1)
     }
 
     @Test
