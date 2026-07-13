@@ -89,8 +89,7 @@ internal class RunnerBindingMetrics(
         )
     }
 
-    fun bindingConflict(): Pair<OutcomeLabel, FailureReasonLabel> =
-        OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
+    fun bindingConflict(): Pair<OutcomeLabel, FailureReasonLabel> = OutcomeLabel.FAILURE to FailureReasonLabel.CAPACITY
 
     fun reasonClass(ex: Throwable): FailureReasonLabel =
         when (ex) {
