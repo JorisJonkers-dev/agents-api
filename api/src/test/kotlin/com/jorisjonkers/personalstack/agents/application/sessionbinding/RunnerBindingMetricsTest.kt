@@ -102,8 +102,9 @@ class RunnerBindingMetricsTest {
 
     private fun stubSession() =
         com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession(
-            id = com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-                .random(),
+            id =
+                com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+                    .random(),
             workspaceId = workspaceId,
             kind = com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = null,
