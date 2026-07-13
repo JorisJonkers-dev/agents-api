@@ -2,7 +2,6 @@ package com.jorisjonkers.personalstack.agents.infrastructure.ws
 
 import com.jorisjonkers.personalstack.agents.application.idle.ConnectedClientTracker
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
-import com.jorisjonkers.personalstack.agents.application.observability.AgentKindLabel
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
 import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
@@ -113,7 +112,7 @@ class SessionAttachHandler(
     )
 
     override fun afterConnectionEstablished(clientSession: WebSocketSession) {
-        val ready = preconditions.resolveAttach(clientSession, AttachPreconditionChecker::sessionIdOf) ?: return
+        val ready = preconditions.resolveAttach(clientSession) ?: return
         val upstreamHandler =
             UpstreamHandler(
                 client = clientSession,

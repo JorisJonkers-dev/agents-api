@@ -6,10 +6,8 @@ import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import io.fabric8.kubernetes.api.model.ContainerStatusBuilder
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder
 import io.fabric8.kubernetes.api.model.PodBuilder
-import io.fabric8.kubernetes.api.model.PodSpec
 import io.fabric8.kubernetes.api.model.PodSpecBuilder
 import io.fabric8.kubernetes.api.model.PodStatus
-import io.fabric8.kubernetes.api.model.ContainerBuilder
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 

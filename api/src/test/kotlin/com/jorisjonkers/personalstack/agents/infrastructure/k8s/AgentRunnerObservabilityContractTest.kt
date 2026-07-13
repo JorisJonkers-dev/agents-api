@@ -9,7 +9,8 @@ import java.nio.file.Path
 class AgentRunnerObservabilityContractTest {
     @Test
     fun `runner pod env pins gateway service identity and otlp transport`() {
-        // Pod env is built in RunnerPodSpecBuilder after the class split.
+        // Pod env is built by RunnerContainerEnvBuilder (in RunnerPodSpecBuilder.kt)
+        // after the class split.
         val podSpecBuilder =
             readProjectFile(
                 "src/main/kotlin/com/jorisjonkers/personalstack/agents/infrastructure/k8s/" +
@@ -35,11 +36,12 @@ class AgentRunnerObservabilityContractTest {
             )
 
         assertThat(podSpecBuilder).contains(
-            ".withNewStartupProbe()",
-            ".withNewReadinessProbe()",
-            ".withNewLivenessProbe()",
+            ".withStartupProbe(httpProbe(STARTUP_PERIOD_SECONDS, STARTUP_FAILURE_THRESHOLD))",
+            ".withReadinessProbe(httpProbe(READINESS_PERIOD_SECONDS, READINESS_FAILURE_THRESHOLD))",
+            ".withLivenessProbe(httpProbe(LIVENESS_PERIOD_SECONDS))",
         )
-        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(podSpecBuilder).count()).isEqualTo(3)
+        // All three probes share the single httpProbe(...) helper on /healthz.
+        assertThat(Regex("""\.withPath\("/healthz"\)""").findAll(podSpecBuilder).count()).isEqualTo(1)
     }
 
     @Test

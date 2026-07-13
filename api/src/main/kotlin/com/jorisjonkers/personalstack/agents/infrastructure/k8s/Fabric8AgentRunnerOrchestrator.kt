@@ -10,7 +10,6 @@ import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialReposito
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
-import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.client.KubernetesClient
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider

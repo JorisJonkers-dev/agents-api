@@ -49,7 +49,7 @@ class AttachPreconditionCheckerTest {
         every { sessions.findById(sessionId) } returns agentSession(gatewayAgentId = "gw-1")
         every { workspaces.findById(workspaceId) } returns ws
 
-        val result = checker.resolveAttach(clientSession(), AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(clientSession())
 
         assertThat(result).isNotNull
         assertThat(result?.gatewayAgentId).isEqualTo("gw-1")
@@ -63,7 +63,7 @@ class AttachPreconditionCheckerTest {
         val closed = slot<CloseStatus>()
         every { client.close(capture(closed)) } returns Unit
 
-        val result = checker.resolveAttach(client, AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(client)
 
         assertThat(result).isNull()
         assertThat(closed.captured.code).isEqualTo(CloseStatus.BAD_DATA.code)
@@ -76,7 +76,7 @@ class AttachPreconditionCheckerTest {
         val client = clientSession()
         every { client.close(any()) } returns Unit
 
-        val result = checker.resolveAttach(client, AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(client)
 
         assertThat(result).isNull()
         assertThat(telemetry.attachFailures.single().reason).isEqualTo(FailureReasonLabel.NOT_FOUND)
@@ -92,7 +92,7 @@ class AttachPreconditionCheckerTest {
         val client = clientSession()
         every { client.close(any()) } returns Unit
 
-        val result = checker.resolveAttach(client, AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(client)
 
         assertThat(result).isNull()
         assertThat(telemetry.attachFailures.single().reason).isEqualTo(FailureReasonLabel.UPSTREAM_UNAVAILABLE)
@@ -109,7 +109,7 @@ class AttachPreconditionCheckerTest {
         val client = clientSession()
         every { client.close(any()) } returns Unit
 
-        val result = checker.resolveAttach(client, AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(client)
 
         assertThat(result).isNull()
         val closed = slot<CloseStatus>()
@@ -138,7 +138,7 @@ class AttachPreconditionCheckerTest {
                 provisioning = RunnerProvisioningResult.AlreadyReady,
             )
 
-        val result = checker.resolveAttach(clientSession(), AttachPreconditionChecker::sessionIdOf)
+        val result = checker.resolveAttach(clientSession())
 
         assertThat(result).isNotNull
         assertThat(result?.gatewayAgentId).isEqualTo("gw-fresh")
