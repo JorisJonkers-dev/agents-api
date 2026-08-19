@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.4](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.3...v0.18.4) (2026-08-19)
+
+
+### Bug Fixes
+
+* **ci:** bump the reusable workflow pins so job timeouts apply ([#31](https://github.com/JorisJonkers-dev/agents-api/issues/31)) ([05d5eec](https://github.com/JorisJonkers-dev/agents-api/commit/05d5eec3ad7207764e23a17d3624ecc2255f7723))
+
 ## [0.18.3](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.2...v0.18.3) (2026-07-12)
 
 
