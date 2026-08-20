@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 
-FROM gradle:9.5.1-jdk21-alpine AS build
+# The Gradle build produces an architecture-independent jar, so it runs on the
+# builder's native platform. Without this the whole Kotlin build would run under
+# QEMU for the arm64 image, taking far longer for a byte-identical artifact.
+FROM --platform=$BUILDPLATFORM gradle:9.5.1-jdk21-alpine AS build
 WORKDIR /app
 
 # Layer 1: Copy only build scripts for dependency caching
@@ -31,7 +34,8 @@ RUN --mount=type=secret,id=github_token \
 # Eclipse Temurin only used here for the otel jar download — its alpine
 # variant has curl out of the box and is small. The runtime stage has
 # moved to BellSoft Liberica below.
-FROM eclipse-temurin:25-jre-alpine AS otel
+# Only downloads a jar, so likewise native.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jre-alpine AS otel
 RUN apk add --no-cache curl && \
     curl -fsSL -o /otel-javaagent.jar \
     "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.26.1/opentelemetry-javaagent.jar"
