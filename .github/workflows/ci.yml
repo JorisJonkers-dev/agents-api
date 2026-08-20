@@ -101,41 +101,6 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
 
-  deploy-bundle:
-    name: Deploy Bundle
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/checkout@v6
-        with:
-          repository: JorisJonkers-dev/github-workflows
-          ref: v0.8.0
-          path: .github-workflows
-          persist-credentials: false
-      - name: Write deploy image lock
-        env:
-          IMAGE_REF: ghcr.io/jorisjonkers-dev/agents-api/agents-api:${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          cat > "$RUNNER_TEMP/agents-api-images.json" <<JSON
-          {
-            "agents-api": "$IMAGE_REF",
-            "agents-api-ws": "$IMAGE_REF"
-          }
-          JSON
-      - name: Validate deploy bundle
-        uses: ./.github-workflows/actions/deploy-bundle
-        with:
-          deploy-dir: deploy
-          images: ${{ runner.temp }}/agents-api-images.json
-          package-version: 0.9.0
-          version: 0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}
-          node-auth-token: ${{ secrets.GITHUB_TOKEN }}
-
   migration-guard:
     name: Migration Guard
     uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.14.1
@@ -152,7 +117,6 @@ jobs:
         contract,
         client-dry-run,
         docker-dry-run,
-        deploy-bundle,
         migration-guard,
       ]
     if: ${{ always() }}
