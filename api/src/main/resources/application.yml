@@ -12,6 +12,17 @@ spring:
       enabled: ${VAULT_ENABLED:false}
       uri: ${VAULT_ADDR:http://localhost:8200}
       authentication: ${VAULT_AUTHENTICATION:TOKEN}
+      # KUBERNETES auth lets the session manager re-login once a token can no
+      # longer be renewed. A static token cannot: Vault's kubernetes mount caps
+      # renewal at max_lease_ttl (32d), after which every call 403s for the
+      # remaining life of the pod.
+      kubernetes:
+        role: ${VAULT_KUBERNETES_ROLE:agents-api}
+        kubernetes-path: kubernetes
+        service-account-token-file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      session:
+        lifecycle:
+          enabled: true
       config:
         lifecycle:
           enabled: true
