@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.19.0...v0.19.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **vault:** add Kubernetes authentication for the Vault session ([#27](https://github.com/JorisJonkers-dev/agents-api/issues/27)) ([14174c9](https://github.com/JorisJonkers-dev/agents-api/commit/14174c9065500bfdf26a32e1b81686921ee03d45))
+
 ## [0.19.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.4...v0.19.0) (2026-08-20)
 
 
