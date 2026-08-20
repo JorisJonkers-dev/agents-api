@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.4...v0.19.0) (2026-08-20)
+
+
+### Features
+
+* **ci:** publish images for arm64 as well as amd64 ([#33](https://github.com/JorisJonkers-dev/agents-api/issues/33)) ([324a600](https://github.com/JorisJonkers-dev/agents-api/commit/324a600eb323b60e731e90f78174883291f8f209))
+
 ## [0.18.4](https://github.com/JorisJonkers-dev/agents-api/compare/v0.18.3...v0.18.4) (2026-08-19)
 
 
