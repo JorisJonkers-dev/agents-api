@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/JorisJonkers-dev/agents-api/compare/v0.19.1...v0.19.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* **platform:** make render-local.sh able to run ([#37](https://github.com/JorisJonkers-dev/agents-api/issues/37)) ([5cea5cd](https://github.com/JorisJonkers-dev/agents-api/commit/5cea5cd67c1e72a50ad3314662a4578b456c4d69))
+
 ## [0.19.1](https://github.com/JorisJonkers-dev/agents-api/compare/v0.19.0...v0.19.1) (2026-08-20)
 
 
