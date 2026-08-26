@@ -12,6 +12,7 @@ spec:
       image: agents-api
       health:
         path: /api/actuator/health/readiness
+        livenessPath: /api/actuator/health/liveness
         port: 8082
         timeoutClass: stateless
         mandatory: true
