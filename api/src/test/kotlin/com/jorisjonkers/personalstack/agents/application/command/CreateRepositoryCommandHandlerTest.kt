@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
+import com.jorisjonkers.personalstack.common.exception.DomainException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -89,10 +90,16 @@ class CreateRepositoryCommandHandlerTest {
                 updatedAt = Instant.now(),
             )
         every { repositories.findByRepoUrl("git@github.com:owner/repo.git") } returns existing
-        assertThrows<IllegalStateException> {
-            handler.handle(
-                CreateRepositoryCommand(RepositoryId.random(), "agents", "git@github.com:owner/repo.git"),
-            )
-        }
+        // DomainException, not IllegalStateException: the caller supplied the
+        // URL, so the advice has to be allowed to hand the message back.
+        val ex =
+            assertThrows<DomainException> {
+                handler.handle(
+                    CreateRepositoryCommand(RepositoryId.random(), "agents", "git@github.com:owner/repo.git"),
+                )
+            }
+
+        assertThat(ex.code).isEqualTo("REPOSITORY_ALREADY_REGISTERED")
+        assertThat(ex.message).contains("git@github.com:owner/repo.git")
     }
 }

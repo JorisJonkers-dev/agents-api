@@ -5,6 +5,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import org.springframework.stereotype.Component
 
 /**
@@ -20,7 +21,9 @@ class OpenPullRequestCommandHandler(
     private val gateway: AgentGatewayClient,
 ) : CommandHandler<OpenPullRequestCommand> {
     override fun handle(command: OpenPullRequestCommand) {
-        val workspace = workspaces.findById(command.workspaceId) ?: error("workspace not found: ${command.workspaceId}")
+        val workspace =
+            workspaces.findById(command.workspaceId)
+                ?: throw NotFoundException("Workspace", command.workspaceId.value.toString())
         require(!workspace.hasRunnerSetupGuard()) {
             "workspace runner setup operation is in progress: ${workspace.id.value}"
         }

@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.domain.model.Project
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectsRepository
+import com.jorisjonkers.personalstack.common.exception.DomainException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -65,8 +66,14 @@ class CreateProjectCommandHandlerTest {
                 updatedAt = Instant.now(),
             )
         every { projects.findBySlug("shared") } returns existing
-        assertThrows<IllegalStateException> {
-            handler.handle(CreateProjectCommand(ProjectId.random(), "Mine", "shared"))
-        }
+        // DomainException, not IllegalStateException: the caller picked the
+        // slug, so the advice has to be allowed to hand the message back.
+        val ex =
+            assertThrows<DomainException> {
+                handler.handle(CreateProjectCommand(ProjectId.random(), "Mine", "shared"))
+            }
+
+        assertThat(ex.code).isEqualTo("SLUG_ALREADY_IN_USE")
+        assertThat(ex.message).contains("shared")
     }
 }

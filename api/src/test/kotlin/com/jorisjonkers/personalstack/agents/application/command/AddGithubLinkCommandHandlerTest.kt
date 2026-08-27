@@ -6,6 +6,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.Project
 import com.jorisjonkers.personalstack.agents.domain.model.ProjectId
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectsRepository
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -56,11 +57,15 @@ class AddGithubLinkCommandHandlerTest {
     fun `handle errors on unknown project`() {
         val missing = ProjectId.random()
         every { projects.findById(missing) } returns null
-        assertThrows<IllegalStateException> {
-            handler.handle(
-                AddGithubLinkCommand(GithubLinkId.random(), missing, "x", "git@github.com:o/r.git"),
-            )
-        }
+
+        val ex =
+            assertThrows<NotFoundException> {
+                handler.handle(
+                    AddGithubLinkCommand(GithubLinkId.random(), missing, "x", "git@github.com:o/r.git"),
+                )
+            }
+
+        assertThat(ex.message).contains("Project", missing.value.toString())
     }
 
     @Test
