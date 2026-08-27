@@ -212,10 +212,7 @@ class AgentSessionController(
         @RequestBody req: StageInputRequest,
     ): ResponseEntity<StagedInputResponse> {
         val workspaceModelId = WorkspaceId(workspaceId)
-        val session =
-            sessions.findById(WorkspaceAgentSessionId(sessionId))
-                ?: throw NotFoundException("AgentSession", sessionId.toString())
-        require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
+        val session = requireSessionInWorkspace(workspaceId, sessionId)
         val workspace =
             workspaces.findById(workspaceModelId)
                 ?: throw NotFoundException("Workspace", workspaceId.toString())
