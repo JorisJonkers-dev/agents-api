@@ -40,3 +40,10 @@ scratchpads/
 .agents/skills/speckit*/
 templates/**/.specify/
 templates/**/.claude/commands/speckit*.md
+
+# Agent worktrees. `.claude/worktrees/<name>/` is a full git worktree checked
+# out beside the sources; it is machine-local scratch, several MB, and being
+# untracked rather than ignored it left this repo permanently dirty.
+# Scoped to worktrees/ rather than all of .claude/ so tracked agent config
+# elsewhere in the estate is not silently ignored.
+.claude/worktrees/
