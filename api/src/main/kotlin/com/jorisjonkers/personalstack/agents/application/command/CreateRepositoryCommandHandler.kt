@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
+import com.jorisjonkers.personalstack.common.exception.DomainException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -25,7 +26,13 @@ class CreateRepositoryCommandHandler(
         // a migration). Dedup on the URL instead.
         val existing = repositories.findByRepoUrl(command.repoUrl.trim())
         if (existing != null && existing.id != command.repositoryId) {
-            error("repository url already registered: ${command.repoUrl.trim()}")
+            // DomainException, not error(…): the caller supplied this URL and
+            // needs to read it back. `error(…)` throws IllegalStateException,
+            // whose message the advice withholds.
+            throw DomainException(
+                "Repository URL already registered: ${command.repoUrl.trim()}",
+                "REPOSITORY_ALREADY_REGISTERED",
+            )
         }
         val now = Instant.now()
         repositories.save(

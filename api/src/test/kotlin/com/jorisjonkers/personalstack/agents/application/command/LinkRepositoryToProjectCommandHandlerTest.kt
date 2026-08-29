@@ -7,9 +7,11 @@ import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectsRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
@@ -50,19 +52,29 @@ class LinkRepositoryToProjectCommandHandlerTest {
     @Test
     fun `handle errors on missing project`() {
         val r = repository()
+        val missing = ProjectId.random()
         every { projects.findById(any()) } returns null
-        assertThrows<IllegalStateException> {
-            handler.handle(LinkRepositoryToProjectCommand(ProjectId.random(), r.id))
-        }
+
+        val ex =
+            assertThrows<NotFoundException> {
+                handler.handle(LinkRepositoryToProjectCommand(missing, r.id))
+            }
+
+        assertThat(ex.message).contains("Project", missing.value.toString())
     }
 
     @Test
     fun `handle errors on missing repository`() {
         val p = project()
+        val missing = RepositoryId.random()
         every { projects.findById(p.id) } returns p
         every { repositories.findById(any()) } returns null
-        assertThrows<IllegalStateException> {
-            handler.handle(LinkRepositoryToProjectCommand(p.id, RepositoryId.random()))
-        }
+
+        val ex =
+            assertThrows<NotFoundException> {
+                handler.handle(LinkRepositoryToProjectCommand(p.id, missing))
+            }
+
+        assertThat(ex.message).contains("Repository", missing.value.toString())
     }
 }

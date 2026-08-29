@@ -7,9 +7,11 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
@@ -41,9 +43,13 @@ class OpenPullRequestCommandHandlerTest {
     fun `handle errors for unknown workspaces`() {
         val id = WorkspaceId.random()
         every { workspaces.findById(id) } returns null
-        assertThrows<IllegalStateException> {
-            handler.handle(OpenPullRequestCommand(id, "/x", "t", "b"))
-        }
+
+        val ex =
+            assertThrows<NotFoundException> {
+                handler.handle(OpenPullRequestCommand(id, "/x", "t", "b"))
+            }
+
+        assertThat(ex.message).contains("Workspace", id.value.toString())
     }
 
     @Test

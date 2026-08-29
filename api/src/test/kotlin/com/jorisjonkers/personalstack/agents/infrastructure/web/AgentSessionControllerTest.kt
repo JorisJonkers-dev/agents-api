@@ -314,6 +314,35 @@ class AgentSessionControllerTest {
             ).andExpect(status().isServiceUnavailable)
     }
 
+    @Test
+    fun `unknown session is a 404 that still names what was missing`() {
+        // Was error(…) → a 409 whose message the advice now withholds. As a
+        // NotFoundException it is both the right status and a detail the
+        // caller can act on.
+        val mvc =
+            MockMvcBuilders
+                .standaloneSetup(
+                    AgentSessionController(
+                        commandBus,
+                        turnHistory,
+                        sessions,
+                        workspaces,
+                        gateway,
+                        restartAgentSession,
+                    ),
+                ).setControllerAdvice(GlobalExceptionHandler(), AgentRunnerUnavailableExceptionHandler())
+                .build()
+        every { sessions.findById(sessionId) } returns null
+
+        mvc
+            .perform(
+                post("/api/v1/workspaces/${workspaceId.value}/sessions/${sessionId.value}/staged-inputs")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"content":"x","name":"n"}"""),
+            ).andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.detail").value("AgentSession not found: ${sessionId.value}"))
+    }
+
     private fun agentSession() =
         WorkspaceAgentSession(
             id = sessionId,

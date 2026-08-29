@@ -25,6 +25,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StagedInputR
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartAgentSessionRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.TurnResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import com.jorisjonkers.personalstack.common.web.ProblemDetail
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
@@ -211,11 +212,10 @@ class AgentSessionController(
         @RequestBody req: StageInputRequest,
     ): ResponseEntity<StagedInputResponse> {
         val workspaceModelId = WorkspaceId(workspaceId)
-        val session =
-            sessions.findById(WorkspaceAgentSessionId(sessionId))
-                ?: error("session not found: $sessionId")
-        require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
-        val workspace = workspaces.findById(workspaceModelId) ?: error("workspace not found: $workspaceId")
+        val session = requireSessionInWorkspace(workspaceId, sessionId)
+        val workspace =
+            workspaces.findById(workspaceModelId)
+                ?: throw NotFoundException("Workspace", workspaceId.toString())
         val gatewayAgentId =
             session.gatewayAgentId
                 ?: throw AgentRunnerUnavailableException(
@@ -254,7 +254,7 @@ class AgentSessionController(
         val workspaceModelId = WorkspaceId(workspaceId)
         val session =
             sessions.findById(WorkspaceAgentSessionId(sessionId))
-                ?: error("session not found: $sessionId")
+                ?: throw NotFoundException("AgentSession", sessionId.toString())
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
         return session
     }

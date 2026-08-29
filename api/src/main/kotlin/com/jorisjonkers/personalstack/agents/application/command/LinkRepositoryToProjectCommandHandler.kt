@@ -4,6 +4,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryReposi
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectsRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
+import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
@@ -16,9 +17,9 @@ class LinkRepositoryToProjectCommandHandler(
     @Transactional
     override fun handle(command: LinkRepositoryToProjectCommand) {
         projects.findById(command.projectId)
-            ?: error("project not found: ${command.projectId}")
+            ?: throw NotFoundException("Project", command.projectId.value.toString())
         repositories.findById(command.repositoryId)
-            ?: error("repository not found: ${command.repositoryId}")
+            ?: throw NotFoundException("Repository", command.repositoryId.value.toString())
         junction.link(command.projectId, command.repositoryId)
     }
 }
