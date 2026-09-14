@@ -3,7 +3,7 @@
 # The Gradle build produces an architecture-independent jar, so it runs on the
 # builder's native platform. Without this the whole Kotlin build would run under
 # QEMU for the arm64 image, taking far longer for a byte-identical artifact.
-FROM --platform=$BUILDPLATFORM gradle:9.5.1-jdk21-alpine AS build
+FROM --platform=$BUILDPLATFORM gradle:9.7.1-jdk21-alpine AS build
 WORKDIR /app
 
 # Layer 1: Copy only build scripts for dependency caching
@@ -51,7 +51,7 @@ RUN apk add --no-cache curl && \
 # rationale — runs CracTrainingRunner against local sidecar
 # Postgres/Valkey/RabbitMQ and dumps a JVM checkpoint to
 # /opt/crac/checkpoint. Used only by the crac-train CI workflow.
-FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc AS train
+FROM bellsoft/liberica-runtime-container:jdk-21.0.12_11-crac-slim-glibc AS train
 WORKDIR /app
 COPY --from=build /app/api/build/libs/*.jar app.jar
 COPY --from=otel /otel-javaagent.jar otel-javaagent.jar
@@ -65,7 +65,7 @@ ENTRYPOINT ["java", \
     "-javaagent:otel-javaagent.jar", \
     "-jar", "app.jar"]
 
-FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc
+FROM bellsoft/liberica-runtime-container:jdk-21.0.12_11-crac-slim-glibc
 WORKDIR /app
 # Build-time identity surfaced in logs and tracing metadata.
 ARG GIT_SHA=unknown
