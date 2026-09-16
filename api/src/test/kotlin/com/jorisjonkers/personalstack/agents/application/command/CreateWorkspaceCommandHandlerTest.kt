@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.workspace.WorkspaceDirectoryService
+import com.jorisjonkers.personalstack.agents.application.workspace.WorkspaceRuntimeProvisioner
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
@@ -80,7 +81,6 @@ class CreateWorkspaceCommandHandlerTest {
     private val handler =
         CreateWorkspaceCommandHandler(
             workspaces,
-            lifecycleService,
             CreateWorkspaceRepositories(
                 projectMembership = projectRepositoryLinks,
                 workspaceMembership = workspaceRepositoryLinks,
@@ -89,7 +89,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
             verifyAccess,
             setupSelection,
-            directories,
+            WorkspaceRuntimeProvisioner(lifecycleService, directories),
             tx,
         )
 

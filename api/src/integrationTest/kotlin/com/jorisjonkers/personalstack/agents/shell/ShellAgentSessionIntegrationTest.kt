@@ -134,12 +134,12 @@ class ShellAgentSessionIntegrationTest {
             ProcessBuilder("tmux", "-L", socketName, "kill-server")
                 .redirectErrorStream(true)
                 .start()
-                .waitFor(5, TimeUnit.SECONDS)
+                .waitFor(PROCESS_WAIT_SECONDS, TimeUnit.SECONDS)
         }
     }
 
     @Test
-    fun `create, attach and stop a Shell Agent Session against a real tmux server`() {
+    fun createAttachAndStopAShellAgentSessionAgainstARealTmuxServer() {
         // Create: starts a real tmux session running /bin/bash -l, owned by
         // this process (run-as-agent is a passthrough here — see class doc).
         val bound =
@@ -166,7 +166,7 @@ class ShellAgentSessionIntegrationTest {
             awaitUntil { outputFrames.joinToString("").contains("shell-attach-marker-42") }
 
             // Resize doesn't error against a real pane.
-            attachOps.resize(workspace, gatewayAgentId, 100, 30)
+            attachOps.resize(workspace, gatewayAgentId, RESIZE_COLS, RESIZE_ROWS)
         } finally {
             tailer.close()
         }
@@ -179,7 +179,7 @@ class ShellAgentSessionIntegrationTest {
     }
 
     @Test
-    fun `a browser reload reattaches to the same still-running process`() {
+    fun aBrowserReloadReattachesToTheSameStillRunningProcess() {
         val bound =
             binding.start(
                 StartRunnerSessionBindingInput(
@@ -202,7 +202,10 @@ class ShellAgentSessionIntegrationTest {
 
     private fun tmuxOnPath(): Boolean =
         runCatching {
-            ProcessBuilder("tmux", "-V").redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS)
+            ProcessBuilder(
+                "tmux",
+                "-V",
+            ).redirectErrorStream(true).start().waitFor(PROCESS_WAIT_SECONDS, TimeUnit.SECONDS)
         }.getOrDefault(false)
 
     private fun passthroughScript(dir: Path): Path {
@@ -227,6 +230,10 @@ class ShellAgentSessionIntegrationTest {
     }
 
     private companion object {
+        private const val PROCESS_WAIT_SECONDS = 5L
+        private const val RESIZE_COLS = 100
+        private const val RESIZE_ROWS = 30
+
         const val POLL_INTERVAL_MS = 50L
     }
 }
