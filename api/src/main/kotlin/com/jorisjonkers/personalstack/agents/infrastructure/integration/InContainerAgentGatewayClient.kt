@@ -123,7 +123,9 @@ class InContainerAgentGatewayClient(
             buildList {
                 add("git")
                 add("-c")
-                add("credential.helper=agents-api")
+                add(CREDENTIAL_HELPER_CONFIG)
+                add("-c")
+                add(CREDENTIAL_USE_HTTP_PATH_CONFIG)
                 add("clone")
                 branch?.let {
                     add("--branch")
@@ -133,6 +135,11 @@ class InContainerAgentGatewayClient(
                 add(targetDir.toString())
             }
         commands.run(argv, cwd = workspaceDir.toFile(), timeoutSeconds = CLONE_TIMEOUT_SECONDS)
+        // Persist the same two settings into the clone's own .git/config, so a
+        // later push or fetch by an Agent Session — which passes no `-c` flags
+        // of its own — still resolves credentials through the socket.
+        commands.run(listOf("git", "config", "credential.helper", "agents-api"), cwd = targetDir.toFile())
+        commands.run(listOf("git", "config", "credential.useHttpPath", "true"), cwd = targetDir.toFile())
         return targetDir.toString()
     }
 
@@ -199,5 +206,8 @@ class InContainerAgentGatewayClient(
         // client shells out through; the 30s default in RunAsAgentCommandRunner
         // is sized for local tmux/mkdir calls, not this.
         const val CLONE_TIMEOUT_SECONDS = 120L
+
+        const val CREDENTIAL_HELPER_CONFIG = "credential.helper=agents-api"
+        const val CREDENTIAL_USE_HTTP_PATH_CONFIG = "credential.useHttpPath=true"
     }
 }

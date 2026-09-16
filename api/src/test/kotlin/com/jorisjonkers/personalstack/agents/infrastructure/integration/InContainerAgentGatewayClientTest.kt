@@ -15,7 +15,6 @@ import com.jorisjonkers.personalstack.agents.infrastructure.shell.ShellAttachOpe
 import com.jorisjonkers.personalstack.agents.infrastructure.shell.ShellSessionRegistry
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -107,21 +106,29 @@ class InContainerAgentGatewayClientTest {
         @TempDir workspaceDir: Path,
     ) {
         every { directories.ensureCreated(workspaceId) } returns workspaceDir
-        val argv = slot<List<String>>()
+        val argv = mutableListOf<List<String>>()
         every { commands.run(capture(argv), any(), any(), any(), any()) } returns processResult()
 
         val result = client.clone(workspace(), "https://github.com/owner/my-repo.git", null)
 
         assertThat(result).isEqualTo(workspaceDir.resolve("my-repo").toString())
-        assertThat(argv.captured).containsExactly(
+        assertThat(argv.first()).containsExactly(
             "git",
             "-c",
             "credential.helper=agents-api",
+            "-c",
+            "credential.useHttpPath=true",
             "clone",
             "https://github.com/owner/my-repo.git",
             workspaceDir.resolve("my-repo").toString(),
         )
-        verify { commands.run(argv.captured, workspaceDir.toFile(), any(), any(), any()) }
+        // The same two settings are persisted into the clone, so a later push by
+        // an Agent Session still reaches the socket without any `-c` of its own.
+        assertThat(argv.drop(1)).containsExactly(
+            listOf("git", "config", "credential.helper", "agents-api"),
+            listOf("git", "config", "credential.useHttpPath", "true"),
+        )
+        verify { commands.run(argv.first(), workspaceDir.toFile(), any(), any(), any()) }
     }
 
     @Test
@@ -129,15 +136,17 @@ class InContainerAgentGatewayClientTest {
         @TempDir workspaceDir: Path,
     ) {
         every { directories.ensureCreated(workspaceId) } returns workspaceDir
-        val argv = slot<List<String>>()
+        val argv = mutableListOf<List<String>>()
         every { commands.run(capture(argv), any(), any(), any(), any()) } returns processResult()
 
         client.clone(workspace(), "git@github.com:owner/my-repo.git", "release/1.0")
 
-        assertThat(argv.captured).containsExactly(
+        assertThat(argv.first()).containsExactly(
             "git",
             "-c",
             "credential.helper=agents-api",
+            "-c",
+            "credential.useHttpPath=true",
             "clone",
             "--branch",
             "release/1.0",
