@@ -44,8 +44,8 @@ class RunnerMaintenanceService(
         val workspaceIds: List<String>,
     )
 
-    // STARTING is no longer written (#63) — READY and FAILED are the only
-    // statuses a workspace with a live-or-crash-looping Pod can now hold.
+    // PREPARING is the only status besides these two, and a workspace
+    // still preparing has no live-or-crash-looping Pod to scale down.
     private val activeStatuses = setOf(WorkspaceStatus.READY, WorkspaceStatus.FAILED)
 
     /**

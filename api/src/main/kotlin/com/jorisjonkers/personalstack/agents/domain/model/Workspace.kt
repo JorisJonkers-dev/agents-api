@@ -72,7 +72,7 @@ data class Workspace(
     val isRepoBacked: Boolean get() = repoUrl != null
 
     // Status is left as-is: the Pod exists but readiness is still unknown,
-    // and #63 retired STARTING as a status this now moves to.
+    // and #63 retired the STARTING status this once moved to.
     fun withPodInfo(
         podName: String,
         pvcName: String,

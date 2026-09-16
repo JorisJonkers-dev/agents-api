@@ -90,7 +90,7 @@ class JooqSetupRestartEventRepositoryIntegrationTest
                 podName = null,
                 pvcName = null,
                 gatewayEndpoint = null,
-                status = WorkspaceStatus.PENDING,
+                status = WorkspaceStatus.PREPARING,
                 createdAt = now,
                 updatedAt = now,
             )

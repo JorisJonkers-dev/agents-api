@@ -123,7 +123,7 @@ class DurableSessionCleanupServiceTest {
     fun `sweep provisions runner before cleaning pending session when workspace is idle`() {
         val workspace =
             workspace(
-                status = WorkspaceStatus.IDLE,
+                status = WorkspaceStatus.READY,
                 podName = null,
                 gatewayEndpoint = null,
             )
@@ -182,7 +182,7 @@ class DurableSessionCleanupServiceTest {
     @Test
     fun `sweep does not mount runner while workspace setup transition is pending`() {
         val workspace =
-            workspace(status = WorkspaceStatus.IDLE)
+            workspace(status = WorkspaceStatus.READY)
                 .copy(
                     pendingRunnerSetupId = AgentSetupId("gpu"),
                     pendingRunnerSetupVersion = AgentSetupVersion(2),

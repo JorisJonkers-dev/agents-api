@@ -99,7 +99,7 @@ class RunnerSessionBindingRouterTest {
         podName = null,
         pvcName = null,
         gatewayEndpoint = if (kind == WorkspaceKind.SCRATCH) null else "http://gw:8090",
-        status = WorkspaceStatus.PENDING,
+        status = WorkspaceStatus.PREPARING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         kind = kind,

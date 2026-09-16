@@ -16,7 +16,7 @@ class WorkspaceTest {
                 pvcName = "workspace-abcdef01",
                 gatewayEndpoint = "http://x:8090",
             )
-        assertThat(updated.status).isEqualTo(WorkspaceStatus.PENDING)
+        assertThat(updated.status).isEqualTo(WorkspaceStatus.PREPARING)
         assertThat(updated.podName).isEqualTo("agent-runner-abcdef01")
         assertThat(updated.pvcName).isEqualTo("workspace-abcdef01")
         assertThat(updated.gatewayEndpoint).isEqualTo("http://x:8090")
@@ -88,7 +88,7 @@ class WorkspaceTest {
             podName = null,
             pvcName = null,
             gatewayEndpoint = null,
-            status = WorkspaceStatus.PENDING,
+            status = WorkspaceStatus.PREPARING,
             createdAt = now,
             updatedAt = now,
         )

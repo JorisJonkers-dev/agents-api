@@ -95,9 +95,9 @@ class IdleScaleDownScheduler(
                 .filter { workspace ->
                     // podName == null means an earlier sweep already scaled this
                     // workspace down. Status alone can no longer tell "READY with
-                    // a running Pod" apart from "READY, idled" (#63 stopped writing
-                    // IDLE), so without this a workspace would be resweept forever
-                    // once its updatedAt aged past the idle threshold again.
+                    // a running Pod" apart from "READY, idled" (#63 retired the
+                    // IDLE status), so without this a workspace would be resweept
+                    // forever once its updatedAt aged past the idle threshold again.
                     if (workspace.status != WorkspaceStatus.READY || workspace.podName == null) {
                         recordScaleDown(OutcomeLabel.SKIPPED, FailureReasonLabel.INVALID_REQUEST)
                         false
