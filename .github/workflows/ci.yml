@@ -86,7 +86,10 @@ jobs:
   docker-dry-run:
     name: Docker Dry Run
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The image bakes every Agent Session tool, so a cold build is tens of
+    # minutes. The GHA layer cache below keeps the usual PR down to the app
+    # layers; the timeout covers the cold build after a tooling-pin bump.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
@@ -96,12 +99,36 @@ jobs:
           context: .
           file: Dockerfile
           push: false
+          load: true
           tags: ghcr.io/jorisjonkers-dev/agents-api/agents-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
             github_actor=${{ github.actor }}
           build-args: |
             GIT_SHA=${{ github.sha }}
+
+      # A build that never runs the image passes with a broken ENTRYPOINT, a
+      # missing tini or a tool the registry moved. Exercise the two things this
+      # image exists for: the tools at their pins, and the api-to-agent hop.
+      - name: Smoke-test the image
+        env:
+          IMAGE: ghcr.io/jorisjonkers-dev/agents-api/agents-api:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /usr/local/sbin/setup-container.sh \
+            --user agent "$IMAGE" --check
+          # Go through a shell, not --entrypoint: runc execs an --entrypoint
+          # binary before it drops to --user, so the mode-0050 check never
+          # applies and the negative case below would pass on any image.
+          run() { docker run --rm --entrypoint bash --user "$1" "${@:2}"; }
+          got="$(run api --cap-drop ALL --cap-add SETUID --cap-add SETGID "$IMAGE" \
+            -lc '/usr/local/lib/agents-api/run-as-agent id -un')"
+          [ "$got" = agent ] || { echo "run-as-agent became '$got', not agent" >&2; exit 1; }
+          if run agent "$IMAGE" -lc '/usr/local/lib/agents-api/run-as-agent id -un'; then
+            echo "agent was able to execute run-as-agent" >&2; exit 1
+          fi
 
   migration-guard:
     name: Migration Guard
