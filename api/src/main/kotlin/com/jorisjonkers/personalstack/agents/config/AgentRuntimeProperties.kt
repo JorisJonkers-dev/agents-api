@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Instant
 
 private const val NIXOS_DOCKER_GROUP_GID = 131L
+private const val DEFAULT_AGENT_UID = 10_002L
 
 private val DEFAULT_DOCKER_SOCKET_SUPPLEMENTAL_GROUPS =
     listOf(NIXOS_DOCKER_GROUP_GID)
@@ -111,6 +112,11 @@ data class AgentRuntimeProperties(
     // Path to the helper that starts a process as `agent` (ADR 0003).
     // Overridable so tests can point it at a passthrough script.
     val runAsAgentPath: String = "/usr/local/lib/agents-api/run-as-agent",
+    // The uid an Agent Session runs as (ADR 0003) — the only peer the
+    // per-Workspace git-credential unix socket accepts, verified via
+    // SO_PEERCRED. A caller presenting `api` (10001) or root (0) is
+    // rejected; see infrastructure/credential/GitCredentialPeerAuthorization.
+    val agentUid: Long = DEFAULT_AGENT_UID,
     // Socket name for the single shared tmux server backing every in-container
     // Shell Agent Session — see infrastructure/shell/InContainerTmuxClient.
     val shellTmuxSocketName: String = "agents-api",
@@ -153,6 +159,7 @@ data class AgentRuntimeProperties(
         require(durableSessionCleanupBatchSize > 0) {
             "agent-runtime.durable-session-cleanup-batch-size must be positive"
         }
+        require(agentUid > 0) { "agent-runtime.agent-uid must be positive" }
         require(setups.isNotEmpty()) { "agent-runtime.setups must contain at least one setup" }
         require(setups.distinctBy { it.id to it.version }.size == setups.size) {
             "agent-runtime.setups must not contain duplicate id/version pairs"

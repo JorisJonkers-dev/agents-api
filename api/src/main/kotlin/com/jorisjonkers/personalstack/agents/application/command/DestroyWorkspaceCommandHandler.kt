@@ -3,6 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
+import com.jorisjonkers.personalstack.agents.domain.port.GitCredentialSocketManager
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.springframework.stereotype.Component
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional
 class DestroyWorkspaceCommandHandler(
     private val workspaces: WorkspaceRepository,
     private val orchestrator: AgentRunnerOrchestrator,
+    private val gitCredentialSockets: GitCredentialSocketManager,
 ) : CommandHandler<DestroyWorkspaceCommand> {
     @Transactional
     override fun handle(command: DestroyWorkspaceCommand) {
@@ -20,6 +22,7 @@ class DestroyWorkspaceCommandHandler(
             "workspace runner setup operation is in progress: ${workspace.id.value}"
         }
         orchestrator.destroy(workspace)
+        gitCredentialSockets.stop(workspace.id)
         workspaces.save(workspace.markDestroyed())
     }
 

@@ -7,6 +7,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.process.RunAsAgentCo
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -41,5 +42,25 @@ class WorkspaceDirectoryServiceTest {
 
         assertThat(dir.toString()).isEqualTo("/workspaces/$id")
         assertThat(argv.captured).containsExactly("mkdir", "-p", "/workspaces/$id")
+    }
+
+    @Test
+    fun `credentialSocketDirFor is the workspace directory's dot-agents-api subdirectory`() {
+        val id = WorkspaceId.random()
+
+        assertThat(service.credentialSocketDirFor(id).toString()).isEqualTo("/workspaces/$id/.agents-api")
+    }
+
+    @Test
+    fun `ensureCredentialSocketDirCreated creates the workspace dir, then mkdir's and chmod's the socket dir`() {
+        val id = WorkspaceId.random()
+        every { commands.run(any(), any(), any(), any(), any()) } returns ProcessRunner.Result(0, "", "")
+
+        val dir = service.ensureCredentialSocketDirCreated(id)
+
+        assertThat(dir.toString()).isEqualTo("/workspaces/$id/.agents-api")
+        verify { commands.run(listOf("mkdir", "-p", "/workspaces/$id"), any(), any(), any(), any()) }
+        verify { commands.run(listOf("mkdir", "-p", "/workspaces/$id/.agents-api"), any(), any(), any(), any()) }
+        verify { commands.run(listOf("chmod", "2703", "/workspaces/$id/.agents-api"), any(), any(), any(), any()) }
     }
 }

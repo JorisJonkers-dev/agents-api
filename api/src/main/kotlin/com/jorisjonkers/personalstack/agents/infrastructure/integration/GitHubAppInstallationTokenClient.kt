@@ -93,33 +93,77 @@ class GitHubAppInstallationTokenClient(
      * not installed on that owner, or any transport/GitHub error occurs.
      * Never throws — the caller maps null to 503.
      */
-    fun mint(repoUrl: String): InstallationToken? {
+    fun mint(repoUrl: String): InstallationToken? = mint(repoUrl, emptySet())
+
+    /**
+     * Returns a fresh installation token scoped to [anchorRepoUrl] plus
+     * every repo in [siblingRepoUrls] that shares its GitHub App
+     * installation (#63 — a Workspace's whole repo set, not just the one
+     * a caller happens to be pushing to right now). A sibling belonging
+     * to a *different* installation is silently excluded from the
+     * token's scope, and logged, rather than failing the mint: the
+     * caller only asked to use [anchorRepoUrl], so a split-installation
+     * Workspace still gets a working, correctly narrower token.
+     */
+    fun mint(
+        anchorRepoUrl: String,
+        siblingRepoUrls: Set<String>,
+    ): InstallationToken? {
         if (!enabled) return null
-        val slug = GitHubBranchProtectionClient.parseOwnerRepo(repoUrl)
-        if (slug == null) {
-            log.warn("installation-token mint skipped — could not parse owner/repo from {}", repoUrl)
+        val anchorSlug = GitHubBranchProtectionClient.parseOwnerRepo(anchorRepoUrl)
+        if (anchorSlug == null) {
+            log.warn("installation-token mint skipped — could not parse owner/repo from {}", anchorRepoUrl)
             return null
         }
         val base = props.githubApiBaseUrl.trim().trimEnd('/')
         return runCatching {
             val jwt = appJwt()
             val installationId =
-                installationId(base, slug, jwt)
-                    ?: error("no installation for ${slug.owner}/${slug.repo}")
+                installationId(base, anchorSlug, jwt)
+                    ?: error("no installation for ${anchorSlug.owner}/${anchorSlug.repo}")
+            val repoNames = scopedRepoNames(base, installationId, anchorSlug, siblingRepoUrls, jwt)
             val resp =
-                accessToken(base, installationId, slug.repo, jwt)
+                accessToken(base, installationId, repoNames, jwt)
                     ?: error("empty access-token response")
-            warnOnNarrowedGrant(slug, resp.permissions)
+            warnOnNarrowedGrant(anchorSlug.owner, repoNames, resp.permissions)
             InstallationToken(token = resp.token, expiresAt = Instant.parse(resp.expiresAt))
         }.onFailure { ex ->
             val detail = (ex as? RestClientResponseException)?.responseBodyAsString?.takeIf { it.isNotBlank() }
             log.warn(
                 "installation-token mint for {} failed: {}{}",
-                repoUrl,
+                anchorRepoUrl,
                 ex.message,
                 detail?.let { " — $it" }.orEmpty(),
             )
         }.getOrNull()
+    }
+
+    /**
+     * [anchorSlug] plus every sibling that resolves to the same
+     * [installationId] as the anchor. Siblings on another installation
+     * are excluded and named in a warning — see [mint]'s doc.
+     */
+    private fun scopedRepoNames(
+        base: String,
+        installationId: Long,
+        anchorSlug: GitHubBranchProtectionClient.OwnerRepo,
+        siblingRepoUrls: Set<String>,
+        jwt: String,
+    ): List<String> {
+        val siblingSlugs = siblingRepoUrls.mapNotNull { GitHubBranchProtectionClient.parseOwnerRepo(it) }
+        val (sameInstallation, otherInstallation) =
+            siblingSlugs.partition { installationId(base, it, jwt) == installationId }
+        if (otherInstallation.isNotEmpty()) {
+            log.warn(
+                "workspace repos span multiple GitHub App installations; scoping token to installation {} " +
+                    "of {}/{} — excluding {}",
+                installationId,
+                anchorSlug.owner,
+                anchorSlug.repo,
+                otherInstallation.map { "${it.owner}/${it.repo}" },
+            )
+        }
+        return (listOf(anchorSlug) + sameInstallation).map { it.repo }.distinct()
     }
 
     /**
@@ -133,7 +177,8 @@ class GitHubAppInstallationTokenClient(
      * is visible instead of surfacing as a mystified read-only runner.
      */
     private fun warnOnNarrowedGrant(
-        slug: GitHubBranchProtectionClient.OwnerRepo,
+        owner: String,
+        repoNames: List<String>,
         granted: Map<String, String>,
     ) {
         val shortfall = narrowedPermissions(REQUESTED_PERMISSIONS, granted)
@@ -144,11 +189,11 @@ class GitHubAppInstallationTokenClient(
                     "actions/issues/workflows: read & write, packages: read), then approve the updated " +
                     "permissions on the {} installation — until then runner git push / gh pr / gh run rerun / " +
                     "workflow edits / issue edits stay restricted.",
-                slug.owner,
-                slug.repo,
+                owner,
+                repoNames,
                 shortfall,
                 granted,
-                slug.owner,
+                owner,
             )
         }
     }
@@ -171,7 +216,7 @@ class GitHubAppInstallationTokenClient(
     private fun accessToken(
         base: String,
         installationId: Long,
-        repo: String,
+        repos: List<String>,
         jwt: String,
     ): AccessTokenResponse? =
         restClient
@@ -182,7 +227,7 @@ class GitHubAppInstallationTokenClient(
             .header(GH_API_VERSION_HEADER, GH_API_VERSION)
             .body(
                 AccessTokenRequest(
-                    repositories = listOf(repo),
+                    repositories = repos,
                     permissions = REQUESTED_PERMISSIONS,
                 ),
             ).retrieve()
