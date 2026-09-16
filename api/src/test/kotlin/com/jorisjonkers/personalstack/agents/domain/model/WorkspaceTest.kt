@@ -8,7 +8,7 @@ class WorkspaceTest {
     private val now = Instant.parse("2026-05-19T10:00:00Z")
 
     @Test
-    fun `withPodInfo transitions to STARTING and stamps pod fields`() {
+    fun `withPodInfo stamps pod fields and leaves status untouched`() {
         val ws = base()
         val updated =
             ws.withPodInfo(
@@ -16,7 +16,7 @@ class WorkspaceTest {
                 pvcName = "workspace-abcdef01",
                 gatewayEndpoint = "http://x:8090",
             )
-        assertThat(updated.status).isEqualTo(WorkspaceStatus.STARTING)
+        assertThat(updated.status).isEqualTo(WorkspaceStatus.PENDING)
         assertThat(updated.podName).isEqualTo("agent-runner-abcdef01")
         assertThat(updated.pvcName).isEqualTo("workspace-abcdef01")
         assertThat(updated.gatewayEndpoint).isEqualTo("http://x:8090")
@@ -27,8 +27,18 @@ class WorkspaceTest {
     fun `markReady markFailed markDestroyed flip status`() {
         val ws = base().withPodInfo("p", "v", "http://x:8090")
         assertThat(ws.markReady().status).isEqualTo(WorkspaceStatus.READY)
-        assertThat(ws.markFailed().status).isEqualTo(WorkspaceStatus.FAILED)
+        assertThat(ws.markFailed("boom").status).isEqualTo(WorkspaceStatus.FAILED)
         assertThat(ws.markDestroyed().status).isEqualTo(WorkspaceStatus.DESTROYED)
+    }
+
+    @Test
+    fun `markFailed records the reason and markReady clears a prior one`() {
+        val ws = base()
+        val failed = ws.markFailed("runner did not become ready")
+        assertThat(failed.failureReason).isEqualTo("runner did not become ready")
+
+        val recovered = failed.markReady()
+        assertThat(recovered.failureReason).isNull()
     }
 
     @Test

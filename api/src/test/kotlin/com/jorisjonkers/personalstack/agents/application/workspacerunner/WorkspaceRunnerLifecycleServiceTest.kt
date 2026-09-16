@@ -16,6 +16,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -191,6 +192,80 @@ class WorkspaceRunnerLifecycleServiceTest {
         )
         verify { workspaces.failBootLease(provisioned.id, any(), any()) }
         verify(exactly = 0) { workspaces.completeBootLease(any(), any(), any()) }
+    }
+
+    @Test
+    fun `persists markReady and clears a prior failure reason once provisioning becomes ready`() {
+        val handle = AgentRunnerOrchestrator.RunnerHandle("pod-r", "pvc-r", "http://pod-r:8090")
+        val provisioned =
+            workspace.copy(
+                podName = "pod-r",
+                pvcName = "pvc-r",
+                gatewayEndpoint = "http://pod-r:8090",
+                status = WorkspaceStatus.FAILED,
+                failureReason = "previous failure",
+            )
+        val savedWorkspaces = mutableListOf<Workspace>()
+
+        every { workspaces.findById(workspaceId) } returns workspace
+        every { targetResolver.resolve(workspace, WorkspaceAgentKind.CLAUDE, null, null) } returns target
+        every { orchestrator.isReady(workspace, identity) } returns false
+        every { workspaces.acquireBootLease(workspaceId, any(), any()) } returns true
+        every { orchestrator.scaleDown(workspace) } returns Unit
+        every { orchestrator.provision(workspace, target.spec, workspace.runnerSetupGeneration) } returns handle
+        every { workspaces.save(any()) } answers {
+            savedWorkspaces += firstArg<Workspace>()
+            provisioned
+        }
+        every { orchestrator.isReady(provisioned, identity) } returns true
+        every { workspaces.completeBootLease(any(), any(), any()) } returns true
+
+        service.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
+
+        assertThat(savedWorkspaces.last().status).isEqualTo(WorkspaceStatus.READY)
+        assertThat(savedWorkspaces.last().failureReason).isNull()
+    }
+
+    @Test
+    fun `persists markFailed with a reason when not ready after provisioning`() {
+        val handle = AgentRunnerOrchestrator.RunnerHandle("pod-z", "pvc-z", "http://pod-z:8090")
+        val provisioned = workspace.copy(podName = "pod-z", pvcName = "pvc-z", gatewayEndpoint = "http://pod-z:8090")
+        val savedWorkspaces = mutableListOf<Workspace>()
+
+        every { workspaces.findById(workspaceId) } returns workspace
+        every { targetResolver.resolve(workspace, WorkspaceAgentKind.CLAUDE, null, null) } returns target
+        every { orchestrator.isReady(workspace, identity) } returns false
+        every { workspaces.acquireBootLease(workspaceId, any(), any()) } returns true
+        every { orchestrator.scaleDown(workspace) } returns Unit
+        every { orchestrator.provision(workspace, target.spec, workspace.runnerSetupGeneration) } returns handle
+        every { workspaces.save(any()) } answers {
+            savedWorkspaces += firstArg<Workspace>()
+            provisioned
+        }
+        every { orchestrator.isReady(provisioned, identity) } returns false
+        every { workspaces.failBootLease(provisioned.id, any(), any()) } returns true
+
+        service.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
+
+        assertThat(savedWorkspaces.last().status).isEqualTo(WorkspaceStatus.FAILED)
+        assertThat(savedWorkspaces.last().failureReason).isEqualTo("runner did not become ready after provisioning")
+    }
+
+    @Test
+    fun `persists markFailed with a reason when provisioning throws`() {
+        val saved = slot<Workspace>()
+        every { workspaces.findById(workspaceId) } returns workspace
+        every { targetResolver.resolve(workspace, WorkspaceAgentKind.CLAUDE, null, null) } returns target
+        every { orchestrator.isReady(workspace, identity) } returns false
+        every { workspaces.acquireBootLease(workspaceId, any(), any()) } returns true
+        every { orchestrator.scaleDown(workspace) } throws RuntimeException("k8s unreachable")
+        every { workspaces.failBootLease(workspaceId, any(), any()) } returns true
+        every { workspaces.save(capture(saved)) } returns workspace
+
+        service.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
+
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.FAILED)
+        assertThat(saved.captured.failureReason).isEqualTo("runner provisioning failed")
     }
 
     @Test

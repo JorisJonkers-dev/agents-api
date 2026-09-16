@@ -93,7 +93,12 @@ class IdleScaleDownScheduler(
             workspaces
                 .findAllByStatusNot(WorkspaceStatus.DESTROYED)
                 .filter { workspace ->
-                    if (workspace.status != WorkspaceStatus.READY) {
+                    // podName == null means an earlier sweep already scaled this
+                    // workspace down. Status alone can no longer tell "READY with
+                    // a running Pod" apart from "READY, idled" (#63 stopped writing
+                    // IDLE), so without this a workspace would be resweept forever
+                    // once its updatedAt aged past the idle threshold again.
+                    if (workspace.status != WorkspaceStatus.READY || workspace.podName == null) {
                         recordScaleDown(OutcomeLabel.SKIPPED, FailureReasonLabel.INVALID_REQUEST)
                         false
                     } else {
@@ -191,9 +196,12 @@ class IdleScaleDownScheduler(
     private fun scaleDown(workspace: Workspace) {
         runCatching {
             orchestrator.scaleDown(workspace)
+            // Scaling to zero isn't a Workspace state (glossary: only Preparing,
+            // Ready, Failed, Destroyed) — it stays READY, just without a Pod.
             workspaces.save(
                 workspace.copy(
-                    status = WorkspaceStatus.IDLE,
+                    status = WorkspaceStatus.READY,
+                    failureReason = null,
                     podName = null,
                     gatewayEndpoint = null,
                     updatedAt = clock.instant(),

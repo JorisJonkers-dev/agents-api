@@ -12,6 +12,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.jooq.DSLContext
+import org.jooq.Field
 import org.jooq.Record
 import org.jooq.impl.DSL
 import org.springframework.stereotype.Repository
@@ -38,60 +39,74 @@ class JooqWorkspaceRepository(
         val updatedAt = workspace.updatedAt.atOffset(ZoneOffset.UTC)
         dsl
             .insertInto(WORKSPACES)
-            .set(ID, workspace.id.value)
-            .set(NAME, workspace.name)
-            .set(REPO_URL, workspace.repoUrl)
-            .set(BRANCH, workspace.branch)
-            .set(POD_NAME, workspace.podName)
-            .set(PVC_NAME, workspace.pvcName)
-            .set(GATEWAY_ENDPOINT, workspace.gatewayEndpoint)
-            .set(STATUS, workspace.status.name)
-            .set(OWNER_USER_ID, workspace.ownerUserId)
-            .set(GITHUB_LINK_ID, workspace.githubLinkId?.value)
-            .set(REPOSITORY_ID, workspace.repositoryId?.value)
-            .set(PROJECT_ID, workspace.projectId?.value)
-            .set(KIND, workspace.kind.name)
-            .set(CURRENT_RUNNER_SETUP_ID, workspace.currentRunnerSetupId.value)
-            .set(CURRENT_RUNNER_SETUP_VERSION, workspace.currentRunnerSetupVersion.value)
-            .set(PENDING_RUNNER_SETUP_ID, workspace.pendingRunnerSetupId?.value)
-            .set(PENDING_RUNNER_SETUP_VERSION, workspace.pendingRunnerSetupVersion?.value)
-            .set(RUNNER_SETUP_GENERATION, workspace.runnerSetupGeneration)
-            .set(RUNNER_SETUP_OPERATION, workspace.runnerSetupOperation.name)
-            .set(
-                RUNNER_SETUP_OPERATION_STARTED_AT,
-                workspace.runnerSetupOperationStartedAt?.atOffset(ZoneOffset.UTC),
-            ).set(
-                RUNNER_SETUP_OPERATION_UPDATED_AT,
-                workspace.runnerSetupOperationUpdatedAt?.atOffset(ZoneOffset.UTC),
-            ).set(RUNNER_BOOT_LEASE_ID, workspace.runnerBootLeaseId)
-            .set(RUNNER_BOOT_ATTEMPT, workspace.runnerBootAttempt)
-            .set(RUNNER_BOOT_STARTED_AT, workspace.runnerBootStartedAt?.atOffset(ZoneOffset.UTC))
-            .set(RUNNER_BOOT_UPDATED_AT, workspace.runnerBootUpdatedAt?.atOffset(ZoneOffset.UTC))
-            .set(CREATED_AT, createdAt)
-            .set(UPDATED_AT, updatedAt)
+            .set(insertValues(workspace, createdAt, updatedAt))
             .onConflict(ID)
             .doUpdate()
-            .set(NAME, workspace.name)
-            .set(REPO_URL, workspace.repoUrl)
-            .set(BRANCH, workspace.branch)
-            .set(POD_NAME, workspace.podName)
-            .set(PVC_NAME, workspace.pvcName)
-            .set(GATEWAY_ENDPOINT, workspace.gatewayEndpoint)
-            .set(STATUS, workspace.status.name)
-            .set(
-                OWNER_USER_ID,
+            .set(conflictUpdateValues(workspace, updatedAt))
+            .execute()
+        return workspace
+    }
+
+    private fun insertValues(
+        workspace: Workspace,
+        createdAt: OffsetDateTime,
+        updatedAt: OffsetDateTime,
+    ): Map<Field<*>, Any?> =
+        mapOf(
+            ID to workspace.id.value,
+            OWNER_USER_ID to workspace.ownerUserId,
+            GITHUB_LINK_ID to workspace.githubLinkId?.value,
+            REPOSITORY_ID to workspace.repositoryId?.value,
+            PROJECT_ID to workspace.projectId?.value,
+            KIND to workspace.kind.name,
+            CURRENT_RUNNER_SETUP_ID to workspace.currentRunnerSetupId.value,
+            CURRENT_RUNNER_SETUP_VERSION to workspace.currentRunnerSetupVersion.value,
+            PENDING_RUNNER_SETUP_ID to workspace.pendingRunnerSetupId?.value,
+            PENDING_RUNNER_SETUP_VERSION to workspace.pendingRunnerSetupVersion?.value,
+            RUNNER_SETUP_GENERATION to workspace.runnerSetupGeneration,
+            RUNNER_SETUP_OPERATION to workspace.runnerSetupOperation.name,
+            RUNNER_SETUP_OPERATION_STARTED_AT to workspace.runnerSetupOperationStartedAt?.atOffset(ZoneOffset.UTC),
+            RUNNER_SETUP_OPERATION_UPDATED_AT to workspace.runnerSetupOperationUpdatedAt?.atOffset(ZoneOffset.UTC),
+            RUNNER_BOOT_LEASE_ID to workspace.runnerBootLeaseId,
+            RUNNER_BOOT_ATTEMPT to workspace.runnerBootAttempt,
+            RUNNER_BOOT_STARTED_AT to workspace.runnerBootStartedAt?.atOffset(ZoneOffset.UTC),
+            RUNNER_BOOT_UPDATED_AT to workspace.runnerBootUpdatedAt?.atOffset(ZoneOffset.UTC),
+            CREATED_AT to createdAt,
+            NAME to workspace.name,
+            REPO_URL to workspace.repoUrl,
+            BRANCH to workspace.branch,
+            POD_NAME to workspace.podName,
+            PVC_NAME to workspace.pvcName,
+            GATEWAY_ENDPOINT to workspace.gatewayEndpoint,
+            STATUS to workspace.status.name,
+            FAILURE_REASON to workspace.failureReason,
+            UPDATED_AT to updatedAt,
+        )
+
+    private fun conflictUpdateValues(
+        workspace: Workspace,
+        updatedAt: OffsetDateTime,
+    ): Map<Field<*>, Any?> =
+        mapOf(
+            OWNER_USER_ID to
                 DSL.coalesce(
                     DSL.excluded(OWNER_USER_ID),
                     DSL.field(DSL.name("workspaces", "owner_user_id"), String::class.java),
                 ),
-            ).set(GITHUB_LINK_ID, workspace.githubLinkId?.value)
-            .set(REPOSITORY_ID, workspace.repositoryId?.value)
-            .set(PROJECT_ID, workspace.projectId?.value)
-            .set(KIND, workspace.kind.name)
-            .set(UPDATED_AT, updatedAt)
-            .execute()
-        return workspace
-    }
+            GITHUB_LINK_ID to workspace.githubLinkId?.value,
+            REPOSITORY_ID to workspace.repositoryId?.value,
+            PROJECT_ID to workspace.projectId?.value,
+            KIND to workspace.kind.name,
+            NAME to workspace.name,
+            REPO_URL to workspace.repoUrl,
+            BRANCH to workspace.branch,
+            POD_NAME to workspace.podName,
+            PVC_NAME to workspace.pvcName,
+            GATEWAY_ENDPOINT to workspace.gatewayEndpoint,
+            STATUS to workspace.status.name,
+            FAILURE_REASON to workspace.failureReason,
+            UPDATED_AT to updatedAt,
+        )
 
     override fun findById(id: WorkspaceId): Workspace? =
         dsl
@@ -272,6 +287,7 @@ class JooqWorkspaceRepository(
             runnerBootAttempt = this[RUNNER_BOOT_ATTEMPT] ?: 0,
             runnerBootStartedAt = this[RUNNER_BOOT_STARTED_AT]?.toInstant(),
             runnerBootUpdatedAt = this[RUNNER_BOOT_UPDATED_AT]?.toInstant(),
+            failureReason = this[FAILURE_REASON],
             createdAt = this[CREATED_AT].toInstant(),
             updatedAt = this[UPDATED_AT].toInstant(),
         )
@@ -334,6 +350,8 @@ class JooqWorkspaceRepository(
 
         @JvmStatic val RUNNER_BOOT_UPDATED_AT =
             DSL.field("runner_boot_updated_at", OffsetDateTime::class.java)
+
+        @JvmStatic val FAILURE_REASON = DSL.field("failure_reason", String::class.java)
 
         @JvmStatic val CREATED_AT = DSL.field("created_at", OffsetDateTime::class.java)
 

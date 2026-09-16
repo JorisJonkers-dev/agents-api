@@ -44,13 +44,16 @@ class RunnerMaintenanceService(
         val workspaceIds: List<String>,
     )
 
-    private val activeStatuses = setOf(WorkspaceStatus.READY, WorkspaceStatus.STARTING, WorkspaceStatus.FAILED)
+    // STARTING is no longer written (#63) — READY and FAILED are the only
+    // statuses a workspace with a live-or-crash-looping Pod can now hold.
+    private val activeStatuses = setOf(WorkspaceStatus.READY, WorkspaceStatus.FAILED)
 
     /**
      * Scale down every workspace whose Pod is (or should be) running.
-     * Each workspace transitions to [WorkspaceStatus.IDLE] with its PVC
-     * preserved so the next [AgentRunnerOrchestrator.provision] re-attaches
-     * the same disk and CLI history.
+     * Each workspace stays [WorkspaceStatus.READY] (glossary: scaling to
+     * zero isn't a Workspace state) with its PVC preserved so the next
+     * [AgentRunnerOrchestrator.provision] re-attaches the same disk and CLI
+     * history.
      *
      * Scale-down failures are logged and skipped — the orchestrator's
      * [AgentRunnerOrchestrator.scaleDown] treats a missing Pod as a no-op,
@@ -60,7 +63,12 @@ class RunnerMaintenanceService(
         val candidates =
             workspaces
                 .findAllByStatusNot(WorkspaceStatus.DESTROYED)
-                .filter { it.status in activeStatuses && !it.hasRunnerSetupGuard() && !hasPendingSetupSession(it) }
+                .filter {
+                    it.status in activeStatuses &&
+                        it.podName != null &&
+                        !it.hasRunnerSetupGuard() &&
+                        !hasPendingSetupSession(it)
+                }
         val cycled = candidates.mapNotNull { scaleDownToIdle(it) }
         if (cycled.isNotEmpty()) {
             log.info("maintenance: graceful scale-down cycled {} workspace(s)", cycled.size)
@@ -80,7 +88,8 @@ class RunnerMaintenanceService(
             }
         workspaces.save(
             workspace.copy(
-                status = WorkspaceStatus.IDLE,
+                status = WorkspaceStatus.READY,
+                failureReason = null,
                 podName = null,
                 gatewayEndpoint = null,
                 updatedAt = clock.instant(),

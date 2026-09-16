@@ -139,6 +139,43 @@ class JooqWorkspaceRepositoryIntegrationTest
         }
 
         @Test
+        fun saveAndFindByIdRoundTripsAFailureReason() {
+            val w = newWorkspace()
+            workspaces.save(w)
+            val failed = w.copy(status = WorkspaceStatus.FAILED, failureReason = "runner provisioning failed")
+            workspaces.save(failed)
+
+            val loaded = workspaces.findById(w.id).required()
+
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.FAILED)
+            assertThat(loaded.failureReason).isEqualTo("runner provisioning failed")
+        }
+
+        @Test
+        fun saveAndFindByIdRoundTripsANullFailureReason() {
+            val w = newWorkspace()
+            workspaces.save(w)
+
+            val loaded = workspaces.findById(w.id).required()
+
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.PENDING)
+            assertThat(loaded.failureReason).isNull()
+        }
+
+        @Test
+        fun saveClearsAFailureReasonOnceMarkedReadyAgain() {
+            val w = newWorkspace()
+            workspaces.save(w)
+            workspaces.save(w.copy(status = WorkspaceStatus.FAILED, failureReason = "boom"))
+
+            workspaces.save(w.copy(status = WorkspaceStatus.READY, failureReason = null))
+
+            val loaded = workspaces.findById(w.id).required()
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.READY)
+            assertThat(loaded.failureReason).isNull()
+        }
+
+        @Test
         fun savePreservesExistingOwnerOnUnrelatedConflictUpdate() {
             val w = newWorkspace(ownerUserId = "user-123")
             workspaces.save(w)
