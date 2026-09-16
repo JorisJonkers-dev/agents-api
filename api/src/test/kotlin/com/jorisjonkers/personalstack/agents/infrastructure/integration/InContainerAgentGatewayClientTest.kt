@@ -8,16 +8,21 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
+import com.jorisjonkers.personalstack.agents.infrastructure.process.ProcessRunner
 import com.jorisjonkers.personalstack.agents.infrastructure.process.RunAsAgentCommandRunner
 import com.jorisjonkers.personalstack.agents.infrastructure.shell.InContainerTmuxClient
 import com.jorisjonkers.personalstack.agents.infrastructure.shell.ShellAttachOperations
 import com.jorisjonkers.personalstack.agents.infrastructure.shell.ShellSessionRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 
@@ -92,10 +97,66 @@ class InContainerAgentGatewayClientTest {
     }
 
     @Test
-    fun `stageInput, clone, openPr and headless jobs are unsupported in this scope`() {
+    fun `stageInput, openPr and headless jobs are unsupported in this scope`() {
         assertThrows<UnsupportedOperationException> { client.stageInput(workspace(), "abc", "x", null) }
-        assertThrows<UnsupportedOperationException> { client.clone(workspace(), "git@x") }
         assertThrows<UnsupportedOperationException> { client.openPr(workspace(), "/x", "t", "b") }
+    }
+
+    @Test
+    fun `clone runs git with the socket credential helper into workspaceDir slash repo-name`(
+        @TempDir workspaceDir: Path,
+    ) {
+        every { directories.ensureCreated(workspaceId) } returns workspaceDir
+        val argv = slot<List<String>>()
+        every { commands.run(capture(argv), any(), any(), any(), any()) } returns processResult()
+
+        val result = client.clone(workspace(), "https://github.com/owner/my-repo.git", null)
+
+        assertThat(result).isEqualTo(workspaceDir.resolve("my-repo").toString())
+        assertThat(argv.captured).containsExactly(
+            "git",
+            "-c",
+            "credential.helper=agents-api",
+            "clone",
+            "https://github.com/owner/my-repo.git",
+            workspaceDir.resolve("my-repo").toString(),
+        )
+        verify { commands.run(argv.captured, workspaceDir.toFile(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `clone passes --branch when one is requested`(
+        @TempDir workspaceDir: Path,
+    ) {
+        every { directories.ensureCreated(workspaceId) } returns workspaceDir
+        val argv = slot<List<String>>()
+        every { commands.run(capture(argv), any(), any(), any(), any()) } returns processResult()
+
+        client.clone(workspace(), "git@github.com:owner/my-repo.git", "release/1.0")
+
+        assertThat(argv.captured).containsExactly(
+            "git",
+            "-c",
+            "credential.helper=agents-api",
+            "clone",
+            "--branch",
+            "release/1.0",
+            "git@github.com:owner/my-repo.git",
+            workspaceDir.resolve("my-repo").toString(),
+        )
+    }
+
+    @Test
+    fun `clone is a no-op when the target directory already exists`(
+        @TempDir workspaceDir: Path,
+    ) {
+        every { directories.ensureCreated(workspaceId) } returns workspaceDir
+        Files.createDirectory(workspaceDir.resolve("my-repo"))
+
+        val result = client.clone(workspace(), "https://github.com/owner/my-repo.git", null)
+
+        assertThat(result).isEqualTo(workspaceDir.resolve("my-repo").toString())
+        verify(exactly = 0) { commands.run(any(), any<File>(), any(), any(), any()) }
     }
 
     @Test
@@ -117,4 +178,6 @@ class InContainerAgentGatewayClientTest {
             updatedAt = Instant.now(),
             kind = WorkspaceKind.SCRATCH,
         )
+
+    private fun processResult() = ProcessRunner.Result(0, "", "")
 }

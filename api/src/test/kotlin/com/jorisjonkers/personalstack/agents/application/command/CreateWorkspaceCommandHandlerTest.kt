@@ -29,6 +29,7 @@ import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryReposi
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
+import com.jorisjonkers.personalstack.agents.infrastructure.integration.InContainerAgentGatewayClient
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -72,6 +73,7 @@ class CreateWorkspaceCommandHandlerTest {
     private val setupSelection = mockk<AgentSetupSelectionService>()
     private val directories = mockk<WorkspaceDirectoryService>(relaxed = true)
     private val gitCredentialSockets = mockk<GitCredentialSocketManager>(relaxed = true)
+    private val inContainerGateway = mockk<InContainerAgentGatewayClient>(relaxed = true)
     private val setup = setupEntry()
     private val tx =
         mockk<TransactionTemplate> {
@@ -91,11 +93,22 @@ class CreateWorkspaceCommandHandlerTest {
             ),
             verifyAccess,
             setupSelection,
-            WorkspaceRuntimeProvisioner(lifecycleService, directories, gitCredentialSockets),
+            WorkspaceRuntimeProvisioner(
+                lifecycleService,
+                directories,
+                gitCredentialSockets,
+                workspaces,
+                inContainerGateway,
+            ),
             tx,
         )
 
     init {
+        // This handler's own persistInitial()/save is the workspace-create path;
+        // the provisioner's own findById lookup (for the in-container clone) is
+        // exercised in WorkspaceRuntimeProvisionerTest, not here — default it to
+        // "not found" so that best-effort path stays a no-op in every test below.
+        every { workspaces.findById(any()) } returns null
         every { setupSelection.defaultSelectable() } returns setup
         every { lifecycleService.boot(any(), any()) } returns
             BootOutcome.Ready(
