@@ -17,6 +17,8 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.springframework.web.socket.CloseStatus
@@ -42,8 +44,12 @@ internal class AttachPreconditionChecker(
             val sessionId: AgentSessionId,
             val workspace: Workspace,
             val gatewayAgentId: String,
-            val gatewayEndpoint: String,
+            // Null for a Shell Agent Session in a Scratch Workspace — there is
+            // no runner Pod to open an upstream WebSocket to; [local] is true
+            // and the attach is served in-container instead.
+            val gatewayEndpoint: String?,
             val kind: AgentKindLabel,
+            val local: Boolean = false,
         ) : AttachOutcome
 
         /** A precondition failed; close the client with this status. */
@@ -173,6 +179,7 @@ internal class AttachPreconditionChecker(
     ): AttachOutcome {
         val gatewayAgentId = session.gatewayAgentId
         val endpoint = workspace.gatewayEndpoint
+        val local = isInContainerShellSession(workspace, session)
         return when {
             isSetupTransitionInProgress(session, workspace) ->
                 AttachOutcome.Rejected(
@@ -188,16 +195,23 @@ internal class AttachPreconditionChecker(
                     FailureReasonLabel.UPSTREAM_UNAVAILABLE,
                     kind,
                 )
-            endpoint == null ->
+            // A Scratch Workspace never has a runner Pod, so gatewayEndpoint is
+            // always null for it — that is expected here, not a failure.
+            endpoint == null && !local ->
                 AttachOutcome.Rejected(
                     "workspace has no gateway endpoint",
                     CloseStatus.SERVER_ERROR,
                     FailureReasonLabel.UPSTREAM_UNAVAILABLE,
                     kind,
                 )
-            else -> AttachOutcome.Ready(sessionId, workspace, gatewayAgentId, endpoint, kind)
+            else -> AttachOutcome.Ready(sessionId, workspace, gatewayAgentId, endpoint, kind, local)
         }
     }
+
+    private fun isInContainerShellSession(
+        workspace: Workspace,
+        session: AgentSession,
+    ): Boolean = workspace.kind == WorkspaceKind.SCRATCH && session.kind == WorkspaceAgentKind.SHELL
 
     private fun isSetupTransitionInProgress(
         agentSession: AgentSession,
