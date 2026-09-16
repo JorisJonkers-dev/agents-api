@@ -68,6 +68,7 @@ class SessionAttachDependencies(
 @Component
 class SessionAttachHandler(
     dependencies: SessionAttachDependencies,
+    private val localShellAttach: LocalShellAttachSupport,
     private val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 ) : AbstractWebSocketHandler() {
     private val sessions = dependencies.sessions
@@ -90,7 +91,13 @@ class SessionAttachHandler(
         val upstream: WebSocketSession,
     )
 
+    private data class LocalBridge(
+        val sessionId: AgentSessionId,
+        val workspaceId: WorkspaceId,
+    )
+
     private val bridges = ConcurrentHashMap<String, Bridge>()
+    private val localBridges = ConcurrentHashMap<String, LocalBridge>()
 
     // The gateway streams terminal output as bounded frames (LogTailer
     // MAX_CHUNK_CHARS); a screenful of a TUI's ANSI escapes can JSON-encode
@@ -113,6 +120,10 @@ class SessionAttachHandler(
 
     override fun afterConnectionEstablished(clientSession: WebSocketSession) {
         val ready = preconditions.resolveAttach(clientSession) ?: return
+        if (ready.local) {
+            attachLocal(clientSession, ready)
+            return
+        }
         val upstreamHandler =
             UpstreamHandler(
                 client = clientSession,
@@ -127,7 +138,10 @@ class SessionAttachHandler(
                     ),
                 telemetry = telemetry,
             )
-        val upstreamUri = upstreamUri(ready.gatewayEndpoint, ready.gatewayAgentId, browserCursorOf(clientSession))
+        // AttachPreconditionChecker only produces a non-local Ready with a
+        // non-null gatewayEndpoint (the Pod path requires one).
+        val endpoint = requireNotNull(ready.gatewayEndpoint) { "non-local attach ready without a gateway endpoint" }
+        val upstreamUri = upstreamUri(endpoint, ready.gatewayAgentId, browserCursorOf(clientSession))
         val upstream =
             runCatching {
                 client
@@ -150,20 +164,52 @@ class SessionAttachHandler(
         )
     }
 
+    private fun attachLocal(
+        clientSession: WebSocketSession,
+        ready: AttachPreconditionChecker.AttachOutcome.Ready,
+    ) {
+        runCatching { localShellAttach.attach(clientSession, ready.workspace, ready.gatewayAgentId) }
+            .onFailure {
+                preconditions.recordAttach(ready.kind, OutcomeLabel.FAILURE, FailureReasonLabel.UPSTREAM_UNAVAILABLE)
+                clientSession.close(CloseStatus.SERVER_ERROR.withReason("shell attach unavailable"))
+                return
+            }
+        preconditions.recordAttach(ready.kind, OutcomeLabel.SUCCESS, FailureReasonLabel.NONE)
+        localBridges[clientSession.id] = LocalBridge(ready.sessionId, ready.workspace.id)
+        connected.attach(ready.workspace.id)
+        activity.touch(ready.workspace.id)
+        log.info("attached client {} to session {} in-container", clientSession.id, ready.sessionId)
+    }
+
     override fun handleTextMessage(
         clientSession: WebSocketSession,
         message: TextMessage,
-    ) = relayToUpstream(clientSession, message)
+    ) {
+        if (localBridges.containsKey(clientSession.id)) {
+            localShellAttach.handleText(clientSession, message)
+            localBridges[clientSession.id]?.let { activity.touch(it.workspaceId) }
+            return
+        }
+        relayToUpstream(clientSession, message)
+    }
 
     override fun handleBinaryMessage(
         session: WebSocketSession,
         message: BinaryMessage,
-    ) = relayToUpstream(session, message)
+    ) {
+        // The Shell protocol is text-only JSON envelopes; a local Attach has
+        // nothing to do with a binary frame.
+        if (localBridges.containsKey(session.id)) return
+        relayToUpstream(session, message)
+    }
 
     override fun handlePongMessage(
         session: WebSocketSession,
         message: PongMessage,
-    ) = relayToUpstream(session, message)
+    ) {
+        if (localBridges.containsKey(session.id)) return
+        relayToUpstream(session, message)
+    }
 
     private fun relayToUpstream(
         clientSession: WebSocketSession,
@@ -193,6 +239,12 @@ class SessionAttachHandler(
         clientSession: WebSocketSession,
         status: CloseStatus,
     ) {
+        localBridges.remove(clientSession.id)?.let { local ->
+            connected.detach(local.workspaceId)
+            localShellAttach.detach(clientSession.id)
+            recordAttachOperation(outcomeOf(status), failureReasonOf(status))
+            return
+        }
         val bridge = bridges.remove(clientSession.id) ?: return
         connected.detach(bridge.workspaceId)
         runCatching { bridge.upstream.close(status) }

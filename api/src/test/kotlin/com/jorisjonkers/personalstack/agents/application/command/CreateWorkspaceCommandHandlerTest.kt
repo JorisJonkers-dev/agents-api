@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.application.workspace.WorkspaceDirectoryService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
@@ -67,6 +68,7 @@ class CreateWorkspaceCommandHandlerTest {
                 )
         }
     private val setupSelection = mockk<AgentSetupSelectionService>()
+    private val directories = mockk<WorkspaceDirectoryService>(relaxed = true)
     private val setup = setupEntry()
     private val tx =
         mockk<TransactionTemplate> {
@@ -87,6 +89,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
             verifyAccess,
             setupSelection,
+            directories,
             tx,
         )
 
@@ -412,7 +415,10 @@ class CreateWorkspaceCommandHandlerTest {
             ),
         )
 
-        verify { lifecycleService.boot(any(), any()) }
+        // A Scratch Workspace has no runner Pod: no boot, just its directory
+        // on the workspaces volume (criterion 1 — no Kubernetes API call).
+        verify(exactly = 0) { lifecycleService.boot(any(), any()) }
+        verify { directories.ensureCreated(saved.first().id) }
         assertThat(saved.first().repoUrl).isNull()
         assertThat(saved.first().kind).isEqualTo(WorkspaceKind.SCRATCH)
         verify(exactly = 0) { workspaceRepositoryLinks.attach(any(), any(), any()) }

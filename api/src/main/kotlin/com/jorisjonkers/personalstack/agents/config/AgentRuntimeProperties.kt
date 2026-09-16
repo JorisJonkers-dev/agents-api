@@ -104,6 +104,16 @@ data class AgentRuntimeProperties(
     val credentialIngestBearer: String = "",
     val durableSessionRetentionSeconds: Long = 604_800,
     val durableSessionCleanupBatchSize: Int = 25,
+    // Scratch Workspace directory root inside this container; a Workspace's
+    // directory is <workspacesRoot>/<workspaceId>. Owned by `agent`, so it is
+    // created through run-as-agent rather than the JVM's own uid.
+    val workspacesRoot: String = "/workspaces",
+    // Path to the helper that starts a process as `agent` (ADR 0003).
+    // Overridable so tests can point it at a passthrough script.
+    val runAsAgentPath: String = "/usr/local/lib/agents-api/run-as-agent",
+    // Socket name for the single shared tmux server backing every in-container
+    // Shell Agent Session — see infrastructure/shell/InContainerTmuxClient.
+    val shellTmuxSocketName: String = "agents-api",
     // In-cluster ClusterIP of the credential-worker that drives the
     // Claude Code / Codex CLI `/login` flows and writes the resulting
     // OAuth bundle to Vault. The worker is fronted by no edge route, so

@@ -72,6 +72,7 @@ class SessionAttachHandlerTest {
     private val activity = mockk<WorkspaceActivityTracker>(relaxed = true)
     private val binding = mockk<RunnerSessionBindingService>()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
+    private val localShellAttach = mockk<LocalShellAttachSupport>(relaxed = true)
 
     private lateinit var handler: SessionAttachHandler
     private lateinit var upstream: WebSocketSession
@@ -103,6 +104,7 @@ class SessionAttachHandlerTest {
                     binding = binding,
                     sessionStatus = sessionStatus,
                 ),
+                localShellAttach = localShellAttach,
                 telemetry = telemetry,
             )
 

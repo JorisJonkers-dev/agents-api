@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.application.command
 
 import com.jorisjonkers.personalstack.agents.application.VerifyRepositoryAccess
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
+import com.jorisjonkers.personalstack.agents.application.workspace.WorkspaceDirectoryService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
@@ -51,6 +52,7 @@ class CreateWorkspaceCommandHandler(
     private val repositories: CreateWorkspaceRepositories,
     private val verifyAccess: VerifyRepositoryAccess,
     private val setupSelection: AgentSetupSelectionService,
+    private val directories: WorkspaceDirectoryService,
     private val tx: TransactionTemplate,
 ) : CommandHandler<CreateWorkspaceCommand> {
     private val log = LoggerFactory.getLogger(CreateWorkspaceCommandHandler::class.java)
@@ -72,6 +74,15 @@ class CreateWorkspaceCommandHandler(
                 seedRepositoryMembership(workspace, command)
                 workspace.id
             }
+
+        if (command.kind == WorkspaceKind.SCRATCH) {
+            // No runner Pod for a Scratch Workspace — its directory on the
+            // workspaces volume is all it needs, and creating it makes no
+            // Kubernetes API call.
+            runCatching { directories.ensureCreated(workspaceId) }
+                .onFailure { log.warn("workspace {} directory creation failed", workspaceId, it) }
+            return
+        }
 
         // Boot is best-effort: the workspace is already committed and must stay
         // visible even if the runner cannot come up yet (e.g. setup not yet
