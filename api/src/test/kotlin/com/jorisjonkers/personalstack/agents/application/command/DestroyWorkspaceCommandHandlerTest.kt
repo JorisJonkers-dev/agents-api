@@ -6,6 +6,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
+import com.jorisjonkers.personalstack.agents.domain.port.GitCredentialSocketManager
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -19,7 +20,8 @@ import java.time.Instant
 class DestroyWorkspaceCommandHandlerTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
-    private val handler = DestroyWorkspaceCommandHandler(workspaces, orchestrator)
+    private val gitCredentialSockets = mockk<GitCredentialSocketManager>(relaxed = true)
+    private val handler = DestroyWorkspaceCommandHandler(workspaces, orchestrator, gitCredentialSockets)
 
     @Test
     fun `handle destroys the pod and marks workspace destroyed`() {
@@ -32,6 +34,7 @@ class DestroyWorkspaceCommandHandlerTest {
         handler.handle(DestroyWorkspaceCommand(id))
 
         verify { orchestrator.destroy(ws) }
+        verify { gitCredentialSockets.stop(id) }
         assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.DESTROYED)
     }
 

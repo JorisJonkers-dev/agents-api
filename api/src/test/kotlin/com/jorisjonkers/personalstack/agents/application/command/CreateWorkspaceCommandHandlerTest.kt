@@ -23,6 +23,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.GitCredentialSocketManager
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
@@ -70,6 +71,7 @@ class CreateWorkspaceCommandHandlerTest {
         }
     private val setupSelection = mockk<AgentSetupSelectionService>()
     private val directories = mockk<WorkspaceDirectoryService>(relaxed = true)
+    private val gitCredentialSockets = mockk<GitCredentialSocketManager>(relaxed = true)
     private val setup = setupEntry()
     private val tx =
         mockk<TransactionTemplate> {
@@ -89,7 +91,7 @@ class CreateWorkspaceCommandHandlerTest {
             ),
             verifyAccess,
             setupSelection,
-            WorkspaceRuntimeProvisioner(lifecycleService, directories),
+            WorkspaceRuntimeProvisioner(lifecycleService, directories, gitCredentialSockets),
             tx,
         )
 

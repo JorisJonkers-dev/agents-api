@@ -202,6 +202,74 @@ class GitHubAppInstallationTokenClientTest {
     }
 
     @Test
+    fun `mint with siblings scopes the token to the anchor plus siblings on the same installation`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = GitHubAppInstallationTokenClient(builder.build(), props())
+
+        server
+            .expect(requestTo("https://api.github.com/repos/JorisJonkers-dev/agents/installation"))
+            .andRespond(withSuccess("""{"id":777}""", MediaType.APPLICATION_JSON))
+        server
+            .expect(requestTo("https://api.github.com/repos/JorisJonkers-dev/sibling/installation"))
+            .andRespond(withSuccess("""{"id":777}""", MediaType.APPLICATION_JSON))
+        server
+            .expect(requestTo("https://api.github.com/app/installations/777/access_tokens"))
+            .andExpect(jsonPath("$.repositories[0]").value("agents"))
+            .andExpect(jsonPath("$.repositories[1]").value("sibling"))
+            .andRespond(
+                withSuccess(
+                    """{"token":"ghs_multi","expires_at":"2026-06-02T15:00:00Z","permissions":{}}""",
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        val minted =
+            client.mint(
+                "git@github.com:JorisJonkers-dev/agents.git",
+                setOf("git@github.com:JorisJonkers-dev/sibling.git"),
+            )
+
+        assertThat(minted).isNotNull
+        assertThat(minted!!.token).isEqualTo("ghs_multi")
+        server.verify()
+    }
+
+    @Test
+    fun `mint with siblings excludes a sibling on a different installation`() {
+        val builder = RestClient.builder()
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val client = GitHubAppInstallationTokenClient(builder.build(), props())
+
+        server
+            .expect(requestTo("https://api.github.com/repos/JorisJonkers-dev/agents/installation"))
+            .andRespond(withSuccess("""{"id":777}""", MediaType.APPLICATION_JSON))
+        server
+            .expect(requestTo("https://api.github.com/repos/other-org/other-repo/installation"))
+            .andRespond(withSuccess("""{"id":999}""", MediaType.APPLICATION_JSON))
+        server
+            .expect(requestTo("https://api.github.com/app/installations/777/access_tokens"))
+            .andExpect(jsonPath("$.repositories[0]").value("agents"))
+            .andExpect(jsonPath("$.repositories.length()").value(1))
+            .andRespond(
+                withSuccess(
+                    """{"token":"ghs_scoped","expires_at":"2026-06-02T15:00:00Z","permissions":{}}""",
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        val minted =
+            client.mint(
+                "git@github.com:JorisJonkers-dev/agents.git",
+                setOf("git@github.com:other-org/other-repo.git"),
+            )
+
+        assertThat(minted).isNotNull
+        assertThat(minted!!.token).isEqualTo("ghs_scoped")
+        server.verify()
+    }
+
+    @Test
     fun `pkcs8Der accepts a PKCS#1 key (the format GitHub issues) and produces a signable key`() {
         val der = GitHubAppInstallationTokenClient.pkcs8Der(PKCS1_FIXTURE)
         val key =

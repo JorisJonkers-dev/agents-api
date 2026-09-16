@@ -5,6 +5,7 @@ import com.jorisjonkers.personalstack.agents.application.workspacerunner.Workspa
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
+import com.jorisjonkers.personalstack.agents.domain.port.GitCredentialSocketManager
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component
 class WorkspaceRuntimeProvisioner(
     private val lifecycleService: WorkspaceRunnerLifecycleService,
     private val directories: WorkspaceDirectoryService,
+    private val gitCredentialSockets: GitCredentialSocketManager,
 ) {
     private val log = LoggerFactory.getLogger(WorkspaceRuntimeProvisioner::class.java)
 
@@ -26,8 +28,10 @@ class WorkspaceRuntimeProvisioner(
         kind: WorkspaceKind,
     ) {
         if (kind == WorkspaceKind.SCRATCH) {
-            runCatching { directories.ensureCreated(workspaceId) }
-                .onFailure { log.warn("workspace {} directory creation failed", workspaceId, it) }
+            runCatching {
+                directories.ensureCreated(workspaceId)
+                gitCredentialSockets.ensureStarted(workspaceId)
+            }.onFailure { log.warn("workspace {} directory/socket creation failed", workspaceId, it) }
             return
         }
         bootRunner(workspaceId)
