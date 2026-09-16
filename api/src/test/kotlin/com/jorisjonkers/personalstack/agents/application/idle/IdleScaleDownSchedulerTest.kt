@@ -100,11 +100,22 @@ class IdleScaleDownSchedulerTest {
 
         verify { orchestrator.scaleDown(ws) }
         verify(exactly = 0) { orchestrator.destroy(any()) }
-        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.IDLE)
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.READY)
         assertThat(saved.captured.podName).isNull()
         assertThat(saved.captured.gatewayEndpoint).isNull()
         assertThat(telemetry.operations.map { it.outcome }).contains(OutcomeLabel.SUCCESS)
         assertBoundedTelemetryLabels(ws.id.value.toString())
+    }
+
+    @Test
+    fun `sweep does not resweep a workspace it already scaled to zero`() {
+        val alreadyIdled = workspace(updatedAt = now.minusSeconds(7_200)).copy(podName = null, gatewayEndpoint = null)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(alreadyIdled)
+
+        scheduler.sweep()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        verify(exactly = 0) { workspaces.save(any()) }
     }
 
     @Test

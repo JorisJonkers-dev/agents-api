@@ -9,7 +9,9 @@ import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.InContainerAgentGatewayClient
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace as WorkspaceEntity
@@ -18,7 +20,7 @@ class WorkspaceRuntimeProvisionerTest {
     private val lifecycleService = mockk<WorkspaceRunnerLifecycleService>(relaxed = true)
     private val directories = mockk<WorkspaceDirectoryService>(relaxed = true)
     private val gitCredentialSockets = mockk<GitCredentialSocketManager>(relaxed = true)
-    private val workspaces = mockk<WorkspaceRepository>()
+    private val workspaces = mockk<WorkspaceRepository>(relaxed = true)
     private val inContainerGateway = mockk<InContainerAgentGatewayClient>(relaxed = true)
     private val provisioner =
         WorkspaceRuntimeProvisioner(lifecycleService, directories, gitCredentialSockets, workspaces, inContainerGateway)
@@ -43,6 +45,33 @@ class WorkspaceRuntimeProvisionerTest {
     }
 
     @Test
+    fun `a Scratch Workspace is marked Ready once its directory and socket are set up`() {
+        val id = WorkspaceId.random()
+        every { workspaces.findById(id) } returns scratchWorkspace(id)
+        val saved = slot<WorkspaceEntity>()
+        every { workspaces.save(capture(saved)) } answers { saved.captured }
+
+        provisioner.provision(id, WorkspaceKind.SCRATCH)
+
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.READY)
+        assertThat(saved.captured.failureReason).isNull()
+    }
+
+    @Test
+    fun `a Scratch Workspace is marked Failed with a reason when its socket fails`() {
+        val id = WorkspaceId.random()
+        every { workspaces.findById(id) } returns scratchWorkspace(id)
+        every { gitCredentialSockets.ensureStarted(id) } throws IllegalStateException("boom")
+        val saved = slot<WorkspaceEntity>()
+        every { workspaces.save(capture(saved)) } answers { saved.captured }
+
+        provisioner.provision(id, WorkspaceKind.SCRATCH)
+
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.FAILED)
+        assertThat(saved.captured.failureReason).isNotBlank()
+    }
+
+    @Test
     fun `a Repo-backed Workspace also gets a directory, a socket and a clone of its primary repository`() {
         val id = WorkspaceId.random()
         val workspace = repoBackedWorkspace(id, repoUrl = "https://github.com/o/r.git", branch = "main")
@@ -54,6 +83,32 @@ class WorkspaceRuntimeProvisionerTest {
         verify { gitCredentialSockets.ensureStarted(id) }
         verify { inContainerGateway.clone(workspace, "https://github.com/o/r.git", "main") }
         verify { lifecycleService.boot(id, any()) }
+    }
+
+    @Test
+    fun `a Repo-backed Workspace is marked Ready once its in-container setup succeeds`() {
+        val id = WorkspaceId.random()
+        every { workspaces.findById(id) } returns repoBackedWorkspace(id, repoUrl = "https://github.com/o/r.git")
+        val saved = slot<WorkspaceEntity>()
+        every { workspaces.save(capture(saved)) } answers { saved.captured }
+
+        provisioner.provision(id, WorkspaceKind.REPO_BACKED)
+
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.READY)
+    }
+
+    @Test
+    fun `a Repo-backed Workspace is marked Failed with a reason when the clone fails`() {
+        val id = WorkspaceId.random()
+        every { workspaces.findById(id) } returns repoBackedWorkspace(id, repoUrl = "https://github.com/o/r.git")
+        every { inContainerGateway.clone(any(), any(), any()) } throws IllegalStateException("boom")
+        val saved = slot<WorkspaceEntity>()
+        every { workspaces.save(capture(saved)) } answers { saved.captured }
+
+        provisioner.provision(id, WorkspaceKind.REPO_BACKED)
+
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.FAILED)
+        assertThat(saved.captured.failureReason).isNotBlank()
     }
 
     @Test
@@ -127,4 +182,19 @@ class WorkspaceRuntimeProvisionerTest {
         updatedAt = Instant.now(),
         kind = WorkspaceKind.REPO_BACKED,
     )
+
+    private fun scratchWorkspace(id: WorkspaceId) =
+        WorkspaceEntity(
+            id = id,
+            name = "scratch-workspace",
+            repoUrl = null,
+            branch = null,
+            podName = null,
+            pvcName = null,
+            gatewayEndpoint = null,
+            status = WorkspaceStatus.PENDING,
+            createdAt = Instant.now(),
+            updatedAt = Instant.now(),
+            kind = WorkspaceKind.SCRATCH,
+        )
 }

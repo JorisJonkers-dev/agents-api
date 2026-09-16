@@ -1773,6 +1773,9 @@
           "status" : {
             "type" : "string"
           },
+          "failureReason" : {
+            "type" : [ "string", "null" ]
+          },
           "kind" : {
             "type" : "string"
           },
@@ -2920,6 +2923,9 @@
           },
           "status" : {
             "type" : "string"
+          },
+          "failureReason" : {
+            "type" : [ "string", "null" ]
           },
           "kind" : {
             "type" : "string"

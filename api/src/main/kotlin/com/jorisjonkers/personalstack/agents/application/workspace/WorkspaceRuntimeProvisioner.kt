@@ -2,6 +2,7 @@ package com.jorisjonkers.personalstack.agents.application.workspace
 
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService.BootOutcome
+import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
@@ -37,26 +38,55 @@ class WorkspaceRuntimeProvisioner(
         kind: WorkspaceKind,
     ) {
         if (kind == WorkspaceKind.SCRATCH) {
-            runCatching {
-                directories.ensureCreated(workspaceId)
-                gitCredentialSockets.ensureStarted(workspaceId)
-            }.onFailure { log.warn("workspace {} directory/socket creation failed", workspaceId, it) }
+            provisionScratch(workspaceId)
             return
         }
         if (kind == WorkspaceKind.REPO_BACKED) {
             provisionInContainer(workspaceId)
         }
+        // For REPO_BACKED this may re-decide Ready/Failed once the Pod boots —
+        // deliberate: the Pod path is authoritative until #67 retires it.
         bootRunner(workspaceId)
+    }
+
+    // SCRATCH never boots a Pod, so this in-container step is the only
+    // Preparing -> Ready/Failed signal it ever gets (#63). Directory/socket
+    // creation runs unconditionally — unlike the repo-backed path it needs
+    // no Workspace fields, so a lookup miss must not skip it.
+    private fun provisionScratch(workspaceId: WorkspaceId) {
+        val result =
+            runCatching {
+                directories.ensureCreated(workspaceId)
+                gitCredentialSockets.ensureStarted(workspaceId)
+            }.onFailure { log.warn("workspace {} directory/socket creation failed", workspaceId, it) }
+        markOutcome(workspaceId, result, SCRATCH_SETUP_FAILED_REASON)
     }
 
     private fun provisionInContainer(workspaceId: WorkspaceId) {
         val workspace = workspaces.findById(workspaceId) ?: return
-        runCatching {
-            directories.ensureCreated(workspaceId)
-            gitCredentialSockets.ensureStarted(workspaceId)
-            workspace.repoUrl?.let { repoUrl -> inContainerGateway.clone(workspace, repoUrl, workspace.branch) }
-        }.onFailure { log.warn("workspace {} in-container directory/socket/clone failed", workspaceId, it) }
+        val result =
+            runCatching {
+                directories.ensureCreated(workspaceId)
+                gitCredentialSockets.ensureStarted(workspaceId)
+                workspace.repoUrl?.let { repoUrl -> inContainerGateway.clone(workspace, repoUrl, workspace.branch) }
+            }.onFailure { log.warn("workspace {} in-container directory/socket/clone failed", workspaceId, it) }
+        workspaces.save(resultingWorkspace(workspace, result, IN_CONTAINER_SETUP_FAILED_REASON))
     }
+
+    private fun markOutcome(
+        workspaceId: WorkspaceId,
+        result: Result<*>,
+        failureReason: String,
+    ) {
+        val workspace = workspaces.findById(workspaceId) ?: return
+        workspaces.save(resultingWorkspace(workspace, result, failureReason))
+    }
+
+    private fun resultingWorkspace(
+        workspace: Workspace,
+        result: Result<*>,
+        failureReason: String,
+    ) = if (result.isSuccess) workspace.markReady() else workspace.markFailed(failureReason)
 
     private fun bootRunner(workspaceId: WorkspaceId) {
         val outcome = runCatching { lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE) }.getOrNull()
@@ -70,3 +100,7 @@ class WorkspaceRuntimeProvisioner(
         }
     }
 }
+
+private const val SCRATCH_SETUP_FAILED_REASON = "workspace directory or credential socket setup failed"
+private const val IN_CONTAINER_SETUP_FAILED_REASON =
+    "workspace directory, credential socket, or repository clone failed"

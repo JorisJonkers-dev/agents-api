@@ -59,6 +59,8 @@ data class Workspace(
     val runnerBootAttempt: Int = 0,
     val runnerBootStartedAt: Instant? = null,
     val runnerBootUpdatedAt: Instant? = null,
+    // Operator-facing, e.g. "runner did not become ready" — never a stack trace.
+    val failureReason: String? = null,
 ) {
     init {
         require((pendingRunnerSetupId == null) == (pendingRunnerSetupVersion == null)) {
@@ -69,6 +71,8 @@ data class Workspace(
 
     val isRepoBacked: Boolean get() = repoUrl != null
 
+    // Status is left as-is: the Pod exists but readiness is still unknown,
+    // and #63 retired STARTING as a status this now moves to.
     fun withPodInfo(
         podName: String,
         pvcName: String,
@@ -78,13 +82,13 @@ data class Workspace(
             podName = podName,
             pvcName = pvcName,
             gatewayEndpoint = gatewayEndpoint,
-            status = WorkspaceStatus.STARTING,
             updatedAt = Instant.now(),
         )
 
-    fun markReady(): Workspace = copy(status = WorkspaceStatus.READY, updatedAt = Instant.now())
+    fun markReady(): Workspace = copy(status = WorkspaceStatus.READY, failureReason = null, updatedAt = Instant.now())
 
-    fun markFailed(): Workspace = copy(status = WorkspaceStatus.FAILED, updatedAt = Instant.now())
+    fun markFailed(reason: String): Workspace =
+        copy(status = WorkspaceStatus.FAILED, failureReason = reason, updatedAt = Instant.now())
 
     fun markDestroyed(): Workspace = copy(status = WorkspaceStatus.DESTROYED, updatedAt = Instant.now())
 

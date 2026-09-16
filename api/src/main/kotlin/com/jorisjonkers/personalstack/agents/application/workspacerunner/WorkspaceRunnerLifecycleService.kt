@@ -219,6 +219,7 @@ class WorkspaceRunnerLifecycleService(
         ex: Throwable,
     ): BootOutcome.Conflict {
         runCatching { workspaces.failBootLease(workspace.id, leaseId) }
+        runCatching { workspaces.save(workspace.markFailed(PROVISION_FAILED_REASON)) }
         publish(unavailableSnapshot(workspace, target, RunnerUnavailableReason.PROVISION_FAILED, clock.instant()))
         log.warn("runner provision failed for workspace {}: {}", workspace.id.value, ex.message)
         return BootOutcome.Conflict(RunnerUnavailableReason.PROVISION_FAILED)
@@ -233,9 +234,10 @@ class WorkspaceRunnerLifecycleService(
     ): BootOutcome =
         if (ready) {
             workspaces.completeBootLease(saved.id, leaseId)
-            publish(readySnapshot(saved, target, clock.instant()))
+            val readyWorkspace = workspaces.save(saved.markReady())
+            publish(readySnapshot(readyWorkspace, target, clock.instant()))
             BootOutcome.Ready(
-                workspace = saved,
+                workspace = readyWorkspace,
                 provisioning =
                     BootProvisioningOutcome.Provisioned(
                         handle.podName,
@@ -245,8 +247,14 @@ class WorkspaceRunnerLifecycleService(
             )
         } else {
             workspaces.failBootLease(saved.id, leaseId)
+            val failedWorkspace = workspaces.save(saved.markFailed(NOT_READY_AFTER_PROVISION_REASON))
             publish(
-                unavailableSnapshot(saved, target, RunnerUnavailableReason.NOT_READY_AFTER_PROVISION, clock.instant()),
+                unavailableSnapshot(
+                    failedWorkspace,
+                    target,
+                    RunnerUnavailableReason.NOT_READY_AFTER_PROVISION,
+                    clock.instant(),
+                ),
             )
             BootOutcome.Conflict(RunnerUnavailableReason.NOT_READY_AFTER_PROVISION)
         }
@@ -309,6 +317,9 @@ class WorkspaceRunnerLifecycleService(
         return updatedAt.isBefore(olderThan)
     }
 }
+
+private const val PROVISION_FAILED_REASON = "runner provisioning failed"
+private const val NOT_READY_AFTER_PROVISION_REASON = "runner did not become ready after provisioning"
 
 private fun currentReadinessState(
     workspace: Workspace,

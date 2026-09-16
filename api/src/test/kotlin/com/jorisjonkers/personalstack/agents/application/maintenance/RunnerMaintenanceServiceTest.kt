@@ -57,7 +57,7 @@ class RunnerMaintenanceServiceTest {
         val result = service.gracefulScaleDownAll()
 
         verify { orchestrator.scaleDown(ws) }
-        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.IDLE)
+        assertThat(saved.captured.status).isEqualTo(WorkspaceStatus.READY)
         assertThat(saved.captured.podName).isNull()
         assertThat(saved.captured.gatewayEndpoint).isNull()
         assertThat(result.cycled).isEqualTo(1)
@@ -65,17 +65,38 @@ class RunnerMaintenanceServiceTest {
     }
 
     @Test
-    fun `gracefulScaleDownAll also cycles STARTING and FAILED workspaces`() {
-        val starting = workspace(WorkspaceStatus.STARTING)
+    fun `gracefulScaleDownAll also cycles FAILED workspaces`() {
         val failed = workspace(WorkspaceStatus.FAILED)
-        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(starting, failed)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(failed)
         every { workspaces.save(any()) } answers { firstArg() }
 
         val result = service.gracefulScaleDownAll()
 
-        verify { orchestrator.scaleDown(starting) }
         verify { orchestrator.scaleDown(failed) }
-        assertThat(result.cycled).isEqualTo(2)
+        assertThat(result.cycled).isEqualTo(1)
+    }
+
+    @Test
+    fun `gracefulScaleDownAll no longer cycles STARTING workspaces — nothing sets that status anymore`() {
+        val starting = workspace(WorkspaceStatus.STARTING)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(starting)
+
+        val result = service.gracefulScaleDownAll()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        assertThat(result.cycled).isEqualTo(0)
+    }
+
+    @Test
+    fun `gracefulScaleDownAll skips a READY workspace already scaled to zero`() {
+        val alreadyIdled = workspace(WorkspaceStatus.READY).copy(podName = null, gatewayEndpoint = null)
+        every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(alreadyIdled)
+
+        val result = service.gracefulScaleDownAll()
+
+        verify(exactly = 0) { orchestrator.scaleDown(any()) }
+        verify(exactly = 0) { workspaces.save(any()) }
+        assertThat(result.cycled).isEqualTo(0)
     }
 
     @Test
@@ -133,7 +154,7 @@ class RunnerMaintenanceServiceTest {
     @Test
     fun `gracefulScaleDownAll skips workspace with an active boot lease`() {
         val ws =
-            workspace(WorkspaceStatus.STARTING)
+            workspace(WorkspaceStatus.READY)
                 .copy(runnerBootLeaseId = UUID.randomUUID())
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
 
