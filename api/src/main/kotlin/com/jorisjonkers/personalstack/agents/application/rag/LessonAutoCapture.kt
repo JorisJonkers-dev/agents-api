@@ -1,12 +1,12 @@
 package com.jorisjonkers.personalstack.agents.application.rag
 
 import com.jorisjonkers.personalstack.agents.config.RagProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.KnowledgeWritePort
 import com.jorisjonkers.personalstack.agents.domain.port.TurnRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Async
@@ -30,7 +30,7 @@ import java.util.Locale
 @Component
 open class LessonAutoCapture(
     private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val turns: TurnRepository,
     private val extractor: LessonExtractor,
     private val knowledgeWrite: KnowledgeWritePort,
@@ -44,7 +44,7 @@ open class LessonAutoCapture(
         )
 
     @Async
-    open fun capture(sessionId: WorkspaceAgentSessionId) {
+    open fun capture(sessionId: AgentSessionId) {
         if (!rag.captureEnabled) return
         val resolved = resolveSession(sessionId) ?: return
         val history = turns.findBySessionId(sessionId, limit = TURN_FETCH_LIMIT)
@@ -54,7 +54,7 @@ open class LessonAutoCapture(
     }
 
     private data class Resolved(
-        val session: WorkspaceAgentSession,
+        val session: AgentSession,
         val workspace: Workspace,
     )
 
@@ -64,14 +64,14 @@ open class LessonAutoCapture(
         val inferredScope: String,
     )
 
-    private fun resolveSession(sessionId: WorkspaceAgentSessionId): Resolved? {
+    private fun resolveSession(sessionId: AgentSessionId): Resolved? {
         val session = sessions.findById(sessionId) ?: return null
         val workspace = workspaces.findById(session.workspaceId) ?: return null
         return Resolved(session, workspace)
     }
 
     private fun ingestUpToBucket(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
         candidates: List<LessonExtractor.Candidate>,
     ) {

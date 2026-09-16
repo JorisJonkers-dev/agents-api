@@ -8,7 +8,7 @@ enum class SetupRestartEventStatus { REQUESTED, STARTED, COMPLETED, FAILED, CANC
 data class SetupRestartEvent(
     val id: UUID,
     val workspaceId: WorkspaceId,
-    val sessionId: WorkspaceAgentSessionId?,
+    val sessionId: AgentSessionId?,
     val fromSetupId: AgentSetupId?,
     val fromSetupVersion: AgentSetupVersion?,
     val toSetupId: AgentSetupId,

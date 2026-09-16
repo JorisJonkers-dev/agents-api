@@ -1,25 +1,25 @@
 package com.jorisjonkers.personalstack.agents.domain.port
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import java.time.Instant
 
-interface WorkspaceAgentSessionRepository {
+interface AgentSessionRepository {
     data class LifecycleUpdate(
-        val id: WorkspaceAgentSessionId,
+        val id: AgentSessionId,
         val expectedGeneration: Long,
-        val status: WorkspaceAgentSessionStatus,
+        val status: AgentSessionStatus,
         val retainedUntil: Instant?,
         val clearGatewayBinding: Boolean,
         val now: Instant = Instant.now(),
     )
 
     data class PendingSetupUpdate(
-        val id: WorkspaceAgentSessionId,
+        val id: AgentSessionId,
         val expectedCurrentSetupId: AgentSetupId,
         val expectedCurrentSetupVersion: AgentSetupVersion,
         val pendingSetupId: AgentSetupId,
@@ -27,21 +27,21 @@ interface WorkspaceAgentSessionRepository {
         val now: Instant = Instant.now(),
     )
 
-    fun save(session: WorkspaceAgentSession): WorkspaceAgentSession
+    fun save(session: AgentSession): AgentSession
 
-    fun findById(id: WorkspaceAgentSessionId): WorkspaceAgentSession?
+    fun findById(id: AgentSessionId): AgentSession?
 
-    fun findAllByWorkspaceId(workspaceId: WorkspaceId): List<WorkspaceAgentSession>
+    fun findAllByWorkspaceId(workspaceId: WorkspaceId): List<AgentSession>
 
     fun beginGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         nextEpoch: Long,
         now: Instant = Instant.now(),
     ): Boolean
 
     fun bindIfGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         gatewayAgentId: String,
         cliSessionId: String?,
@@ -49,7 +49,7 @@ interface WorkspaceAgentSessionRepository {
     ): Boolean
 
     fun clearGatewayBindingIfGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         now: Instant = Instant.now(),
     ): Boolean
@@ -59,30 +59,30 @@ interface WorkspaceAgentSessionRepository {
     fun findReadyForCleanup(
         now: Instant,
         limit: Int,
-    ): List<WorkspaceAgentSession>
+    ): List<AgentSession>
 
     fun markCleanupRequested(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         now: Instant = Instant.now(),
     ): Boolean
 
     fun setPendingSetupIfCurrent(update: PendingSetupUpdate): Boolean
 
     fun promotePendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedPendingSetupId: AgentSetupId,
         expectedPendingSetupVersion: AgentSetupVersion,
         now: Instant = Instant.now(),
     ): Boolean
 
     fun clearPendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedPendingSetupId: AgentSetupId,
         expectedPendingSetupVersion: AgentSetupVersion,
         now: Instant = Instant.now(),
     ): Boolean
 
-    fun findCleanupRequested(limit: Int): List<WorkspaceAgentSession>
+    fun findCleanupRequested(limit: Int): List<AgentSession>
 
-    fun delete(id: WorkspaceAgentSessionId): Boolean
+    fun delete(id: AgentSessionId): Boolean
 }

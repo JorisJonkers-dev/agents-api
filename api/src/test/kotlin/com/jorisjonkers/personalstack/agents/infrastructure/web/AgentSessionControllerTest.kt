@@ -9,17 +9,17 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSe
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
 import com.jorisjonkers.personalstack.agents.config.SpringCommandBus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.WorkspaceAgentSessionResponse
 import com.jorisjonkers.personalstack.common.command.CommandBus
@@ -41,7 +41,7 @@ class AgentSessionControllerTest {
     private val now = Instant.parse("2026-06-12T12:00:00Z")
     private val commandBus = mockk<CommandBus>(relaxed = true)
     private val turnHistory = mockk<GetTurnHistoryQueryService>(relaxed = true)
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val restartAgentSession = mockk<RestartAgentSessionService>()
@@ -53,7 +53,7 @@ class AgentSessionControllerTest {
             .build()
 
     private val workspaceId = WorkspaceId.random()
-    private val sessionId = WorkspaceAgentSessionId.random()
+    private val sessionId = AgentSessionId.random()
 
     @Test
     fun `POST staged-inputs forwards to gateway and returns file metadata`() {
@@ -315,12 +315,12 @@ class AgentSessionControllerTest {
     }
 
     private fun agentSession() =
-        WorkspaceAgentSession(
+        AgentSession(
             id = sessionId,
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = "abc12345",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = now,
             updatedAt = now,
             epoch = 1,

@@ -1,9 +1,9 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.persistence
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.TurnId
 import com.jorisjonkers.personalstack.agents.domain.model.TurnRole
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.port.TurnRepository
 import org.jooq.DSLContext
 import org.jooq.Record
@@ -31,7 +31,7 @@ class JooqTurnRepository(
     }
 
     override fun findBySessionId(
-        sessionId: WorkspaceAgentSessionId,
+        sessionId: AgentSessionId,
         limit: Int,
     ): List<Turn> =
         dsl
@@ -45,7 +45,7 @@ class JooqTurnRepository(
     private fun Record.toTurn(): Turn =
         Turn(
             id = TurnId(this[ID] as UUID),
-            sessionId = WorkspaceAgentSessionId(this[SESSION_ID] as UUID),
+            sessionId = AgentSessionId(this[SESSION_ID] as UUID),
             role = TurnRole.valueOf(this[ROLE] as String),
             body = this[BODY] as String,
             createdAt = (this[CREATED_AT] as OffsetDateTime).toInstant(),

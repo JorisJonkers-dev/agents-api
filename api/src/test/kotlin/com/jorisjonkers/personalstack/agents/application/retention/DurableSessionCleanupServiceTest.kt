@@ -7,17 +7,17 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -39,7 +39,7 @@ class DurableSessionCleanupServiceTest {
 
     private val now = Instant.parse("2026-06-12T09:00:00Z")
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val runnerLifecycle = mockk<WorkspaceRunnerLifecycleService>()
     private val runtime = runtimeProperties()
@@ -62,8 +62,8 @@ class DurableSessionCleanupServiceTest {
 
     @Test
     fun `sweep marks expired stopped and failed sessions cleanup pending`() {
-        val stopped = session(status = WorkspaceAgentSessionStatus.STOPPED)
-        val failed = session(status = WorkspaceAgentSessionStatus.FAILED)
+        val stopped = session(status = AgentSessionStatus.STOPPED)
+        val failed = session(status = AgentSessionStatus.FAILED)
         every { sessions.findReadyForCleanup(now, runtime.durableSessionCleanupBatchSize) } returns
             listOf(stopped, failed)
         every { sessions.markCleanupRequested(stopped.id, now) } returns true
@@ -287,10 +287,10 @@ class DurableSessionCleanupServiceTest {
 
     private fun session(
         workspaceId: WorkspaceId = WorkspaceId.random(),
-        status: WorkspaceAgentSessionStatus = WorkspaceAgentSessionStatus.STOPPED,
+        status: AgentSessionStatus = AgentSessionStatus.STOPPED,
         cleanupRequestedAt: Instant? = null,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = null,

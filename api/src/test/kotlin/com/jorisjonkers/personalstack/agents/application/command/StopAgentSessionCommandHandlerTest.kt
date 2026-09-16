@@ -7,15 +7,15 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -37,7 +37,7 @@ class StopAgentSessionCommandHandlerTest {
 
     private val now = Instant.parse("2026-06-12T09:00:00Z")
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val autoCapture = mockk<LessonAutoCapture>(relaxed = true)
     private val runtime = runtimeProperties()
@@ -66,10 +66,10 @@ class StopAgentSessionCommandHandlerTest {
         every { workspaces.findById(ws.id) } returns ws
         every {
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    status = AgentSessionStatus.STOPPED,
                     retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
                     clearGatewayBinding = true,
                     now = now,
@@ -82,10 +82,10 @@ class StopAgentSessionCommandHandlerTest {
         verify { gateway.stopAgent(ws, "abc12345") }
         verify {
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    status = AgentSessionStatus.STOPPED,
                     retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
                     clearGatewayBinding = true,
                     now = now,
@@ -95,7 +95,7 @@ class StopAgentSessionCommandHandlerTest {
         verify { autoCapture.capture(session.id) }
         verify {
             sessionStatus.publishStatus(
-                match { it.id == session.id && it.status == WorkspaceAgentSessionStatus.STOPPED },
+                match { it.id == session.id && it.status == AgentSessionStatus.STOPPED },
                 idle = false,
             )
         }
@@ -108,7 +108,7 @@ class StopAgentSessionCommandHandlerTest {
     @Test
     fun `handle purges an already-stopped session and publishes its removal`() {
         val ws = workspace()
-        val session = session(ws.id, gatewayAgentId = null).copy(status = WorkspaceAgentSessionStatus.STOPPED)
+        val session = session(ws.id, gatewayAgentId = null).copy(status = AgentSessionStatus.STOPPED)
         every { sessions.findById(session.id) } returns session
         every { sessions.delete(session.id) } returns true
 
@@ -122,7 +122,7 @@ class StopAgentSessionCommandHandlerTest {
 
     @Test
     fun `handle is a no-op for unknown session`() {
-        val id = WorkspaceAgentSessionId.random()
+        val id = AgentSessionId.random()
         every { sessions.findById(id) } returns null
         handler.handle(StopAgentSessionCommand(id))
         verify(exactly = 0) { gateway.stopAgent(any(), any()) }
@@ -140,10 +140,10 @@ class StopAgentSessionCommandHandlerTest {
         every { gateway.stopAgent(ws, "abc12345") } throws RuntimeException("stop failed for ${session.id}")
         every {
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    status = AgentSessionStatus.STOPPED,
                     retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds),
                     clearGatewayBinding = true,
                     now = now,
@@ -189,12 +189,12 @@ class StopAgentSessionCommandHandlerTest {
     private fun session(
         workspaceId: WorkspaceId,
         gatewayAgentId: String?,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = gatewayAgentId,
-        status = WorkspaceAgentSessionStatus.RUNNING,
+        status = AgentSessionStatus.RUNNING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         epoch = 3,

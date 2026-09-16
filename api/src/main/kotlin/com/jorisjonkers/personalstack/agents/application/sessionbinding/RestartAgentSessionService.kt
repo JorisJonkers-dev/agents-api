@@ -10,13 +10,13 @@ import com.jorisjonkers.personalstack.agents.application.observability.Operation
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.springframework.stereotype.Service
 import java.io.IOException
@@ -27,7 +27,7 @@ import java.time.Instant
 @Service
 class RestartAgentSessionService(
     private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val binding: RunnerSessionBindingService,
     private val setupValidation: AgentSetupValidationService,
     private val clock: Clock = Clock.systemUTC(),
@@ -84,7 +84,7 @@ class RestartAgentSessionService(
         workspaces.findById(workspaceId)
             ?: throw NoSuchElementException("workspace not found: ${workspaceId.value}")
 
-    private fun requireRestartableSession(request: RestartAgentSessionInput): WorkspaceAgentSession {
+    private fun requireRestartableSession(request: RestartAgentSessionInput): AgentSession {
         val session =
             sessions.findById(request.sessionId)
                 ?: throw NoSuchElementException("session not found: ${request.sessionId.value}")
@@ -148,16 +148,17 @@ class RestartAgentSessionService(
             else -> FailureReasonLabel.UNKNOWN
         }
 
-    private fun WorkspaceAgentSession.isRestartable(now: Instant): Boolean =
+    private fun AgentSession.isRestartable(now: Instant): Boolean =
         when (status) {
-            WorkspaceAgentSessionStatus.RUNNING,
-            WorkspaceAgentSessionStatus.FAILED,
+            AgentSessionStatus.RUNNING,
+            AgentSessionStatus.SUSPENDED,
+            AgentSessionStatus.FAILED,
             -> true
 
-            WorkspaceAgentSessionStatus.STOPPED ->
+            AgentSessionStatus.STOPPED ->
                 retainedUntil?.isAfter(now) == true && cleanupRequestedAt == null
 
-            WorkspaceAgentSessionStatus.STARTING -> false
+            AgentSessionStatus.STARTING -> false
         }
 
     companion object {
@@ -167,7 +168,7 @@ class RestartAgentSessionService(
 
 data class RestartAgentSessionInput(
     val workspaceId: WorkspaceId,
-    val sessionId: WorkspaceAgentSessionId,
+    val sessionId: AgentSessionId,
     val expectedGeneration: Long? = null,
     val reason: String? = "restart",
     val targetSetupId: AgentSetupId? = null,

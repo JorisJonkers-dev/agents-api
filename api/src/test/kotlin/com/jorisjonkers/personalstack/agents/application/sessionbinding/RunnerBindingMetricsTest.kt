@@ -101,14 +101,14 @@ class RunnerBindingMetricsTest {
         )
 
     private fun stubSession() =
-        com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession(
+        com.jorisjonkers.personalstack.agents.domain.model.AgentSession(
             id =
-                com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+                com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
                     .random(),
             workspaceId = workspaceId,
             kind = com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = null,
-            status = com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus.RUNNING,
+            status = com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus.RUNNING,
             createdAt = java.time.Instant.now(),
             updatedAt = java.time.Instant.now(),
         )

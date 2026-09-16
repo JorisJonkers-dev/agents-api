@@ -1,11 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -108,12 +108,12 @@ class RunnerAgentSpawnerTest {
         workspaceId: WorkspaceId,
         epoch: Long = 1,
         cliSessionId: String? = null,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = null,
-        status = WorkspaceAgentSessionStatus.STARTING,
+        status = AgentSessionStatus.STARTING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         epoch = epoch,

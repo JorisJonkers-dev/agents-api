@@ -6,9 +6,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -30,7 +30,7 @@ class HttpAgentGatewayClientTest {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val client = HttpAgentGatewayClient(builder.build())
-        val sessionId = WorkspaceAgentSessionId.parse("11111111-1111-4111-8111-111111111111")
+        val sessionId = AgentSessionId.parse("11111111-1111-4111-8111-111111111111")
         val ws = workspace()
 
         server
@@ -98,7 +98,7 @@ class HttpAgentGatewayClientTest {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val client = HttpAgentGatewayClient(builder.build())
-        val sessionId = WorkspaceAgentSessionId.parse("22222222-2222-4222-8222-222222222222")
+        val sessionId = AgentSessionId.parse("22222222-2222-4222-8222-222222222222")
         val ws = workspace()
         val prompt = "continue with /workspace/private/brief.md"
         val outputFile = "/workspace/private/headless-result.txt"
@@ -149,7 +149,7 @@ class HttpAgentGatewayClientTest {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val client = HttpAgentGatewayClient(builder.build())
-        val sessionId = WorkspaceAgentSessionId.parse("44444444-4444-4444-8444-444444444444")
+        val sessionId = AgentSessionId.parse("44444444-4444-4444-8444-444444444444")
 
         server
             .expect(requestTo("http://runner:8090/agents/transcripts/${sessionId.value}"))

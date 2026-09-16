@@ -4,6 +4,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.AgentsApi
 import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationIssue
@@ -14,9 +17,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
@@ -133,14 +133,14 @@ class SetupTransitionAuditServiceTest {
         )
     }
 
-    private fun session(workspace: Workspace): WorkspaceAgentSession {
+    private fun session(workspace: Workspace): AgentSession {
         val now = Instant.parse("2026-06-12T00:00:00Z")
-        return WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId.random(),
+        return AgentSession(
+            id = AgentSessionId.random(),
             workspaceId = workspace.id,
             kind = WorkspaceAgentKind.CODEX,
             gatewayAgentId = "agent-1",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = now,
             updatedAt = now,
             currentSetupId = AgentSetupId("session-current"),

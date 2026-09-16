@@ -1,11 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 
@@ -19,7 +19,7 @@ interface RunnerSessionBindingService {
 
 data class StartRunnerSessionBindingInput(
     val workspaceId: WorkspaceId,
-    val sessionId: WorkspaceAgentSessionId,
+    val sessionId: AgentSessionId,
     val kind: WorkspaceAgentKind,
     val setupId: AgentSetupId? = null,
     val setupVersion: AgentSetupVersion? = null,
@@ -28,7 +28,7 @@ data class StartRunnerSessionBindingInput(
 
 data class RestartRunnerSessionBindingInput(
     val workspaceId: WorkspaceId,
-    val sessionId: WorkspaceAgentSessionId,
+    val sessionId: AgentSessionId,
     val expectedGeneration: Long,
     val reason: String? = null,
     val targetSetupId: AgentSetupId? = null,
@@ -36,20 +36,20 @@ data class RestartRunnerSessionBindingInput(
 )
 
 data class EnsureRunnerSessionBoundInput(
-    val sessionId: WorkspaceAgentSessionId,
+    val sessionId: AgentSessionId,
     val workspaceId: WorkspaceId? = null,
 )
 
 sealed interface RunnerSessionBindingResult {
     data class Bound(
         val workspace: Workspace,
-        val session: WorkspaceAgentSession,
+        val session: AgentSession,
         val gatewayAgent: AgentGatewayClient.GatewayAgent,
         val provisioning: RunnerProvisioningResult,
     ) : RunnerSessionBindingResult
 
     data class Conflict(
-        val current: WorkspaceAgentSession?,
+        val current: AgentSession?,
     ) : RunnerSessionBindingResult
 
     data class Unavailable(

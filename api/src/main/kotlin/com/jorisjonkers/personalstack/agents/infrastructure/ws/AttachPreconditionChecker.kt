@@ -12,12 +12,12 @@ import com.jorisjonkers.personalstack.agents.application.observability.RunModeLa
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.springframework.web.socket.CloseStatus
 import org.springframework.web.socket.WebSocketSession
@@ -30,7 +30,7 @@ import java.util.UUID
  * the TooManyFunctions and LargeClass thresholds.
  */
 internal class AttachPreconditionChecker(
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val binding: RunnerSessionBindingService,
     private val telemetry: AgentsApiTelemetry,
@@ -39,7 +39,7 @@ internal class AttachPreconditionChecker(
     sealed interface AttachOutcome {
         /** All preconditions passed; the attach can proceed. */
         data class Ready(
-            val sessionId: WorkspaceAgentSessionId,
+            val sessionId: AgentSessionId,
             val workspace: Workspace,
             val gatewayAgentId: String,
             val gatewayEndpoint: String,
@@ -58,7 +58,7 @@ internal class AttachPreconditionChecker(
     /** Result of the rebind-if-unbound step: either a usable session or a rejection. */
     private sealed interface RebindOutcome {
         data class Rebound(
-            val session: WorkspaceAgentSession,
+            val session: AgentSession,
             val workspace: Workspace?,
         ) : RebindOutcome
 
@@ -110,11 +110,11 @@ internal class AttachPreconditionChecker(
     // underneath it) is rebound through the binding service before the
     // attach proceeds, so the bridge always targets a live agent.
     private fun rebindIfUnbound(
-        sessionId: WorkspaceAgentSessionId,
-        agentSession: WorkspaceAgentSession,
+        sessionId: AgentSessionId,
+        agentSession: AgentSession,
         kind: AgentKindLabel,
     ): RebindOutcome {
-        if (agentSession.status != WorkspaceAgentSessionStatus.RUNNING || agentSession.gatewayAgentId != null) {
+        if (agentSession.status != AgentSessionStatus.RUNNING || agentSession.gatewayAgentId != null) {
             return RebindOutcome.Rebound(agentSession, workspace = null)
         }
         return when (val result = binding.ensureBound(EnsureRunnerSessionBoundInput(sessionId = sessionId))) {
@@ -141,12 +141,12 @@ internal class AttachPreconditionChecker(
     }
 
     private fun checkWorkspaceAndGateway(
-        sessionId: WorkspaceAgentSessionId,
-        session: WorkspaceAgentSession,
+        sessionId: AgentSessionId,
+        session: AgentSession,
         reboundWorkspace: Workspace?,
         kind: AgentKindLabel,
     ): AttachOutcome {
-        if (session.status == WorkspaceAgentSessionStatus.STARTING) {
+        if (session.status == AgentSessionStatus.STARTING) {
             return AttachOutcome.Rejected(
                 "runner provisioning",
                 CloseStatus.SERVICE_RESTARTED,
@@ -166,8 +166,8 @@ internal class AttachPreconditionChecker(
     }
 
     private fun gatewayOutcome(
-        sessionId: WorkspaceAgentSessionId,
-        session: WorkspaceAgentSession,
+        sessionId: AgentSessionId,
+        session: AgentSession,
         workspace: Workspace,
         kind: AgentKindLabel,
     ): AttachOutcome {
@@ -200,7 +200,7 @@ internal class AttachPreconditionChecker(
     }
 
     private fun isSetupTransitionInProgress(
-        agentSession: WorkspaceAgentSession,
+        agentSession: AgentSession,
         workspace: Workspace,
     ): Boolean =
         agentSession.pendingSetupId != null ||
@@ -237,11 +237,11 @@ internal class AttachPreconditionChecker(
     }
 
     companion object {
-        fun sessionIdOf(session: WebSocketSession): WorkspaceAgentSessionId? {
+        fun sessionIdOf(session: WebSocketSession): AgentSessionId? {
             val match =
                 Regex("/api/v1/ws/sessions/([^/]+)/attach").find(session.uri?.path ?: return null)
                     ?: return null
-            return runCatching { WorkspaceAgentSessionId(UUID.fromString(match.groupValues[1])) }.getOrNull()
+            return runCatching { AgentSessionId(UUID.fromString(match.groupValues[1])) }.getOrNull()
         }
     }
 }

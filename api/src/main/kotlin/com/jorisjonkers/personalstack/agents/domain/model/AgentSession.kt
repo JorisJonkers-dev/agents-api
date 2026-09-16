@@ -2,10 +2,11 @@ package com.jorisjonkers.personalstack.agents.domain.model
 
 import java.time.Instant
 
-enum class WorkspaceAgentSessionStatus { STARTING, RUNNING, STOPPED, FAILED }
+// SUSPENDED: the system lost the process; resumable and never expires. Nothing sets it yet.
+enum class AgentSessionStatus { STARTING, RUNNING, SUSPENDED, STOPPED, FAILED }
 
 /**
- * One agent process inside a workspace's runner Pod. The
+ * One Agent Session: an agent working inside a workspace's runner Pod. The
  * `gatewayAgentId` is what the agent-gateway hands back when we POST
  * /agents — the agents-api always addresses gateway resources by
  * that short id, never by our own UUID, because the gateway is the
@@ -20,12 +21,12 @@ enum class WorkspaceAgentSessionStatus { STARTING, RUNNING, STOPPED, FAILED }
  * `runMode` is `INTERACTIVE` for browser-terminal sessions and will
  * be `HEADLESS` once N4 headless runs land.
  */
-data class WorkspaceAgentSession(
-    val id: WorkspaceAgentSessionId,
+data class AgentSession(
+    val id: AgentSessionId,
     val workspaceId: WorkspaceId,
     val kind: WorkspaceAgentKind,
     val gatewayAgentId: String?,
-    val status: WorkspaceAgentSessionStatus,
+    val status: AgentSessionStatus,
     val createdAt: Instant,
     val updatedAt: Instant,
     val cliSessionId: String? = null,
@@ -52,11 +53,11 @@ data class WorkspaceAgentSession(
         gatewayAgentId: String,
         cliSessionId: String? = null,
         now: Instant = Instant.now(),
-    ): WorkspaceAgentSession =
+    ): AgentSession =
         copy(
             gatewayAgentId = gatewayAgentId,
             cliSessionId = cliSessionId,
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             gatewayBoundAt = now,
             retainedUntil = null,
             cleanupRequestedAt = null,
@@ -66,10 +67,10 @@ data class WorkspaceAgentSession(
     fun beginGeneration(
         nextEpoch: Long = epoch + 1,
         now: Instant = Instant.now(),
-    ): WorkspaceAgentSession =
+    ): AgentSession =
         copy(
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.STARTING,
+            status = AgentSessionStatus.STARTING,
             epoch = nextEpoch,
             generation = generation + 1,
             gatewayBoundAt = null,
@@ -78,16 +79,16 @@ data class WorkspaceAgentSession(
             updatedAt = now,
         )
 
-    fun clearGatewayBinding(now: Instant = Instant.now()): WorkspaceAgentSession =
+    fun clearGatewayBinding(now: Instant = Instant.now()): AgentSession =
         copy(gatewayAgentId = null, gatewayBoundAt = null, updatedAt = now)
 
     fun markStopped(
         retainedUntil: Instant? = this.retainedUntil,
         now: Instant = Instant.now(),
-    ): WorkspaceAgentSession =
+    ): AgentSession =
         copy(
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.STOPPED,
+            status = AgentSessionStatus.STOPPED,
             gatewayBoundAt = null,
             retainedUntil = retainedUntil,
             updatedAt = now,
@@ -96,30 +97,30 @@ data class WorkspaceAgentSession(
     fun markFailed(
         retainedUntil: Instant? = this.retainedUntil,
         now: Instant = Instant.now(),
-    ): WorkspaceAgentSession =
+    ): AgentSession =
         copy(
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.FAILED,
+            status = AgentSessionStatus.FAILED,
             gatewayBoundAt = null,
             retainedUntil = retainedUntil,
             updatedAt = now,
         )
 
-    fun markCleanupRequested(now: Instant = Instant.now()): WorkspaceAgentSession =
+    fun markCleanupRequested(now: Instant = Instant.now()): AgentSession =
         copy(cleanupRequestedAt = now, updatedAt = now)
 
     fun requestSetup(
         setupId: AgentSetupId,
         setupVersion: AgentSetupVersion,
         now: Instant = Instant.now(),
-    ): WorkspaceAgentSession =
+    ): AgentSession =
         copy(
             pendingSetupId = setupId,
             pendingSetupVersion = setupVersion,
             updatedAt = now,
         )
 
-    fun promotePendingSetup(now: Instant = Instant.now()): WorkspaceAgentSession {
+    fun promotePendingSetup(now: Instant = Instant.now()): AgentSession {
         val nextId = requireNotNull(pendingSetupId) { "pending setup id is required" }
         val nextVersion = requireNotNull(pendingSetupVersion) { "pending setup version is required" }
         return copy(
@@ -131,7 +132,7 @@ data class WorkspaceAgentSession(
         )
     }
 
-    fun clearPendingSetup(now: Instant = Instant.now()): WorkspaceAgentSession =
+    fun clearPendingSetup(now: Instant = Instant.now()): AgentSession =
         copy(pendingSetupId = null, pendingSetupVersion = null, updatedAt = now)
 
     /**
@@ -142,11 +143,11 @@ data class WorkspaceAgentSession(
      * The pending setup is promoted (the provision is committed) and the
      * resume identity (stableSessionId, cliSessionId, epoch) is preserved.
      */
-    fun markAwaitingRebind(now: Instant = Instant.now()): WorkspaceAgentSession {
+    fun markAwaitingRebind(now: Instant = Instant.now()): AgentSession {
         val promoted = if (pendingSetupId != null) promotePendingSetup(now) else this
         return promoted.copy(
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             gatewayBoundAt = null,
             updatedAt = now,
         )

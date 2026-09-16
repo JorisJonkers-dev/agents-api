@@ -1,6 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.setup
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentSetupValidationException
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupBindingRef
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
@@ -14,7 +15,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.ProjectRepositoryRepository
@@ -349,7 +349,7 @@ data class AgentSetupValidationInput(
     val workspace: Workspace,
     val targetId: AgentSetupId,
     val targetVersion: AgentSetupVersion,
-    val session: WorkspaceAgentSession? = null,
+    val session: AgentSession? = null,
     val agentKind: WorkspaceAgentKind? = session?.kind,
     val projectId: ProjectId? = workspace.projectId,
     val repositoryIds: List<RepositoryId> = emptyList(),

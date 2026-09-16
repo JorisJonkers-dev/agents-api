@@ -1,13 +1,13 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.persistence
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.impl.DSL
@@ -17,11 +17,11 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 @Repository
-class JooqWorkspaceAgentSessionRepository(
+class JooqAgentSessionRepository(
     private val dsl: DSLContext,
-) : WorkspaceAgentSessionRepository {
+) : AgentSessionRepository {
     // Single fluent jOOQ upsert keeps insert/update column parity visible.
-    override fun save(session: WorkspaceAgentSession): WorkspaceAgentSession {
+    override fun save(session: AgentSession): AgentSession {
         val createdAt = session.createdAt.atOffset(ZoneOffset.UTC)
         val updatedAt = session.updatedAt.atOffset(ZoneOffset.UTC)
         dsl
@@ -60,14 +60,14 @@ class JooqWorkspaceAgentSessionRepository(
         return session
     }
 
-    override fun findById(id: WorkspaceAgentSessionId): WorkspaceAgentSession? =
+    override fun findById(id: AgentSessionId): AgentSession? =
         dsl
             .selectFrom(WAS)
             .where(ID.eq(id.value))
             .fetchOne()
             ?.toSession()
 
-    override fun findAllByWorkspaceId(workspaceId: WorkspaceId): List<WorkspaceAgentSession> =
+    override fun findAllByWorkspaceId(workspaceId: WorkspaceId): List<AgentSession> =
         dsl
             .selectFrom(WAS)
             .where(WORKSPACE_ID.eq(workspaceId.value))
@@ -76,7 +76,7 @@ class JooqWorkspaceAgentSessionRepository(
             .map { it.toSession() }
 
     override fun beginGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         nextEpoch: Long,
         now: java.time.Instant,
@@ -85,7 +85,7 @@ class JooqWorkspaceAgentSessionRepository(
         return dsl
             .update(WAS)
             .set(GATEWAY_AGENT_ID, null as String?)
-            .set(STATUS, WorkspaceAgentSessionStatus.STARTING.name)
+            .set(STATUS, AgentSessionStatus.STARTING.name)
             .set(EPOCH, nextEpoch)
             .set(GENERATION, expectedGeneration + 1)
             .set(GATEWAY_BOUND_AT, null as OffsetDateTime?)
@@ -98,7 +98,7 @@ class JooqWorkspaceAgentSessionRepository(
     }
 
     override fun bindIfGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         gatewayAgentId: String,
         cliSessionId: String?,
@@ -108,7 +108,7 @@ class JooqWorkspaceAgentSessionRepository(
         return dsl
             .update(WAS)
             .set(GATEWAY_AGENT_ID, gatewayAgentId)
-            .set(STATUS, WorkspaceAgentSessionStatus.RUNNING.name)
+            .set(STATUS, AgentSessionStatus.RUNNING.name)
             .set(CLI_SESSION_ID, cliSessionId)
             .set(GATEWAY_BOUND_AT, updatedAt)
             .set(RETAINED_UNTIL, null as OffsetDateTime?)
@@ -120,7 +120,7 @@ class JooqWorkspaceAgentSessionRepository(
     }
 
     override fun clearGatewayBindingIfGeneration(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedGeneration: Long,
         now: java.time.Instant,
     ): Boolean =
@@ -133,7 +133,7 @@ class JooqWorkspaceAgentSessionRepository(
             .and(GENERATION.eq(expectedGeneration))
             .execute() == 1
 
-    override fun markLifecycleIfGeneration(update: WorkspaceAgentSessionRepository.LifecycleUpdate): Boolean {
+    override fun markLifecycleIfGeneration(update: AgentSessionRepository.LifecycleUpdate): Boolean {
         val jooqUpdate =
             dsl
                 .update(WAS)
@@ -157,10 +157,10 @@ class JooqWorkspaceAgentSessionRepository(
     override fun findReadyForCleanup(
         now: java.time.Instant,
         limit: Int,
-    ): List<WorkspaceAgentSession> =
+    ): List<AgentSession> =
         dsl
             .selectFrom(WAS)
-            .where(STATUS.`in`(WorkspaceAgentSessionStatus.STOPPED.name, WorkspaceAgentSessionStatus.FAILED.name))
+            .where(STATUS.`in`(AgentSessionStatus.STOPPED.name, AgentSessionStatus.FAILED.name))
             .and(RETAINED_UNTIL.isNotNull)
             .and(RETAINED_UNTIL.le(now.atOffset(ZoneOffset.UTC)))
             .and(CLEANUP_REQUESTED_AT.isNull)
@@ -170,7 +170,7 @@ class JooqWorkspaceAgentSessionRepository(
             .map { it.toSession() }
 
     override fun markCleanupRequested(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         now: java.time.Instant,
     ): Boolean =
         dsl
@@ -181,7 +181,7 @@ class JooqWorkspaceAgentSessionRepository(
             .and(CLEANUP_REQUESTED_AT.isNull)
             .execute() == 1
 
-    override fun setPendingSetupIfCurrent(update: WorkspaceAgentSessionRepository.PendingSetupUpdate): Boolean =
+    override fun setPendingSetupIfCurrent(update: AgentSessionRepository.PendingSetupUpdate): Boolean =
         dsl
             .update(WAS)
             .set(PENDING_SETUP_ID, update.pendingSetupId.value)
@@ -194,7 +194,7 @@ class JooqWorkspaceAgentSessionRepository(
             .execute() == 1
 
     override fun promotePendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedPendingSetupId: AgentSetupId,
         expectedPendingSetupVersion: AgentSetupVersion,
         now: java.time.Instant,
@@ -212,7 +212,7 @@ class JooqWorkspaceAgentSessionRepository(
             .execute() == 1
 
     override fun clearPendingSetupIfCurrent(
-        id: WorkspaceAgentSessionId,
+        id: AgentSessionId,
         expectedPendingSetupId: AgentSetupId,
         expectedPendingSetupVersion: AgentSetupVersion,
         now: java.time.Instant,
@@ -227,7 +227,7 @@ class JooqWorkspaceAgentSessionRepository(
             .and(PENDING_SETUP_VERSION.eq(expectedPendingSetupVersion.value))
             .execute() == 1
 
-    override fun findCleanupRequested(limit: Int): List<WorkspaceAgentSession> =
+    override fun findCleanupRequested(limit: Int): List<AgentSession> =
         dsl
             .selectFrom(WAS)
             .where(CLEANUP_REQUESTED_AT.isNotNull)
@@ -236,16 +236,15 @@ class JooqWorkspaceAgentSessionRepository(
             .fetch()
             .map { it.toSession() }
 
-    override fun delete(id: WorkspaceAgentSessionId): Boolean =
-        dsl.deleteFrom(WAS).where(ID.eq(id.value)).execute() == 1
+    override fun delete(id: AgentSessionId): Boolean = dsl.deleteFrom(WAS).where(ID.eq(id.value)).execute() == 1
 
-    private fun Record.toSession(): WorkspaceAgentSession =
-        WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId(this[ID]),
+    private fun Record.toSession(): AgentSession =
+        AgentSession(
+            id = AgentSessionId(this[ID]),
             workspaceId = WorkspaceId(this[WORKSPACE_ID]),
             kind = WorkspaceAgentKind.valueOf(this[KIND]),
             gatewayAgentId = this[GATEWAY_AGENT_ID],
-            status = WorkspaceAgentSessionStatus.valueOf(this[STATUS]),
+            status = AgentSessionStatus.valueOf(this[STATUS]),
             createdAt = this[CREATED_AT].toInstant(),
             updatedAt = this[UPDATED_AT].toInstant(),
             cliSessionId = this[CLI_SESSION_ID],

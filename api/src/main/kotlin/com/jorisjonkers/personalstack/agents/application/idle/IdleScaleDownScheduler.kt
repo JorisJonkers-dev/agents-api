@@ -7,14 +7,14 @@ import com.jorisjonkers.personalstack.agents.application.observability.Operation
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -57,7 +57,7 @@ class IdleScaleDownRuntime(
 @Component
 class IdleScaleDownStores(
     val workspaces: WorkspaceRepository,
-    val agentSessions: WorkspaceAgentSessionRepository,
+    val agentSessions: AgentSessionRepository,
 )
 
 @Component
@@ -115,7 +115,7 @@ class IdleScaleDownScheduler(
 
     private fun sessionsEligibleForScaleDown(
         workspace: Workspace,
-        sessions: List<WorkspaceAgentSession>,
+        sessions: List<AgentSession>,
     ): Boolean =
         when {
             sessions.any { it.pendingSetupId != null || it.pendingSetupVersion != null } -> false
@@ -129,10 +129,10 @@ class IdleScaleDownScheduler(
 
     private fun idleLongEnough(
         workspace: Workspace,
-        sessions: List<WorkspaceAgentSession>,
+        sessions: List<AgentSession>,
     ): Boolean {
         val lastSeen = effectiveLastSeen(workspace)
-        val hasRunning = sessions.any { it.status == WorkspaceAgentSessionStatus.RUNNING }
+        val hasRunning = sessions.any { it.status == AgentSessionStatus.RUNNING }
         val threshold = if (hasRunning) runtime.agentIdleAfter else runtime.idleAfter
         return !lastSeen.isAfter(clock.instant().minus(threshold))
     }
@@ -149,16 +149,16 @@ class IdleScaleDownScheduler(
      *
      * Headless sessions: use [AgentGatewayClient.pollHeadlessJob] and treat
      * any terminal status (COMPLETED/FAILED/CANCELLED) as safe-to-recycle.
-     * The headless job id is stored in [WorkspaceAgentSession.gatewayAgentId];
+     * The headless job id is stored in [AgentSession.gatewayAgentId];
      * calling the interactive /agents/{id} endpoint with a headless job id
      * would return a 404 and force-cancel the idle check, keeping the runner
      * alive indefinitely.
      */
     private fun staleRunnerSafeToRecycle(
         workspace: Workspace,
-        sessions: List<WorkspaceAgentSession>,
+        sessions: List<AgentSession>,
     ): Boolean {
-        val running = sessions.filter { it.status == WorkspaceAgentSessionStatus.RUNNING }
+        val running = sessions.filter { it.status == AgentSessionStatus.RUNNING }
         if (running.isEmpty()) return true
         val grace = runtime.staleRecycleQuiet
         return running.all { session ->

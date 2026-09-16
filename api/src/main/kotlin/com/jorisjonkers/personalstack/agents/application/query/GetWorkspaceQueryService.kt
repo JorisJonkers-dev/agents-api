@@ -1,11 +1,11 @@
 package com.jorisjonkers.personalstack.agents.application.query
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
 import org.springframework.stereotype.Service
@@ -14,13 +14,13 @@ import java.time.Instant
 @Service
 class GetWorkspaceQueryService(
     private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val workspaceRepositories: WorkspaceRepositoryRepository,
     private val repositories: RepositoryRepository,
 ) {
     data class WorkspaceView(
         val workspace: Workspace,
-        val sessions: List<WorkspaceAgentSession>,
+        val sessions: List<AgentSession>,
         val repositories: List<WorkspaceRepositoryView>,
     )
 

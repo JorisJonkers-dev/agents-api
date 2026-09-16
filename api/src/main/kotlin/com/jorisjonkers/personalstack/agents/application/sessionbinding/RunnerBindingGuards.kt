@@ -2,9 +2,9 @@ package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerSetupTarget
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 
 /**
  * Guard checks shared by the runner session binding flows. Extracted from
@@ -14,13 +14,13 @@ internal class RunnerBindingGuards(
     private val provisioning: RunnerProvisioningCoordinator,
 ) {
     fun hasSetupOperationInProgress(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
     ): Boolean = sessionHasPendingSetup(session) || workspaceSetupInProgress(workspace)
 
     // Returns a terminal guard result when the session or workspace is blocked, null otherwise.
     fun ensureBoundGuard(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
     ): RunnerSessionBindingResult? =
         when {
@@ -50,7 +50,7 @@ internal class RunnerBindingGuards(
         }
     }
 
-    private fun sessionHasPendingSetup(session: WorkspaceAgentSession): Boolean =
+    private fun sessionHasPendingSetup(session: AgentSession): Boolean =
         session.pendingSetupId != null || session.pendingSetupVersion != null
 
     private fun workspaceSetupInProgress(workspace: Workspace): Boolean =

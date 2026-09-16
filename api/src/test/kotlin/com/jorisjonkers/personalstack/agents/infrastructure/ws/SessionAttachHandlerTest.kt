@@ -13,18 +13,18 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSe
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.TurnRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.Runs
 import io.mockk.every
@@ -66,7 +66,7 @@ class SessionAttachHandlerTest {
         }
     }
 
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
     private val turns = mockk<TurnRepository>(relaxed = true)
     private val activity = mockk<WorkspaceActivityTracker>(relaxed = true)
@@ -76,7 +76,7 @@ class SessionAttachHandlerTest {
     private lateinit var handler: SessionAttachHandler
     private lateinit var upstream: WebSocketSession
 
-    private val sessionId = WorkspaceAgentSessionId.random()
+    private val sessionId = AgentSessionId.random()
     private val workspaceId = WorkspaceId.random()
     private lateinit var telemetry: RecordingTelemetry
 
@@ -436,7 +436,7 @@ class SessionAttachHandlerTest {
     private fun attachUri(query: String = ""): URI =
         URI.create("ws://api/api/v1/ws/sessions/${sessionId.value}/attach$query")
 
-    private fun bound(session: WorkspaceAgentSession) =
+    private fun bound(session: AgentSession) =
         RunnerSessionBindingResult.Bound(
             workspace = workspace(),
             session = session,
@@ -452,12 +452,12 @@ class SessionAttachHandlerTest {
         )
 
     private fun agentSession(gatewayAgentId: String? = "abc12345") =
-        WorkspaceAgentSession(
+        AgentSession(
             id = sessionId,
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = gatewayAgentId,
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )

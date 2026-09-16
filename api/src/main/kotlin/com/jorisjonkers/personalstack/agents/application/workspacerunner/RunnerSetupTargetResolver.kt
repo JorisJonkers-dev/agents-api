@@ -3,13 +3,13 @@ package com.jorisjonkers.personalstack.agents.application.workspacerunner
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import org.springframework.stereotype.Component
 
 data class RunnerSetupTarget(
@@ -68,7 +68,7 @@ class RunnerSetupTargetResolver(
     internal fun requireValidTarget(
         workspace: Workspace,
         kind: WorkspaceAgentKind,
-        session: WorkspaceAgentSession?,
+        session: AgentSession?,
         entry: AgentSetupCatalogEntry,
     ): RunnerSetupTarget {
         setupValidation.requireValid(

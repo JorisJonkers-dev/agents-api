@@ -3,6 +3,9 @@ package com.jorisjonkers.personalstack.agents.infrastructure.web
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
@@ -17,14 +20,11 @@ import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -41,7 +41,7 @@ import java.util.UUID
 class AgentSetupControllerTest {
     private val setups = mockk<AgentSetupRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val events = mockk<SetupRestartEventRepository>()
     private val validation = mockk<AgentSetupValidationService>()
     private val mockMvc: MockMvc =
@@ -59,7 +59,7 @@ class AgentSetupControllerTest {
 
     private val now = Instant.parse("2026-06-12T00:00:00Z")
     private val workspaceId = WorkspaceId.random()
-    private val sessionId = WorkspaceAgentSessionId.random()
+    private val sessionId = AgentSessionId.random()
 
     @Test
     fun `GET agent-setups lists selectable catalog entries`() {
@@ -294,12 +294,12 @@ class AgentSetupControllerTest {
         )
 
     private fun session() =
-        WorkspaceAgentSession(
+        AgentSession(
             id = sessionId,
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = "agent",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = now,
             updatedAt = now,
         )

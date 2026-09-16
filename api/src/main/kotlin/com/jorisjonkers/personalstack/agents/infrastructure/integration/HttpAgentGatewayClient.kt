@@ -1,9 +1,9 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.integration
 
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Component
@@ -134,7 +134,7 @@ class HttpAgentGatewayClient(
 
     override fun cleanupStableSession(
         workspace: Workspace,
-        stableSessionId: WorkspaceAgentSessionId,
+        stableSessionId: AgentSessionId,
     ) {
         restClient
             .delete()

@@ -5,7 +5,7 @@ import com.jorisjonkers.personalstack.agents.application.observability.AgentKind
 import com.jorisjonkers.personalstack.agents.application.observability.AgentsApiTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.RunModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.StatusLabel
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import jakarta.annotation.PostConstruct
 import org.jooq.DSLContext
 import org.jooq.Record
@@ -105,8 +105,8 @@ class ActiveDurableSessionGaugeSampler(
         val RUN_MODE = DSL.field("run_mode", String::class.java)
         val ACTIVE_STATUS_NAMES =
             listOf(
-                WorkspaceAgentSessionStatus.STARTING.name,
-                WorkspaceAgentSessionStatus.RUNNING.name,
+                AgentSessionStatus.STARTING.name,
+                AgentSessionStatus.RUNNING.name,
             )
         const val COUNT_ALIAS = "session_count"
 

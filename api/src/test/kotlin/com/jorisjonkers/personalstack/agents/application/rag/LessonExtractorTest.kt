@@ -1,10 +1,10 @@
 package com.jorisjonkers.personalstack.agents.application.rag
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.TurnId
 import com.jorisjonkers.personalstack.agents.domain.model.TurnRole
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import org.assertj.core.api.Assertions.assertThat
@@ -13,7 +13,7 @@ import java.time.Instant
 
 class LessonExtractorTest {
     private val extractor = LessonExtractor()
-    private val sessionId = WorkspaceAgentSessionId.random()
+    private val sessionId = AgentSessionId.random()
 
     @Test
     fun `extracts a question-agent pair when reply is substantive`() {

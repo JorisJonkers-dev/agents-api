@@ -6,13 +6,13 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationResult
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -28,7 +28,7 @@ class SetupTransitionAuditService(
 ) {
     data class Rejection(
         val workspace: Workspace,
-        val session: WorkspaceAgentSession?,
+        val session: AgentSession?,
         val targetId: AgentSetupId,
         val targetVersion: AgentSetupVersion,
         val result: AgentSetupValidationResult,

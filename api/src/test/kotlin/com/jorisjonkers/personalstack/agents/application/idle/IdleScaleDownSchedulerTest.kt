@@ -5,18 +5,18 @@ import com.jorisjonkers.personalstack.agents.application.observability.FailureRe
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -52,7 +52,7 @@ class IdleScaleDownSchedulerTest {
     private val now = Instant.parse("2026-05-19T12:00:00Z")
     private val clock = FixedClock(now)
     private val workspaces = mockk<WorkspaceRepository>()
-    private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
+    private val agentSessions = mockk<AgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
@@ -385,12 +385,12 @@ class IdleScaleDownSchedulerTest {
     }
 
     private fun runningSession(workspaceId: WorkspaceId) =
-        WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId.random(),
+        AgentSession(
+            id = AgentSessionId.random(),
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = "gateway-agent",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = now.minusSeconds(7_200),
             updatedAt = now.minusSeconds(7_200),
             epoch = 2,
@@ -430,7 +430,7 @@ class IdleScaleDownSchedulerHeadlessTest {
     private val now = Instant.parse("2026-05-19T12:00:00Z")
     private val clock = FixedClock(now)
     private val workspaces = mockk<WorkspaceRepository>()
-    private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
+    private val agentSessions = mockk<AgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
@@ -472,12 +472,12 @@ class IdleScaleDownSchedulerHeadlessTest {
                 updatedAt = now.minusSeconds(60),
             )
         val session =
-            WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CLAUDE,
                 gatewayAgentId = "hls-job-xyz",
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = AgentSessionStatus.RUNNING,
                 runMode = "HEADLESS",
                 createdAt = now.minusSeconds(3_600),
                 updatedAt = now.minusSeconds(3_600),
@@ -527,12 +527,12 @@ class IdleScaleDownSchedulerHeadlessTest {
                 updatedAt = now.minusSeconds(60),
             )
         val session =
-            WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CLAUDE,
                 gatewayAgentId = "hls-job-busy",
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = AgentSessionStatus.RUNNING,
                 runMode = "HEADLESS",
                 createdAt = now.minusSeconds(3_600),
                 updatedAt = now.minusSeconds(3_600),
@@ -574,12 +574,12 @@ class IdleScaleDownSchedulerHeadlessTest {
                 updatedAt = now.minusSeconds(60),
             )
         val session =
-            WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CLAUDE,
                 gatewayAgentId = "hls-job-err",
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = AgentSessionStatus.RUNNING,
                 runMode = "HEADLESS",
                 createdAt = now.minusSeconds(3_600),
                 updatedAt = now.minusSeconds(3_600),

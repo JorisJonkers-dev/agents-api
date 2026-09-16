@@ -10,17 +10,17 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRu
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerProvisioningResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -34,13 +34,13 @@ import java.net.URI
 import java.time.Instant
 
 class AttachPreconditionCheckerTest {
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val workspaces = mockk<WorkspaceRepository>()
     private val binding = mockk<RunnerSessionBindingService>()
     private val telemetry = RecordingTelemetry()
     private val checker = AttachPreconditionChecker(sessions, workspaces, binding, telemetry)
 
-    private val sessionId = WorkspaceAgentSessionId.random()
+    private val sessionId = AgentSessionId.random()
     private val workspaceId = WorkspaceId.random()
 
     @Test
@@ -86,7 +86,7 @@ class AttachPreconditionCheckerTest {
     fun `resolveAttach rejects when session is still STARTING`() {
         every { sessions.findById(sessionId) } returns
             agentSession(
-                status = WorkspaceAgentSessionStatus.STARTING,
+                status = AgentSessionStatus.STARTING,
                 gatewayAgentId = null,
             )
         val client = clientSession()
@@ -165,8 +165,8 @@ class AttachPreconditionCheckerTest {
 
     private fun agentSession(
         gatewayAgentId: String? = "gw-1",
-        status: WorkspaceAgentSessionStatus = WorkspaceAgentSessionStatus.RUNNING,
-    ) = WorkspaceAgentSession(
+        status: AgentSessionStatus = AgentSessionStatus.RUNNING,
+    ) = AgentSession(
         id = sessionId,
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,

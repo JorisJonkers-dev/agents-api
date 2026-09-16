@@ -10,8 +10,8 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.rag.ContextBuilder
 import com.jorisjonkers.personalstack.agents.application.rag.ScopeInference
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.slf4j.LoggerFactory
@@ -22,7 +22,7 @@ import java.time.Instant
 /**
  * Boots the runner if needed via the workspace lifecycle API, submits a
  * one-shot headless job to the gateway, and persists a
- * [WorkspaceAgentSession] to track it.
+ * [AgentSession] to track it.
  *
  * Two-phase commit: the session is first saved as STARTING with no
  * gatewayAgentId (phase 1, committed independently via
@@ -85,14 +85,14 @@ class StartHeadlessJobCommandHandler(
     private fun buildStartingSession(
         command: StartHeadlessJobCommand,
         runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
-    ): WorkspaceAgentSession {
+    ): AgentSession {
         val now = Instant.now()
-        return WorkspaceAgentSession(
+        return AgentSession(
             id = command.sessionId,
             workspaceId = runner.workspace.id,
             kind = command.kind,
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.STARTING,
+            status = AgentSessionStatus.STARTING,
             createdAt = now,
             updatedAt = now,
             runMode = HEADLESS_RUN_MODE,
@@ -106,7 +106,7 @@ class StartHeadlessJobCommandHandler(
     private fun launchJob(
         runner: WorkspaceRunnerLifecycleService.BootOutcome.Ready,
         command: StartHeadlessJobCommand,
-        pendingSession: WorkspaceAgentSession,
+        pendingSession: AgentSession,
     ): AgentGatewayClient.HeadlessJob =
         runCatching {
             val scope = ScopeInference.scopeFor(runner.workspace)

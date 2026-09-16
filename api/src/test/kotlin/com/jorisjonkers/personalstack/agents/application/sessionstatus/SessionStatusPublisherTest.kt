@@ -1,7 +1,7 @@
 package com.jorisjonkers.personalstack.agents.application.sessionstatus
 
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -30,10 +30,10 @@ class SessionStatusPublisherTest {
 
     @Test
     fun `publishStatus dispatches immediately outside a transaction`() {
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         every { broadcaster.broadcastStatus(any()) } returns Unit
 
-        publisher.publishStatus(sessionId, WorkspaceAgentSessionStatus.RUNNING)
+        publisher.publishStatus(sessionId, AgentSessionStatus.RUNNING)
 
         verify {
             broadcaster.broadcastStatus(
@@ -49,11 +49,11 @@ class SessionStatusPublisherTest {
 
     @Test
     fun `publishStatus waits until after commit when synchronization is active`() {
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         every { broadcaster.broadcastStatus(any()) } returns Unit
         TransactionSynchronizationManager.initSynchronization()
 
-        publisher.publishStatus(sessionId, WorkspaceAgentSessionStatus.STARTING)
+        publisher.publishStatus(sessionId, AgentSessionStatus.STARTING)
 
         verify(exactly = 0) { broadcaster.broadcastStatus(any()) }
         TransactionSynchronizationManager.getSynchronizations().forEach { it.afterCommit() }

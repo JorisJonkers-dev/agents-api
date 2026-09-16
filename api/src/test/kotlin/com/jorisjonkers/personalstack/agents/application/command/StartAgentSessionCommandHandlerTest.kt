@@ -6,11 +6,11 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSe
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.StartRunnerSessionBindingInput
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -31,7 +31,7 @@ class StartAgentSessionCommandHandlerTest {
     fun `handle starts through runner session binding service`() {
         val command =
             StartAgentSessionCommand(
-                sessionId = WorkspaceAgentSessionId.random(),
+                sessionId = AgentSessionId.random(),
                 workspaceId = WorkspaceId.random(),
                 kind = WorkspaceAgentKind.CLAUDE,
             )
@@ -61,7 +61,7 @@ class StartAgentSessionCommandHandlerTest {
     fun `handle remaps Conflict to AgentRunnerUnavailableException not IllegalStateException`() {
         val command =
             StartAgentSessionCommand(
-                sessionId = WorkspaceAgentSessionId.random(),
+                sessionId = AgentSessionId.random(),
                 workspaceId = WorkspaceId.random(),
                 kind = WorkspaceAgentKind.CLAUDE,
             )
@@ -77,7 +77,7 @@ class StartAgentSessionCommandHandlerTest {
     fun `handle throws AgentRunnerUnavailableException when binding returns Unavailable`() {
         val command =
             StartAgentSessionCommand(
-                sessionId = WorkspaceAgentSessionId.random(),
+                sessionId = AgentSessionId.random(),
                 workspaceId = WorkspaceId.random(),
                 kind = WorkspaceAgentKind.CLAUDE,
             )
@@ -111,12 +111,12 @@ class StartAgentSessionCommandHandlerTest {
         )
 
     private fun session(command: StartAgentSessionCommand) =
-        WorkspaceAgentSession(
+        AgentSession(
             id = command.sessionId,
             workspaceId = command.workspaceId,
             kind = command.kind,
             gatewayAgentId = "abc12345",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )

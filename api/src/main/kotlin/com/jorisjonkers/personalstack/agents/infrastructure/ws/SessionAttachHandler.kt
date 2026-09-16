@@ -11,9 +11,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.EnsureRunnerSessionBoundInput
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import jakarta.websocket.ContainerProvider
 import org.slf4j.LoggerFactory
@@ -57,7 +57,7 @@ import java.util.concurrent.TimeUnit
  */
 @Component
 class SessionAttachDependencies(
-    val sessions: WorkspaceAgentSessionRepository,
+    val sessions: AgentSessionRepository,
     val workspaces: WorkspaceRepository,
     val activity: WorkspaceActivityTracker,
     val connected: ConnectedClientTracker,
@@ -85,7 +85,7 @@ class SessionAttachHandler(
         )
 
     private data class Bridge(
-        val sessionId: WorkspaceAgentSessionId,
+        val sessionId: AgentSessionId,
         val workspaceId: WorkspaceId,
         val upstream: WebSocketSession,
     )
@@ -310,7 +310,7 @@ class SessionAttachHandler(
      * still producing output (even if the user is not typing).
      */
     private data class UpstreamRelayDependencies(
-        val sessions: WorkspaceAgentSessionRepository,
+        val sessions: AgentSessionRepository,
         val activity: WorkspaceActivityTracker,
         val binding: RunnerSessionBindingService,
         val sessionStatus: SessionStatusPublisher,
@@ -318,7 +318,7 @@ class SessionAttachHandler(
 
     private class UpstreamHandler(
         private val client: WebSocketSession,
-        private val sessionId: WorkspaceAgentSessionId,
+        private val sessionId: AgentSessionId,
         private val workspaceId: WorkspaceId,
         private val relay: UpstreamRelayDependencies,
         private val telemetry: AgentsApiTelemetry,
