@@ -162,6 +162,15 @@ RUN set -eu; \
     chmod 0050 /usr/local/lib/agents-api/run-as-agent; \
     setcap cap_setuid,cap_setgid+ep /usr/local/lib/agents-api/run-as-agent
 
+# git's credential-helper lookup is "git-credential-<name>" resolved off
+# PATH, and run-as-agent rebuilds PATH to exactly
+# /usr/local/bin:/usr/bin:/bin (#63) — so `-c credential.helper=agents-api`
+# only resolves for an Agent Session if this lives here. Plain shell, not
+# a setuid binary: it only round-trips bytes over a socket it can already
+# read, so it carries no capability of its own.
+COPY container/git-credential-agents-api /usr/local/bin/git-credential-agents-api
+RUN chmod 0755 /usr/local/bin/git-credential-agents-api
+
 WORKDIR /app
 # Build-time identity surfaced in logs and tracing metadata.
 ARG GIT_SHA=unknown

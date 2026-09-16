@@ -30,9 +30,11 @@ import java.util.UUID
  * [UnsupportedOperationException] naming this scope, rather than
  * quietly returning a wrong answer — except [cleanupStableSession],
  * whose job (deleting durable transcript state) is a genuine no-op
- * here because Shell has no durable transcript store in this scope.
- * Attach-specific tmux operations (snapshot, resize, tailer) live in
- * [ShellAttachOperations], used directly by the WebSocket bridge.
+ * here because Shell has no durable transcript store in this scope,
+ * and [clone] (#63), needed by every in-container Workspace kind, not
+ * only Shell ones. Attach-specific tmux operations (snapshot, resize,
+ * tailer) live in [ShellAttachOperations], used directly by the
+ * WebSocket bridge.
  */
 @Component
 class InContainerAgentGatewayClient(
@@ -103,11 +105,51 @@ class InContainerAgentGatewayClient(
         gatewayAgentId: String,
     ): String = attach.capture(workspace, gatewayAgentId)
 
+    // Idempotent, like WorkspaceDirectoryService.ensureCreated: a Repo-backed
+    // Workspace is provisioned in both this container and a runner Pod during
+    // the #67 transition (see WorkspaceRuntimeProvisioner), so a second call
+    // for the same repo must be a no-op, not a failure.
     override fun clone(
         workspace: Workspace,
         repoUrl: String,
         branch: String?,
-    ): String = unsupported("clone")
+    ): String {
+        val workspaceDir = directories.ensureCreated(workspace.id)
+        val targetDir = workspaceDir.resolve(repoNameFrom(repoUrl))
+        if (Files.isDirectory(targetDir)) {
+            return targetDir.toString()
+        }
+        val argv =
+            buildList {
+                add("git")
+                add("-c")
+                add(CREDENTIAL_HELPER_CONFIG)
+                add("-c")
+                add(CREDENTIAL_USE_HTTP_PATH_CONFIG)
+                add("clone")
+                branch?.let {
+                    add("--branch")
+                    add(it)
+                }
+                add(repoUrl)
+                add(targetDir.toString())
+            }
+        commands.run(argv, cwd = workspaceDir.toFile(), timeoutSeconds = CLONE_TIMEOUT_SECONDS)
+        // Persist the same two settings into the clone's own .git/config, so a
+        // later push or fetch by an Agent Session — which passes no `-c` flags
+        // of its own — still resolves credentials through the socket.
+        commands.run(listOf("git", "config", "credential.helper", "agents-api"), cwd = targetDir.toFile())
+        commands.run(listOf("git", "config", "credential.useHttpPath", "true"), cwd = targetDir.toFile())
+        return targetDir.toString()
+    }
+
+    // Matches the last-path-segment-minus-.git convention the runner Pod's
+    // own entrypoint clones into (RunnerPodSpecBuilder's REPO_URL/REPO_URLS
+    // comments), so the same repo lands under the same name in both places.
+    private fun repoNameFrom(repoUrl: String): String {
+        val tail = repoUrl.trim().substringAfterLast('/').substringAfterLast(':')
+        return tail.removeSuffix(".git").ifBlank { "repo" }
+    }
 
     override fun openPr(
         workspace: Workspace,
@@ -159,5 +201,13 @@ class InContainerAgentGatewayClient(
         const val ID_PREVIEW_CHARS = 8
         const val SESSIONS_SUBDIR = ".agent-sessions"
         val SHELL_COMMAND = listOf("/bin/bash", "-l")
+
+        // A clone runs over the network, unlike every other command this
+        // client shells out through; the 30s default in RunAsAgentCommandRunner
+        // is sized for local tmux/mkdir calls, not this.
+        const val CLONE_TIMEOUT_SECONDS = 120L
+
+        const val CREDENTIAL_HELPER_CONFIG = "credential.helper=agents-api"
+        const val CREDENTIAL_USE_HTTP_PATH_CONFIG = "credential.useHttpPath=true"
     }
 }
