@@ -71,7 +71,7 @@ open class JooqWorkspaceRepositoryIntegrationSupport
                 podName = null,
                 pvcName = null,
                 gatewayEndpoint = null,
-                status = WorkspaceStatus.PENDING,
+                status = WorkspaceStatus.PREPARING,
                 createdAt = now,
                 updatedAt = now,
                 kind = kind,
@@ -128,14 +128,14 @@ class JooqWorkspaceRepositoryIntegrationTest
                     podName = "agent-runner-x",
                     pvcName = "workspace-x",
                     gatewayEndpoint = "http://x.svc:8090",
-                    status = WorkspaceStatus.STARTING,
+                    status = WorkspaceStatus.READY,
                     updatedAt = Instant.now(),
                 )
             workspaces.save(withPod)
 
             val loaded = workspaces.findById(w.id).required()
             assertThat(loaded.podName).isEqualTo("agent-runner-x")
-            assertThat(loaded.status).isEqualTo(WorkspaceStatus.STARTING)
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.READY)
         }
 
         @Test
@@ -158,7 +158,7 @@ class JooqWorkspaceRepositoryIntegrationTest
 
             val loaded = workspaces.findById(w.id).required()
 
-            assertThat(loaded.status).isEqualTo(WorkspaceStatus.PENDING)
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.PREPARING)
             assertThat(loaded.failureReason).isNull()
         }
 
@@ -183,7 +183,7 @@ class JooqWorkspaceRepositoryIntegrationTest
                 w.copy(
                     ownerUserId = null,
                     podName = "agent-runner-x",
-                    status = WorkspaceStatus.STARTING,
+                    status = WorkspaceStatus.READY,
                     updatedAt = Instant.now(),
                 )
             workspaces.save(staleUpdate)
@@ -192,7 +192,7 @@ class JooqWorkspaceRepositoryIntegrationTest
 
             assertThat(loaded.ownerUserId).isEqualTo("user-123")
             assertThat(loaded.podName).isEqualTo("agent-runner-x")
-            assertThat(loaded.status).isEqualTo(WorkspaceStatus.STARTING)
+            assertThat(loaded.status).isEqualTo(WorkspaceStatus.READY)
         }
     }
 

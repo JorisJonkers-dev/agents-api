@@ -117,7 +117,7 @@ class ShellAgentSessionIntegrationTest {
                 podName = null,
                 pvcName = null,
                 gatewayEndpoint = null,
-                status = WorkspaceStatus.PENDING,
+                status = WorkspaceStatus.PREPARING,
                 createdAt = Instant.now(),
                 updatedAt = Instant.now(),
                 kind = WorkspaceKind.SCRATCH,

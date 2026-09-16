@@ -38,7 +38,7 @@ import java.time.Instant
  *
  * Persistence (workspace row + repository membership) is committed in its own
  * transaction before the lifecycle boot is triggered so that a boot
- * failure leaves the workspace in PENDING state rather than rolling back
+ * failure leaves the workspace in PREPARING state rather than rolling back
  * the entire create.
  */
 @Component
@@ -122,7 +122,7 @@ class CreateWorkspaceCommandHandler(
                 podName = null,
                 pvcName = null,
                 gatewayEndpoint = null,
-                status = WorkspaceStatus.PENDING,
+                status = WorkspaceStatus.PREPARING,
                 createdAt = now,
                 updatedAt = now,
                 ownerUserId = command.ownerUserId,

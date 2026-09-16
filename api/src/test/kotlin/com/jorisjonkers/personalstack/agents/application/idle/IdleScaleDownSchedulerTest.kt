@@ -136,7 +136,7 @@ class IdleScaleDownSchedulerTest {
 
     @Test
     fun `sweep skips workspaces not in READY status`() {
-        val ws = workspace(updatedAt = now.minusSeconds(7_200), status = WorkspaceStatus.PENDING)
+        val ws = workspace(updatedAt = now.minusSeconds(7_200), status = WorkspaceStatus.PREPARING)
         every { workspaces.findAllByStatusNot(WorkspaceStatus.DESTROYED) } returns listOf(ws)
 
         scheduler.sweep()

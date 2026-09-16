@@ -18,8 +18,8 @@ class AdminRunnerController(
     )
 
     /**
-     * Gracefully scale down every active runner Pod so each workspace
-     * transitions to IDLE with its PVC preserved. The next session start
+     * Gracefully scale down every active runner Pod so each workspace stays
+     * READY, scaled to zero, with its PVC preserved. The next session start
      * on any workspace re-provisions the Pod pulling `:latest` and starts
      * a fresh agent process.
      *

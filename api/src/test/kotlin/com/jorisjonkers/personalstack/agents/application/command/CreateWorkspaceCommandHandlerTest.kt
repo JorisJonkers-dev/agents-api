@@ -258,7 +258,7 @@ class CreateWorkspaceCommandHandlerTest {
         )
 
         verifyOrder {
-            workspaces.save(match { it.id == workspaceId && it.status == WorkspaceStatus.PENDING })
+            workspaces.save(match { it.id == workspaceId && it.status == WorkspaceStatus.PREPARING })
             workspaceRepositoryLinks.attach(workspaceId, repoId, isPrimary = true)
             lifecycleService.boot(workspaceId, WorkspaceAgentKind.CLAUDE)
         }
@@ -304,7 +304,7 @@ class CreateWorkspaceCommandHandlerTest {
         )
 
         verifyOrder {
-            workspaces.save(match { it.id == workspaceId && it.status == WorkspaceStatus.PENDING })
+            workspaces.save(match { it.id == workspaceId && it.status == WorkspaceStatus.PREPARING })
             workspaceRepositoryLinks.attach(workspaceId, primaryRepoId, isPrimary = true)
             workspaceRepositoryLinks.attach(workspaceId, extraRepoId, isPrimary = false)
             workspaceRepositoryLinks.attach(workspaceId, secondExtraRepoId, isPrimary = false)
@@ -705,7 +705,7 @@ class CreateWorkspaceCommandHandlerTest {
         // workspace was persisted even though boot returned Conflict
         assertThat(saved).hasSize(1)
         assertThat(saved.first().id).isEqualTo(workspaceId)
-        assertThat(saved.first().status).isEqualTo(WorkspaceStatus.PENDING)
+        assertThat(saved.first().status).isEqualTo(WorkspaceStatus.PREPARING)
     }
 
     private fun repository(
