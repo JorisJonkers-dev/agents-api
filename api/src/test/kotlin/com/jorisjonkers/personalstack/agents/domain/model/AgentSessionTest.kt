@@ -4,7 +4,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Instant
 
-class WorkspaceAgentSessionTest {
+class AgentSessionTest {
     @Test
     fun `bindGatewayAgent flips status and writes gateway id`() {
         val s = base()
@@ -12,15 +12,15 @@ class WorkspaceAgentSessionTest {
         val bound = s.bindGatewayAgent("abc12345", cliSessionId = "native-1", now = now)
         assertThat(bound.gatewayAgentId).isEqualTo("abc12345")
         assertThat(bound.cliSessionId).isEqualTo("native-1")
-        assertThat(bound.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(bound.status).isEqualTo(AgentSessionStatus.RUNNING)
         assertThat(bound.gatewayBoundAt).isEqualTo(now)
     }
 
     @Test
     fun `markStopped and markFailed flip status`() {
         val s = base().bindGatewayAgent("abc")
-        assertThat(s.markStopped().status).isEqualTo(WorkspaceAgentSessionStatus.STOPPED)
-        assertThat(s.markFailed().status).isEqualTo(WorkspaceAgentSessionStatus.FAILED)
+        assertThat(s.markStopped().status).isEqualTo(AgentSessionStatus.STOPPED)
+        assertThat(s.markFailed().status).isEqualTo(AgentSessionStatus.FAILED)
     }
 
     @Test
@@ -37,7 +37,7 @@ class WorkspaceAgentSessionTest {
         assertThat(next.generation).isEqualTo(5)
         assertThat(next.gatewayAgentId).isNull()
         assertThat(next.gatewayBoundAt).isNull()
-        assertThat(next.status).isEqualTo(WorkspaceAgentSessionStatus.STARTING)
+        assertThat(next.status).isEqualTo(AgentSessionStatus.STARTING)
     }
 
     @Test
@@ -78,12 +78,12 @@ class WorkspaceAgentSessionTest {
     }
 
     private fun base() =
-        WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId.random(),
+        AgentSession(
+            id = AgentSessionId.random(),
             workspaceId = WorkspaceId.random(),
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = null,
-            status = WorkspaceAgentSessionStatus.STARTING,
+            status = AgentSessionStatus.STARTING,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )

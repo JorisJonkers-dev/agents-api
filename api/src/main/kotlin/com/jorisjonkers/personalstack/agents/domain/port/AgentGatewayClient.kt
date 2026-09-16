@@ -1,8 +1,8 @@
 package com.jorisjonkers.personalstack.agents.domain.port
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import java.time.Duration
 
 /**
@@ -40,7 +40,7 @@ interface AgentGatewayClient {
         val workspace: Workspace,
         val kind: WorkspaceAgentKind,
         val workspacePath: String? = null,
-        val stableSessionId: WorkspaceAgentSessionId? = null,
+        val stableSessionId: AgentSessionId? = null,
         val epoch: Long? = null,
         val continuation: ContinuationMetadata? = null,
         // When set (session revival), the gateway resumes the prior CLI
@@ -57,7 +57,7 @@ interface AgentGatewayClient {
 
     fun cleanupStableSession(
         workspace: Workspace,
-        stableSessionId: WorkspaceAgentSessionId,
+        stableSessionId: AgentSessionId,
     )
 
     fun sendInput(
@@ -121,7 +121,7 @@ interface AgentGatewayClient {
         val prompt: String,
         val cliSessionId: String? = null,
         val timeoutSeconds: Long? = null,
-        val stableSessionId: WorkspaceAgentSessionId? = null,
+        val stableSessionId: AgentSessionId? = null,
         val epoch: Long? = null,
         val continuation: ContinuationMetadata? = null,
         /**

@@ -27,7 +27,7 @@ enum class TurnRole { USER, AGENT, SYSTEM }
  */
 data class Turn(
     val id: TurnId,
-    val sessionId: WorkspaceAgentSessionId,
+    val sessionId: AgentSessionId,
     val role: TurnRole,
     val body: String,
     val createdAt: Instant,

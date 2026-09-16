@@ -9,11 +9,11 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -24,7 +24,7 @@ import java.time.Duration
 @Component
 class DurableSessionCleanupDependencies(
     val workspaces: WorkspaceRepository,
-    val sessions: WorkspaceAgentSessionRepository,
+    val sessions: AgentSessionRepository,
     val gateway: AgentGatewayClient,
     val runnerLifecycle: WorkspaceRunnerLifecycleService,
     val sessionStatus: SessionStatusPublisher,
@@ -90,7 +90,7 @@ class DurableSessionCleanupService(
             .count { sessions.markCleanupRequested(it.id, now) }
     }
 
-    private fun cleanupPendingSession(session: WorkspaceAgentSession): Boolean {
+    private fun cleanupPendingSession(session: AgentSession): Boolean {
         cleanupSkipReason(session)?.let { reason ->
             recordCleanup(OutcomeLabel.SKIPPED, reason)
             return false
@@ -121,14 +121,14 @@ class DurableSessionCleanupService(
         }.getOrDefault(false)
     }
 
-    private fun cleanupSkipReason(session: WorkspaceAgentSession): FailureReasonLabel? =
+    private fun cleanupSkipReason(session: AgentSession): FailureReasonLabel? =
         when {
             session.cleanupRequestedAt == null -> FailureReasonLabel.INVALID_REQUEST
             session.pendingSetupId != null || session.pendingSetupVersion != null -> FailureReasonLabel.CANCELLED
             else -> null
         }
 
-    private fun cleanupWorkspace(session: WorkspaceAgentSession): Workspace? {
+    private fun cleanupWorkspace(session: AgentSession): Workspace? {
         val workspace = workspaces.findById(session.workspaceId)
         if (workspace == null) {
             log.warn("cleanup pending session {} has missing workspace {}", session.id, session.workspaceId)
@@ -139,7 +139,7 @@ class DurableSessionCleanupService(
 
     private fun ensureRunnerMounted(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
     ): Workspace? {
         if (workspace.hasRunnerSetupGuard()) recordCleanup(OutcomeLabel.SKIPPED, FailureReasonLabel.CANCELLED)
         return when {
@@ -151,7 +151,7 @@ class DurableSessionCleanupService(
 
     private fun bootRunnerForCleanup(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
     ): Workspace? {
         val bootOutcome =
             runCatching {

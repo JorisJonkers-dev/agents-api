@@ -1,8 +1,8 @@
 package com.jorisjonkers.personalstack.agents.application.sessionbinding
 
 import com.jorisjonkers.personalstack.agents.application.exception.AgentRunnerUnavailableException
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import org.slf4j.LoggerFactory
 import org.springframework.web.client.ResourceAccessException
@@ -19,7 +19,7 @@ internal class RunnerAgentSpawner(
 
     fun spawnWithRetry(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         continuation: AgentGatewayClient.ContinuationMetadata?,
     ): AgentGatewayClient.GatewayAgent {
         var lastFailure: ResourceAccessException? = null
@@ -41,7 +41,7 @@ internal class RunnerAgentSpawner(
 
     private fun buildSpawnRequest(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         continuation: AgentGatewayClient.ContinuationMetadata?,
     ) = AgentGatewayClient.SpawnAgentRequest(
         workspace = workspace,

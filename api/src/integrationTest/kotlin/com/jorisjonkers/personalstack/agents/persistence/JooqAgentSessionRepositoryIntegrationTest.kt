@@ -1,27 +1,27 @@
 package com.jorisjonkers.personalstack.agents.persistence
 
 import com.jorisjonkers.personalstack.agents.IntegrationTestBase
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import java.time.Instant
 
-class JooqWorkspaceAgentSessionRepositoryIntegrationTest
+class JooqAgentSessionRepositoryIntegrationTest
     @Autowired
     constructor(
         private val workspaces: WorkspaceRepository,
-        private val sessions: WorkspaceAgentSessionRepository,
+        private val sessions: AgentSessionRepository,
     ) : IntegrationTestBase {
         @Test
         fun saveAndFindByIdRoundTripsCurrentAndPendingSetup() {
@@ -40,12 +40,19 @@ class JooqWorkspaceAgentSessionRepositoryIntegrationTest
         }
 
         @Test
+        fun saveAndFindByIdRoundTripsSuspendedStatus() {
+            val session = sessions.save(session().copy(status = AgentSessionStatus.SUSPENDED))
+
+            assertThat(sessions.findById(session.id).required().status).isEqualTo(AgentSessionStatus.SUSPENDED)
+        }
+
+        @Test
         fun setupCASMethodsStagePromoteAndClearPendingSetup() {
             val session = sessions.save(session())
 
             val staged =
                 sessions.setPendingSetupIfCurrent(
-                    WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                    AgentSessionRepository.PendingSetupUpdate(
                         id = session.id,
                         expectedCurrentSetupId = AgentSetupId.default(),
                         expectedCurrentSetupVersion = AgentSetupVersion.initial(),
@@ -55,7 +62,7 @@ class JooqWorkspaceAgentSessionRepositoryIntegrationTest
                 )
             val staleStage =
                 sessions.setPendingSetupIfCurrent(
-                    WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                    AgentSessionRepository.PendingSetupUpdate(
                         id = session.id,
                         expectedCurrentSetupId = AgentSetupId("missing"),
                         expectedCurrentSetupVersion = AgentSetupVersion.initial(),
@@ -76,7 +83,7 @@ class JooqWorkspaceAgentSessionRepositoryIntegrationTest
             assertThat(cleared).isTrue()
 
             sessions.setPendingSetupIfCurrent(
-                WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                AgentSessionRepository.PendingSetupUpdate(
                     id = session.id,
                     expectedCurrentSetupId = AgentSetupId.default(),
                     expectedCurrentSetupVersion = AgentSetupVersion.initial(),
@@ -97,16 +104,16 @@ class JooqWorkspaceAgentSessionRepositoryIntegrationTest
             assertThat(loaded.pendingSetupId).isNull()
         }
 
-        private fun session(): WorkspaceAgentSession {
+        private fun session(): AgentSession {
             val workspace = workspace()
             workspaces.save(workspace)
             val now = Instant.now()
-            return WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            return AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = workspace.id,
                 kind = WorkspaceAgentKind.CODEX,
                 gatewayAgentId = null,
-                status = WorkspaceAgentSessionStatus.STARTING,
+                status = AgentSessionStatus.STARTING,
                 createdAt = now,
                 updatedAt = now,
             )

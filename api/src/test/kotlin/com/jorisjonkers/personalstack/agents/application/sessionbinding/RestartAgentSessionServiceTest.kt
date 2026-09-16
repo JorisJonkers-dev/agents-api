@@ -6,6 +6,9 @@ import com.jorisjonkers.personalstack.agents.application.observability.FailureRe
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupRef
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationIssue
@@ -14,13 +17,10 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationRe
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -34,7 +34,7 @@ import java.time.ZoneOffset
 
 class RestartAgentSessionServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val binding = mockk<RunnerSessionBindingService>()
     private val setupValidation = mockk<AgentSetupValidationService>()
     private val clock = Clock.fixed(Instant.parse("2026-06-12T09:00:00Z"), ZoneOffset.UTC)
@@ -55,7 +55,7 @@ class RestartAgentSessionServiceTest {
     @Test
     fun `restart delegates running interactive session with expected generation`() {
         val ws = workspace()
-        val session = session(ws.id, status = WorkspaceAgentSessionStatus.RUNNING).copy(generation = 4)
+        val session = session(ws.id, status = AgentSessionStatus.RUNNING).copy(generation = 4)
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
         every {
@@ -90,8 +90,21 @@ class RestartAgentSessionServiceTest {
     fun `restart allows retained stopped session before cleanup expiry`() {
         val ws = workspace()
         val session =
-            session(ws.id, status = WorkspaceAgentSessionStatus.STOPPED)
+            session(ws.id, status = AgentSessionStatus.STOPPED)
                 .copy(retainedUntil = Instant.parse("2026-06-12T10:00:00Z"))
+        every { workspaces.findById(ws.id) } returns ws
+        every { sessions.findById(session.id) } returns session
+        every { binding.restart(any()) } returns bound(ws, session)
+
+        service.restart(RestartAgentSessionInput(workspaceId = ws.id, sessionId = session.id))
+
+        verify { binding.restart(any()) }
+    }
+
+    @Test
+    fun `restart allows a suspended session with no retention deadline`() {
+        val ws = workspace()
+        val session = session(ws.id, status = AgentSessionStatus.SUSPENDED).copy(retainedUntil = null)
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
         every { binding.restart(any()) } returns bound(ws, session)
@@ -105,7 +118,7 @@ class RestartAgentSessionServiceTest {
     fun `restart rejects expired stopped session`() {
         val ws = workspace()
         val session =
-            session(ws.id, status = WorkspaceAgentSessionStatus.STOPPED)
+            session(ws.id, status = AgentSessionStatus.STOPPED)
                 .copy(retainedUntil = Instant.parse("2026-06-12T08:59:59Z"))
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
@@ -119,7 +132,7 @@ class RestartAgentSessionServiceTest {
     fun `restart rejects non-interactive sessions`() {
         val ws = workspace()
         val session =
-            session(ws.id, status = WorkspaceAgentSessionStatus.RUNNING)
+            session(ws.id, status = AgentSessionStatus.RUNNING)
                 .copy(runMode = "HEADLESS")
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
@@ -132,7 +145,7 @@ class RestartAgentSessionServiceTest {
     @Test
     fun `restart rejects sessions from a different workspace`() {
         val ws = workspace()
-        val session = session(WorkspaceId.random(), status = WorkspaceAgentSessionStatus.RUNNING)
+        val session = session(WorkspaceId.random(), status = AgentSessionStatus.RUNNING)
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
 
@@ -145,7 +158,7 @@ class RestartAgentSessionServiceTest {
     fun `restart returns conflict when expected generation is stale`() {
         telemetry.operations.clear()
         val ws = workspace()
-        val session = session(ws.id, status = WorkspaceAgentSessionStatus.RUNNING).copy(generation = 9)
+        val session = session(ws.id, status = AgentSessionStatus.RUNNING).copy(generation = 9)
         every { workspaces.findById(ws.id) } returns ws
         every { sessions.findById(session.id) } returns session
 
@@ -170,7 +183,7 @@ class RestartAgentSessionServiceTest {
     fun `restart validation rejection records bounded reason without raw validation message`() {
         telemetry.operations.clear()
         val ws = workspace()
-        val session = session(ws.id, status = WorkspaceAgentSessionStatus.RUNNING).copy(generation = 4)
+        val session = session(ws.id, status = AgentSessionStatus.RUNNING).copy(generation = 4)
         val targetId = AgentSetupId("target")
         val targetVersion = AgentSetupVersion(2)
         val result =
@@ -219,7 +232,7 @@ class RestartAgentSessionServiceTest {
 
     private fun bound(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
     ) = RunnerSessionBindingResult.Bound(
         workspace = workspace,
         session = session,
@@ -248,9 +261,9 @@ class RestartAgentSessionServiceTest {
 
     private fun session(
         workspaceId: WorkspaceId,
-        status: WorkspaceAgentSessionStatus,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+        status: AgentSessionStatus,
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = "abc12345",

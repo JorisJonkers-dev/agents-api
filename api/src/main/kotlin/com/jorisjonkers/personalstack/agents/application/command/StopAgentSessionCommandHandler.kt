@@ -9,12 +9,12 @@ import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLa
 import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.common.command.CommandHandler
 import org.slf4j.LoggerFactory
@@ -26,7 +26,7 @@ import java.time.Duration
 @Component
 class StopAgentSessionDependencies(
     val workspaces: WorkspaceRepository,
-    val sessions: WorkspaceAgentSessionRepository,
+    val sessions: AgentSessionRepository,
     val gateway: AgentGatewayClient,
     val autoCapture: LessonAutoCapture,
     val sessionStatus: SessionStatusPublisher,
@@ -59,8 +59,8 @@ class StopAgentSessionCommandHandler(
         // stop, so a second delete means "purge it" — drop the retained row and
         // tell clients to remove the tab. This is how stopped sessions are
         // cleared from the console.
-        if (session.status == WorkspaceAgentSessionStatus.STOPPED ||
-            session.status == WorkspaceAgentSessionStatus.FAILED
+        if (session.status == AgentSessionStatus.STOPPED ||
+            session.status == AgentSessionStatus.FAILED
         ) {
             purgeTerminalSession(session.id)
             return
@@ -79,7 +79,7 @@ class StopAgentSessionCommandHandler(
     }
 
     // Drops a retained terminal row and notifies clients to remove the tab.
-    private fun purgeTerminalSession(id: WorkspaceAgentSessionId) {
+    private fun purgeTerminalSession(id: AgentSessionId) {
         val deleted = sessions.delete(id)
         if (deleted) {
             sessionStatus.publishRemove(id)
@@ -90,7 +90,7 @@ class StopAgentSessionCommandHandler(
     }
 
     private fun stopActiveSession(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
     ) {
         val gatewayId = session.gatewayAgentId
@@ -105,10 +105,10 @@ class StopAgentSessionCommandHandler(
         val retainedUntil = now.plusSeconds(runtime.durableSessionRetentionSeconds)
         val stopped =
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.STOPPED,
+                    status = AgentSessionStatus.STOPPED,
                     retainedUntil = retainedUntil,
                     clearGatewayBinding = true,
                     now = now,

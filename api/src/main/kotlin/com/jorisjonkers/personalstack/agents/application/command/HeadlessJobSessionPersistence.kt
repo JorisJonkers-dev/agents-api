@@ -1,9 +1,9 @@
 package com.jorisjonkers.personalstack.agents.application.command
 
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
@@ -19,7 +19,7 @@ import java.time.Instant
  */
 @Component
 class HeadlessJobSessionPersistence(
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
 ) {
     /**
      * Phase 1: saves the STARTING placeholder before the gateway call.
@@ -27,7 +27,7 @@ class HeadlessJobSessionPersistence(
      * the process crashes during the gateway round-trip.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun saveStartingSession(session: WorkspaceAgentSession): WorkspaceAgentSession = sessions.save(session)
+    fun saveStartingSession(session: AgentSession): AgentSession = sessions.save(session)
 
     /**
      * Phase 2: updates the STARTING session with the gateway job id and its
@@ -38,7 +38,7 @@ class HeadlessJobSessionPersistence(
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun persistSession(
-        pendingSession: WorkspaceAgentSession,
+        pendingSession: AgentSession,
         job: AgentGatewayClient.HeadlessJob,
     ) {
         sessions.save(
@@ -55,17 +55,15 @@ class HeadlessJobSessionPersistence(
      * Prevents STARTING rows from lingering as irreconcilable stubs.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun markSessionFailed(session: WorkspaceAgentSession) {
+    fun markSessionFailed(session: AgentSession) {
         sessions.save(session.markFailed(now = Instant.now()))
     }
 
-    private fun gatewayStatusToSessionStatus(
-        gatewayStatus: AgentGatewayClient.HeadlessStatus,
-    ): WorkspaceAgentSessionStatus =
+    private fun gatewayStatusToSessionStatus(gatewayStatus: AgentGatewayClient.HeadlessStatus): AgentSessionStatus =
         when (gatewayStatus) {
-            AgentGatewayClient.HeadlessStatus.RUNNING -> WorkspaceAgentSessionStatus.RUNNING
-            AgentGatewayClient.HeadlessStatus.COMPLETED -> WorkspaceAgentSessionStatus.STOPPED
-            AgentGatewayClient.HeadlessStatus.CANCELLED -> WorkspaceAgentSessionStatus.STOPPED
-            AgentGatewayClient.HeadlessStatus.FAILED -> WorkspaceAgentSessionStatus.FAILED
+            AgentGatewayClient.HeadlessStatus.RUNNING -> AgentSessionStatus.RUNNING
+            AgentGatewayClient.HeadlessStatus.COMPLETED -> AgentSessionStatus.STOPPED
+            AgentGatewayClient.HeadlessStatus.CANCELLED -> AgentSessionStatus.STOPPED
+            AgentGatewayClient.HeadlessStatus.FAILED -> AgentSessionStatus.FAILED
         }
 }

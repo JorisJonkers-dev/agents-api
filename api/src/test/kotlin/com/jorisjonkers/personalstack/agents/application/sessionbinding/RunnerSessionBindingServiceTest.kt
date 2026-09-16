@@ -12,6 +12,9 @@ import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionSt
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelectionService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupAvailability
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDefinition
@@ -24,14 +27,11 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -45,7 +45,7 @@ import java.time.Instant
 
 class RunnerSessionBindingServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>()
     private val setupSelection = mockk<AgentSetupSelectionService>()
@@ -93,8 +93,8 @@ class RunnerSessionBindingServiceTest {
     @Test
     fun `start creates epoch 1 generation and binds spawned stable gateway session`() {
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
-        val created = slot<WorkspaceAgentSession>()
+        val sessionId = AgentSessionId.random()
+        val created = slot<AgentSession>()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
@@ -138,7 +138,7 @@ class RunnerSessionBindingServiceTest {
                 pendingRunnerSetupId = AgentSetupId("gpu"),
                 pendingRunnerSetupVersion = AgentSetupVersion(2),
             )
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         every { workspaces.findById(ws.id) } returns ws
 
         val result =
@@ -159,7 +159,7 @@ class RunnerSessionBindingServiceTest {
     @Test
     fun `start returns Unavailable without saving session when runner is not ready`() {
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns false
 
@@ -288,8 +288,8 @@ class RunnerSessionBindingServiceTest {
     @Test
     fun `start retries transient spawn transport failures before binding`() {
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
-        val created = slot<WorkspaceAgentSession>()
+        val sessionId = AgentSessionId.random()
+        val created = slot<AgentSession>()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
@@ -477,7 +477,7 @@ class RunnerSessionBindingServiceTest {
                 match {
                     it.id == session.id &&
                         it.expectedGeneration == 7L &&
-                        it.status == WorkspaceAgentSessionStatus.RUNNING &&
+                        it.status == AgentSessionStatus.RUNNING &&
                         it.retainedUntil == null &&
                         it.clearGatewayBinding
                 },
@@ -493,8 +493,8 @@ class RunnerSessionBindingServiceTest {
         telemetry.operations.clear()
         telemetry.reprovisions.clear()
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
-        val created = slot<WorkspaceAgentSession>()
+        val sessionId = AgentSessionId.random()
+        val created = slot<AgentSession>()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
@@ -507,7 +507,7 @@ class RunnerSessionBindingServiceTest {
                 match {
                     it.id == sessionId &&
                         it.expectedGeneration == 1L &&
-                        it.status == WorkspaceAgentSessionStatus.FAILED &&
+                        it.status == AgentSessionStatus.FAILED &&
                         it.retainedUntil == null &&
                         it.clearGatewayBinding
                 },
@@ -539,7 +539,7 @@ class RunnerSessionBindingServiceTest {
         telemetry.operations.clear()
         telemetry.reprovisions.clear()
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         val rawMessage = "Secret agents/prod-token is missing"
         every { workspaces.findById(ws.id) } returns ws
         every { setupValidation.requireValid(any()) } throws
@@ -584,8 +584,8 @@ class RunnerSessionBindingServiceTest {
         // under concurrent load — returning Conflict to the client. New flow: spawn first,
         // persist RUNNING+bound in one write, so Conflict is structurally impossible.
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
-        val saveSlot = slot<WorkspaceAgentSession>()
+        val sessionId = AgentSessionId.random()
+        val saveSlot = slot<AgentSession>()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
@@ -606,7 +606,7 @@ class RunnerSessionBindingServiceTest {
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
         assertThat(result).isNotInstanceOf(RunnerSessionBindingResult.Conflict::class.java)
         // Single write must be RUNNING+bound, never STARTING
-        assertThat(saveSlot.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(saveSlot.captured.status).isEqualTo(AgentSessionStatus.RUNNING)
         assertThat(saveSlot.captured.gatewayAgentId).isEqualTo("abc12345")
     }
 
@@ -615,8 +615,8 @@ class RunnerSessionBindingServiceTest {
         // If the single RUNNING+bound save fails, we stop the spawned agent and return
         // Unavailable — no orphaned STARTING row is left in the database.
         val ws = workspace()
-        val sessionId = WorkspaceAgentSessionId.random()
-        val saveSlot = slot<WorkspaceAgentSession>()
+        val sessionId = AgentSessionId.random()
+        val saveSlot = slot<AgentSession>()
         every { workspaces.findById(ws.id) } returns ws
         every { orchestrator.isReady(ws, setupSpec.identity(ws.runnerSetupGeneration)) } returns true
         every { gateway.isReady(ws) } returns true
@@ -637,7 +637,7 @@ class RunnerSessionBindingServiceTest {
 
         assertThat(result).isInstanceOf(RunnerSessionBindingResult.Unavailable::class.java)
         // The attempted write was for RUNNING state — no STARTING row was ever created
-        assertThat(saveSlot.captured.status).isEqualTo(WorkspaceAgentSessionStatus.RUNNING)
+        assertThat(saveSlot.captured.status).isEqualTo(AgentSessionStatus.RUNNING)
         assertThat(saveSlot.captured.gatewayAgentId).isEqualTo("abc12345")
         verify { gateway.stopAgent(ws, "abc12345") }
     }
@@ -663,7 +663,7 @@ class RunnerSessionBindingServiceTest {
             ).beginGeneration(session, starting)
 
         assertThat(result).isFalse
-        verify(exactly = 0) { sessionStatus.publishStatus(any<WorkspaceAgentSession>(), any()) }
+        verify(exactly = 0) { sessionStatus.publishStatus(any<AgentSession>(), any()) }
     }
 
     private fun gatewayAgent(
@@ -697,12 +697,12 @@ class RunnerSessionBindingServiceTest {
     private fun session(
         workspaceId: WorkspaceId,
         gatewayAgentId: String?,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = gatewayAgentId,
-        status = WorkspaceAgentSessionStatus.RUNNING,
+        status = AgentSessionStatus.RUNNING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
         cliSessionId = "native-old",
@@ -710,7 +710,7 @@ class RunnerSessionBindingServiceTest {
 
     private fun spawnRequest(
         workspace: Workspace,
-        stableSessionId: WorkspaceAgentSessionId,
+        stableSessionId: AgentSessionId,
         epoch: Long,
         continuation: AgentGatewayClient.ContinuationMetadata? = null,
         resumeCliSessionId: String? = null,
@@ -724,7 +724,7 @@ class RunnerSessionBindingServiceTest {
     )
 
     private fun stubReprovisionedRunnerNotReady(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         ws: Workspace,
     ) {
         every {
@@ -753,7 +753,7 @@ class RunnerSessionBindingServiceTest {
                 match {
                     it.id == session.id &&
                         it.expectedGeneration == 7L &&
-                        it.status == WorkspaceAgentSessionStatus.RUNNING &&
+                        it.status == AgentSessionStatus.RUNNING &&
                         it.retainedUntil == null &&
                         it.clearGatewayBinding
                 },
@@ -769,7 +769,7 @@ class RunnerSessionBindingServiceTest {
         } returns true
     }
 
-    private fun stubPendingSetup(session: WorkspaceAgentSession) {
+    private fun stubPendingSetup(session: AgentSession) {
         every {
             sessions.setPendingSetupIfCurrent(
                 match {

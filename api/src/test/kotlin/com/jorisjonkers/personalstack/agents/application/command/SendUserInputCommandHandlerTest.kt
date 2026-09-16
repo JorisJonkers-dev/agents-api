@@ -7,13 +7,13 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerPr
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.TurnRole
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
@@ -92,7 +92,7 @@ class SendUserInputCommandHandlerTest {
 
     private fun bound(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
     ) = RunnerSessionBindingResult.Bound(
         workspace = workspace,
         session = session,
@@ -122,12 +122,12 @@ class SendUserInputCommandHandlerTest {
     private fun session(
         workspaceId: WorkspaceId,
         gatewayAgentId: String?,
-    ) = WorkspaceAgentSession(
-        id = WorkspaceAgentSessionId.random(),
+    ) = AgentSession(
+        id = AgentSessionId.random(),
         workspaceId = workspaceId,
         kind = WorkspaceAgentKind.CLAUDE,
         gatewayAgentId = gatewayAgentId,
-        status = WorkspaceAgentSessionStatus.RUNNING,
+        status = AgentSessionStatus.RUNNING,
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
     )

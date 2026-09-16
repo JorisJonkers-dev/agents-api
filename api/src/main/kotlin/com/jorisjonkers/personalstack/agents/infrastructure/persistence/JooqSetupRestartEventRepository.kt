@@ -1,10 +1,10 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.persistence
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
 import org.jooq.DSLContext
@@ -65,7 +65,7 @@ class JooqSetupRestartEventRepository(
             .fetch()
             .map { it.toEvent() }
 
-    override fun findAllBySessionId(sessionId: WorkspaceAgentSessionId): List<SetupRestartEvent> =
+    override fun findAllBySessionId(sessionId: AgentSessionId): List<SetupRestartEvent> =
         dsl
             .selectFrom(TABLE)
             .where(SESSION_ID.eq(sessionId.value))
@@ -89,7 +89,7 @@ class JooqSetupRestartEventRepository(
         SetupRestartEvent(
             id = this[ID],
             workspaceId = WorkspaceId(this[WORKSPACE_ID]),
-            sessionId = this[SESSION_ID]?.let { WorkspaceAgentSessionId(it) },
+            sessionId = this[SESSION_ID]?.let { AgentSessionId(it) },
             fromSetupId = this[FROM_SETUP_ID]?.let { AgentSetupId(it) },
             fromSetupVersion = this[FROM_SETUP_VERSION]?.let { AgentSetupVersion(it) },
             toSetupId = AgentSetupId(this[TO_SETUP_ID]),

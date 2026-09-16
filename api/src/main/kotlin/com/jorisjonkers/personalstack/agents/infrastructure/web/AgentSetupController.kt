@@ -3,17 +3,17 @@ package com.jorisjonkers.personalstack.agents.infrastructure.web
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffService
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AgentSetupCatalogEntryResponse
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AgentSetupCatalogResponse
@@ -47,7 +47,7 @@ import java.util.UUID
 class AgentSetupController(
     private val setups: AgentSetupRepository,
     private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val events: SetupRestartEventRepository,
     private val diffService: AgentSetupDiffService,
     private val validation: AgentSetupValidationService,
@@ -86,7 +86,7 @@ class AgentSetupController(
         @PathVariable sessionId: UUID,
     ): ResponseEntity<SessionSetupStateResponse> {
         val session =
-            sessionInWorkspace(WorkspaceId(workspaceId), WorkspaceAgentSessionId(sessionId))
+            sessionInWorkspace(WorkspaceId(workspaceId), AgentSessionId(sessionId))
                 ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(SessionSetupStateResponse.of(session, latestFailedSessionEvent(session.id)))
     }
@@ -99,7 +99,7 @@ class AgentSetupController(
     ): ResponseEntity<SetupTargetOptionsResponse> {
         val workspace = workspaces.findById(WorkspaceId(workspaceId)) ?: return ResponseEntity.notFound().build()
         val session =
-            sessionInWorkspace(workspace.id, WorkspaceAgentSessionId(sessionId))
+            sessionInWorkspace(workspace.id, AgentSessionId(sessionId))
                 ?: return ResponseEntity.notFound().build()
         val options =
             setups.findSelectable().map { entry ->
@@ -150,7 +150,7 @@ class AgentSetupController(
     ): ResponseEntity<SetupPreviewResponse> {
         val workspace = workspaces.findById(WorkspaceId(workspaceId)) ?: return ResponseEntity.notFound().build()
         val session =
-            sessionInWorkspace(workspace.id, WorkspaceAgentSessionId(sessionId))
+            sessionInWorkspace(workspace.id, AgentSessionId(sessionId))
                 ?: return ResponseEntity.notFound().build()
         val targetId = AgentSetupId(targetSetupId)
         val targetVersion = AgentSetupVersion(targetSetupVersion)
@@ -196,7 +196,7 @@ class AgentSetupController(
         @PathVariable sessionId: UUID,
     ): ResponseEntity<SetupTransitionHistoryResponse> {
         val session =
-            sessionInWorkspace(WorkspaceId(workspaceId), WorkspaceAgentSessionId(sessionId))
+            sessionInWorkspace(WorkspaceId(workspaceId), AgentSessionId(sessionId))
                 ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(
             SetupTransitionHistoryResponse(
@@ -216,13 +216,13 @@ class AgentSetupController(
 
     private fun sessionInWorkspace(
         workspaceId: WorkspaceId,
-        sessionId: WorkspaceAgentSessionId,
-    ): WorkspaceAgentSession? =
+        sessionId: AgentSessionId,
+    ): AgentSession? =
         sessions
             .findById(sessionId)
             ?.takeIf { it.workspaceId == workspaceId }
 
-    private fun latestFailedSessionEvent(sessionId: WorkspaceAgentSessionId): SetupRestartEvent? =
+    private fun latestFailedSessionEvent(sessionId: AgentSessionId): SetupRestartEvent? =
         events
             .findAllBySessionId(sessionId)
             .filter { it.status == SetupRestartEventStatus.FAILED }

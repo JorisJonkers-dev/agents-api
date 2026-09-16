@@ -5,12 +5,12 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService.WorkspaceRepositoryView
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessSnapshot
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerReadinessState
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Repository
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
@@ -226,7 +226,7 @@ data class WorkspaceDetailResponse(
         fun of(
             workspace: Workspace,
             repositories: List<WorkspaceRepositoryView>,
-            sessions: List<WorkspaceAgentSession>,
+            sessions: List<AgentSession>,
             runnerImage: WorkspaceRunnerImageResponse? = null,
         ) = WorkspaceDetailResponse(
             workspace = WorkspaceWithRepositoriesResponse.of(workspace, repositories, runnerImage),
@@ -283,7 +283,7 @@ data class RestartAgentSessionResponse(
     val pendingSetup: AgentSetupReferenceResponse?,
 ) {
     companion object {
-        fun of(s: WorkspaceAgentSession) =
+        fun of(s: AgentSession) =
             RestartAgentSessionResponse(
                 sessionId = s.id.value,
                 epoch = s.epoch,
@@ -314,7 +314,7 @@ data class WorkspaceAgentSessionResponse(
     val updatedAt: Instant,
 ) {
     companion object {
-        fun of(s: WorkspaceAgentSession) =
+        fun of(s: AgentSession) =
             WorkspaceAgentSessionResponse(
                 id = s.id.value,
                 workspaceId = s.workspaceId.value,
@@ -324,7 +324,7 @@ data class WorkspaceAgentSessionResponse(
                 generation = s.generation,
                 gatewayBoundAt = s.gatewayBoundAt,
                 status = s.status.name,
-                idle = s.status == WorkspaceAgentSessionStatus.RUNNING && s.gatewayAgentId == null,
+                idle = s.status == AgentSessionStatus.RUNNING && s.gatewayAgentId == null,
                 currentSetup = AgentSetupReferenceResponse.of(s.currentSetupId, s.currentSetupVersion),
                 pendingSetup =
                     s.pendingSetupId?.let { id ->

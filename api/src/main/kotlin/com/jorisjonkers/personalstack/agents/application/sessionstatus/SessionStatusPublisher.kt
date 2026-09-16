@@ -1,8 +1,8 @@
 package com.jorisjonkers.personalstack.agents.application.sessionstatus
 
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
@@ -14,15 +14,15 @@ class SessionStatusPublisher(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     fun publishStatus(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         idle: Boolean = false,
     ) {
         publishStatus(session.id, session.status, idle)
     }
 
     fun publishStatus(
-        sessionId: WorkspaceAgentSessionId,
-        status: WorkspaceAgentSessionStatus,
+        sessionId: AgentSessionId,
+        status: AgentSessionStatus,
         idle: Boolean = false,
     ) {
         dispatchAfterCommitOrNow {
@@ -37,7 +37,7 @@ class SessionStatusPublisher(
         }
     }
 
-    fun publishRemove(sessionId: WorkspaceAgentSessionId) {
+    fun publishRemove(sessionId: AgentSessionId) {
         dispatchAfterCommitOrNow {
             broadcaster.broadcastRemove(
                 SessionRemoveEvent(

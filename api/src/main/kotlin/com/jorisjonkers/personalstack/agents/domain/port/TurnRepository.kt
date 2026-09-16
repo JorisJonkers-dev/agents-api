@@ -1,13 +1,13 @@
 package com.jorisjonkers.personalstack.agents.domain.port
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 
 interface TurnRepository {
     fun save(turn: Turn): Turn
 
     fun findBySessionId(
-        sessionId: WorkspaceAgentSessionId,
+        sessionId: AgentSessionId,
         limit: Int = 200,
     ): List<Turn>
 }

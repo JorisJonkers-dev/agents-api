@@ -10,12 +10,12 @@ import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelecti
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerSetupTarget
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -25,7 +25,7 @@ import java.time.Instant
 @Component
 class RunnerSessionBindingDependencies(
     val workspaces: WorkspaceRepository,
-    val sessions: WorkspaceAgentSessionRepository,
+    val sessions: AgentSessionRepository,
     val gateway: AgentGatewayClient,
     val orchestrator: AgentRunnerOrchestrator,
     val tx: RunnerSessionBindingTransactions,
@@ -108,12 +108,12 @@ class RunnerSessionBinder(
         workspace: Workspace,
         target: RunnerSetupTarget,
         now: java.time.Instant,
-    ) = WorkspaceAgentSession(
+    ) = AgentSession(
         id = request.sessionId,
         workspaceId = workspace.id,
         kind = request.kind,
         gatewayAgentId = null,
-        status = WorkspaceAgentSessionStatus.STARTING,
+        status = AgentSessionStatus.STARTING,
         createdAt = now,
         updatedAt = now,
         runMode = request.runMode,
@@ -125,9 +125,9 @@ class RunnerSessionBinder(
 
     private fun persistBoundSession(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         gatewayAgent: AgentGatewayClient.GatewayAgent,
-    ): WorkspaceAgentSession? {
+    ): AgentSession? {
         val boundSession = session.bindGatewayAgent(gatewayAgent.id, gatewayAgent.cliSessionId)
         return runCatching { sessions.save(boundSession) }
             .getOrElse { ex ->
@@ -167,7 +167,7 @@ class RunnerSessionBinder(
     }
 
     private fun performRestart(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
         request: RestartRunnerSessionBindingInput,
     ): RunnerSessionBindingResult {
@@ -202,8 +202,8 @@ class RunnerSessionBinder(
     }
 
     private fun completeRestart(
-        session: WorkspaceAgentSession,
-        starting: WorkspaceAgentSession,
+        session: AgentSession,
+        starting: AgentSession,
         ready: RunnerReady,
         target: RunnerSetupTarget,
         request: RestartRunnerSessionBindingInput,
@@ -240,7 +240,7 @@ class RunnerSessionBinder(
     // via ensureBound once the runner is ready, instead of failing the
     // restart and wedging the workspace while the pod is still booting.
     private fun awaitingRebindOrConflict(
-        starting: WorkspaceAgentSession,
+        starting: AgentSession,
         promotedWorkspace: Workspace,
     ): RunnerSessionBindingResult =
         if (!tx.markAwaitingRebind(starting)) {
@@ -271,8 +271,8 @@ class RunnerSessionBinder(
         guards.ensureBoundGuard(session, workspace)?.let { return it }
         val target = setupResolver.resolveSessionSetup(workspace, session)
         require(
-            session.status == WorkspaceAgentSessionStatus.RUNNING ||
-                session.status == WorkspaceAgentSessionStatus.STARTING,
+            session.status == AgentSessionStatus.RUNNING ||
+                session.status == AgentSessionStatus.STARTING,
         ) {
             "session is not running: ${request.sessionId.value}"
         }
@@ -281,12 +281,12 @@ class RunnerSessionBinder(
     }
 
     private fun tryFastPathBound(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
         target: RunnerSetupTarget,
     ): RunnerSessionBindingResult.Bound? {
         val gatewayAgentId = session.gatewayAgentId ?: return null
-        if (session.status != WorkspaceAgentSessionStatus.RUNNING ||
+        if (session.status != AgentSessionStatus.RUNNING ||
             !provisioning.isRunnerReadyFor(workspace, target)
         ) {
             return null
@@ -309,7 +309,7 @@ class RunnerSessionBinder(
 
     // Validate runner readiness before bumping generation — no provisioning in interactive binding paths.
     private fun checkReadinessAndRebind(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         workspace: Workspace,
         target: RunnerSetupTarget,
     ): RunnerSessionBindingResult {
@@ -341,7 +341,7 @@ class RunnerSessionBinder(
 
     private fun spawnAndBind(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         continuation: AgentGatewayClient.ContinuationMetadata?,
         provisioning: RunnerProvisioningResult,
         promotePendingSetup: Boolean = false,
@@ -396,15 +396,15 @@ class RunnerSessionBinder(
 @Component
 class RunnerSessionBindingTransactions(
     private val workspaces: WorkspaceRepository,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val sessionStatus: SessionStatusPublisher,
 ) {
     private val log = LoggerFactory.getLogger(RunnerSessionBindingTransactions::class.java)
 
     @Transactional
     fun beginGeneration(
-        current: WorkspaceAgentSession,
-        next: WorkspaceAgentSession,
+        current: AgentSession,
+        next: AgentSession,
     ): Boolean {
         val changed =
             sessions.beginGeneration(
@@ -418,14 +418,14 @@ class RunnerSessionBindingTransactions(
 
     @Transactional
     fun beginSetupGeneration(
-        current: WorkspaceAgentSession,
-        next: WorkspaceAgentSession,
+        current: AgentSession,
+        next: AgentSession,
     ): Boolean {
         val pendingId = requireNotNull(next.pendingSetupId) { "pending setup id is required" }
         val pendingVersion = requireNotNull(next.pendingSetupVersion) { "pending setup version is required" }
         val setupChanged =
             sessions.setPendingSetupIfCurrent(
-                WorkspaceAgentSessionRepository.PendingSetupUpdate(
+                AgentSessionRepository.PendingSetupUpdate(
                     id = current.id,
                     expectedCurrentSetupId = current.currentSetupId,
                     expectedCurrentSetupVersion = current.currentSetupVersion,
@@ -447,7 +447,7 @@ class RunnerSessionBindingTransactions(
 
     @Transactional
     fun bind(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         gatewayAgent: AgentGatewayClient.GatewayAgent,
         promotePendingSetup: Boolean = false,
     ): Boolean {
@@ -489,13 +489,13 @@ class RunnerSessionBindingTransactions(
     }
 
     @Transactional
-    fun markFailed(session: WorkspaceAgentSession): Boolean {
+    fun markFailed(session: AgentSession): Boolean {
         val changed =
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.FAILED,
+                    status = AgentSessionStatus.FAILED,
                     retainedUntil = session.retainedUntil,
                     clearGatewayBinding = true,
                 ),
@@ -512,13 +512,13 @@ class RunnerSessionBindingTransactions(
     }
 
     @Transactional
-    fun markAwaitingRebind(session: WorkspaceAgentSession): Boolean {
+    fun markAwaitingRebind(session: AgentSession): Boolean {
         val changed =
             sessions.markLifecycleIfGeneration(
-                WorkspaceAgentSessionRepository.LifecycleUpdate(
+                AgentSessionRepository.LifecycleUpdate(
                     id = session.id,
                     expectedGeneration = session.generation,
-                    status = WorkspaceAgentSessionStatus.RUNNING,
+                    status = AgentSessionStatus.RUNNING,
                     retainedUntil = null,
                     clearGatewayBinding = true,
                 ),

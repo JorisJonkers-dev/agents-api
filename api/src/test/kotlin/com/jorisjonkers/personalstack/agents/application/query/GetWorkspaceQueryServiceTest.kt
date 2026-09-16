@@ -7,8 +7,8 @@ import com.jorisjonkers.personalstack.agents.domain.model.RepositoryId
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
 import io.mockk.every
@@ -21,7 +21,7 @@ import java.time.Instant
 
 class GetWorkspaceQueryServiceTest {
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val workspaceRepositories = mockk<WorkspaceRepositoryRepository>()
     private val repositories = mockk<RepositoryRepository>()
     private val service = GetWorkspaceQueryService(workspaces, sessions, workspaceRepositories, repositories)

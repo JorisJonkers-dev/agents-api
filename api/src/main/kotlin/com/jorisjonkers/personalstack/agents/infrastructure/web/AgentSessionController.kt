@@ -9,13 +9,13 @@ import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartA
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RestartAgentSessionService
 import com.jorisjonkers.personalstack.agents.application.sessionbinding.RunnerSessionBindingResult
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerUnavailableReason
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RestartAgentSessionHttpRequest
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.RestartAgentSessionResponse
@@ -53,7 +53,7 @@ import java.util.UUID
 class AgentSessionController(
     private val commandBus: CommandBus,
     private val turnHistory: GetTurnHistoryQueryService,
-    private val sessions: WorkspaceAgentSessionRepository,
+    private val sessions: AgentSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val gateway: AgentGatewayClient,
     private val restartAgentSession: RestartAgentSessionService,
@@ -63,7 +63,7 @@ class AgentSessionController(
         @PathVariable workspaceId: UUID,
         @RequestBody req: StartAgentSessionRequest,
     ): ResponseEntity<Map<String, UUID>> {
-        val sessionId = WorkspaceAgentSessionId.random()
+        val sessionId = AgentSessionId.random()
         commandBus.dispatch(
             StartAgentSessionCommand(
                 sessionId = sessionId,
@@ -83,7 +83,7 @@ class AgentSessionController(
         requireSessionInWorkspace(workspaceId, sessionId)
         commandBus.dispatch(
             SendUserInputCommand(
-                sessionId = WorkspaceAgentSessionId(sessionId),
+                sessionId = AgentSessionId(sessionId),
                 text = req.text,
                 enter = req.enter,
             ),
@@ -126,7 +126,7 @@ class AgentSessionController(
             restartAgentSession.restart(
                 RestartAgentSessionInput(
                     workspaceId = WorkspaceId(workspaceId),
-                    sessionId = WorkspaceAgentSessionId(sessionId),
+                    sessionId = AgentSessionId(sessionId),
                     expectedGeneration = req?.expectedGeneration,
                     targetSetupId = req?.targetSetupId?.let(::AgentSetupId),
                     targetSetupVersion = req?.targetSetupVersion?.let(::AgentSetupVersion),
@@ -166,7 +166,7 @@ class AgentSessionController(
             "expected setup id and version must be supplied together"
         }
         val workspaceModelId = WorkspaceId(workspaceId)
-        val session = sessions.findById(WorkspaceAgentSessionId(sessionId)) ?: return null
+        val session = sessions.findById(AgentSessionId(sessionId)) ?: return null
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
         return restartEpochConflict(session, req.expectedEpoch)
             ?: restartSetupConflict(session, expectedSetupId, expectedSetupVersion)
@@ -182,7 +182,7 @@ class AgentSessionController(
         ).any { it != null }
 
     private fun restartSetupConflict(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         expectedSetupId: String?,
         expectedSetupVersion: Long?,
     ): ResponseEntity<RestartAgentSessionResponse>? {
@@ -194,12 +194,12 @@ class AgentSessionController(
     }
 
     private fun restartEpochConflict(
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         expectedEpoch: Long?,
     ): ResponseEntity<RestartAgentSessionResponse>? =
         if (expectedEpoch != null && expectedEpoch != session.epoch) restartConflict(session) else null
 
-    private fun restartConflict(session: WorkspaceAgentSession): ResponseEntity<RestartAgentSessionResponse> =
+    private fun restartConflict(session: AgentSession): ResponseEntity<RestartAgentSessionResponse> =
         ResponseEntity
             .status(HttpStatus.CONFLICT)
             .body(RestartAgentSessionResponse.of(session))
@@ -212,7 +212,7 @@ class AgentSessionController(
     ): ResponseEntity<StagedInputResponse> {
         val workspaceModelId = WorkspaceId(workspaceId)
         val session =
-            sessions.findById(WorkspaceAgentSessionId(sessionId))
+            sessions.findById(AgentSessionId(sessionId))
                 ?: error("session not found: $sessionId")
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
         val workspace = workspaces.findById(workspaceModelId) ?: error("workspace not found: $workspaceId")
@@ -234,7 +234,7 @@ class AgentSessionController(
         @PathVariable sessionId: UUID,
     ): List<TurnResponse> {
         requireSessionInWorkspace(workspaceId, sessionId)
-        return turnHistory.history(WorkspaceAgentSessionId(sessionId)).map(TurnResponse::of)
+        return turnHistory.history(AgentSessionId(sessionId)).map(TurnResponse::of)
     }
 
     @DeleteMapping("/{sessionId}")
@@ -243,17 +243,17 @@ class AgentSessionController(
         @PathVariable sessionId: UUID,
     ): ResponseEntity<Unit> {
         requireSessionInWorkspace(workspaceId, sessionId)
-        commandBus.dispatch(StopAgentSessionCommand(WorkspaceAgentSessionId(sessionId)))
+        commandBus.dispatch(StopAgentSessionCommand(AgentSessionId(sessionId)))
         return ResponseEntity.noContent().build()
     }
 
     private fun requireSessionInWorkspace(
         workspaceId: UUID,
         sessionId: UUID,
-    ): WorkspaceAgentSession {
+    ): AgentSession {
         val workspaceModelId = WorkspaceId(workspaceId)
         val session =
-            sessions.findById(WorkspaceAgentSessionId(sessionId))
+            sessions.findById(AgentSessionId(sessionId))
                 ?: error("session not found: $sessionId")
         require(session.workspaceId == workspaceModelId) { "session does not belong to workspace: $sessionId" }
         return session

@@ -1,5 +1,6 @@
 package com.jorisjonkers.personalstack.agents.infrastructure.web.dto
 
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupBindingRef
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupDiff
@@ -11,7 +12,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationRe
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 import java.time.Instant
 import java.util.UUID
 
@@ -225,7 +225,7 @@ data class SessionSetupStateResponse(
 ) {
     companion object {
         fun of(
-            session: WorkspaceAgentSession,
+            session: AgentSession,
             failed: SetupRestartEvent?,
         ): SessionSetupStateResponse =
             SessionSetupStateResponse(

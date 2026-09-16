@@ -22,10 +22,10 @@ import com.jorisjonkers.personalstack.agents.application.workspacerunner.Workspa
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
 import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import com.jorisjonkers.personalstack.agents.infrastructure.credentials.CredentialValidator
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.GitHubAppInstallationTokenClient
@@ -293,7 +293,7 @@ class OpenApiSpecExportTest
             fun setupRestartEventRepository(): SetupRestartEventRepository = mockk(relaxed = true)
 
             @Bean
-            fun workspaceAgentSessionRepository(): WorkspaceAgentSessionRepository = mockk(relaxed = true)
+            fun agentSessionRepository(): AgentSessionRepository = mockk(relaxed = true)
 
             @Bean
             fun workspaceRepository(): WorkspaceRepository = mockk(relaxed = true)

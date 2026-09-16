@@ -4,13 +4,13 @@ import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupSelecti
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationInput
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.RunnerSetupTarget
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupCatalogEntry
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
 
 /**
  * Resolves which agent setup entry (and provisioning spec) to use for a given
@@ -55,7 +55,7 @@ internal class RunnerSetupResolver(
 
     fun resolveRestartSetup(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
         request: RestartRunnerSessionBindingInput,
     ): RunnerSetupTarget {
         require((request.targetSetupId == null) == (request.targetSetupVersion == null)) {
@@ -73,7 +73,7 @@ internal class RunnerSetupResolver(
 
     fun resolveSessionSetup(
         workspace: Workspace,
-        session: WorkspaceAgentSession,
+        session: AgentSession,
     ): RunnerSetupTarget =
         requireValidTarget(
             workspace = workspace,
@@ -85,7 +85,7 @@ internal class RunnerSetupResolver(
     private fun requireValidTarget(
         workspace: Workspace,
         kind: WorkspaceAgentKind,
-        session: WorkspaceAgentSession?,
+        session: AgentSession?,
         entry: AgentSetupCatalogEntry,
     ): RunnerSetupTarget {
         setupValidation.requireValid(

@@ -1,19 +1,19 @@
 package com.jorisjonkers.personalstack.agents.application.rag
 
 import com.jorisjonkers.personalstack.agents.config.RagProperties
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.Turn
 import com.jorisjonkers.personalstack.agents.domain.model.TurnId
 import com.jorisjonkers.personalstack.agents.domain.model.TurnRole
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.KnowledgeWritePort
 import com.jorisjonkers.personalstack.agents.domain.port.TurnRepository
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -23,7 +23,7 @@ import java.time.Instant
 
 class LessonAutoCaptureTest {
     private val workspaces = mockk<WorkspaceRepository>()
-    private val sessions = mockk<WorkspaceAgentSessionRepository>()
+    private val sessions = mockk<AgentSessionRepository>()
     private val turns = mockk<TurnRepository>()
     private val extractor = LessonExtractor()
     private val kbWrite = mockk<KnowledgeWritePort>(relaxed = true)
@@ -83,7 +83,7 @@ class LessonAutoCaptureTest {
         // Deprecated master toggle: rag.enabled=false disables both retrieval and capture.
         val disabledRag = rag.copy(enabled = false)
         val withDisabled = LessonAutoCapture(workspaces, sessions, turns, extractor, kbWrite, disabledRag)
-        withDisabled.capture(WorkspaceAgentSessionId.random())
+        withDisabled.capture(AgentSessionId.random())
         verify(exactly = 0) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
     }
 
@@ -91,7 +91,7 @@ class LessonAutoCaptureTest {
     fun `capture is a no-op when captureEnabled is false`() {
         val captureOffRag = rag.copy(capture = RagProperties.CaptureFlags(enabled = false))
         val withCaptureOff = LessonAutoCapture(workspaces, sessions, turns, extractor, kbWrite, captureOffRag)
-        withCaptureOff.capture(WorkspaceAgentSessionId.random())
+        withCaptureOff.capture(AgentSessionId.random())
         verify(exactly = 0) { kbWrite.ingestNote(any<KnowledgeWritePort.CaptureRequest>()) }
     }
 
@@ -227,12 +227,12 @@ class LessonAutoCaptureTest {
         )
 
     private fun session(workspaceId: WorkspaceId) =
-        WorkspaceAgentSession(
-            id = WorkspaceAgentSessionId.random(),
+        AgentSession(
+            id = AgentSessionId.random(),
             workspaceId = workspaceId,
             kind = WorkspaceAgentKind.CLAUDE,
             gatewayAgentId = "abc12345",
-            status = WorkspaceAgentSessionStatus.RUNNING,
+            status = AgentSessionStatus.RUNNING,
             createdAt = Instant.now(),
             updatedAt = Instant.now(),
         )
@@ -241,7 +241,7 @@ class LessonAutoCaptureTest {
         role: TurnRole,
         body: String,
         sec: Long,
-        sid: WorkspaceAgentSessionId,
+        sid: AgentSessionId,
     ) = Turn(
         id = TurnId.random(),
         sessionId = sid,

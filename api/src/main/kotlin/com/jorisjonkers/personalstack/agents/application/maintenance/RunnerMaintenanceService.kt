@@ -6,7 +6,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -31,7 +31,7 @@ import java.time.Clock
 @Component
 class RunnerMaintenanceService(
     private val workspaces: WorkspaceRepository,
-    private val agentSessions: WorkspaceAgentSessionRepository,
+    private val agentSessions: AgentSessionRepository,
     private val orchestrator: AgentRunnerOrchestrator,
     private val tracker: WorkspaceActivityTracker,
     private val sessionStatus: SessionStatusPublisher,

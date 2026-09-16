@@ -2,17 +2,17 @@ package com.jorisjonkers.personalstack.agents.application.maintenance
 
 import com.jorisjonkers.personalstack.agents.application.idle.WorkspaceActivityTracker
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
+import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSession
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
-import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceAgentSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -29,7 +29,7 @@ class RunnerMaintenanceServiceTest {
     private val now = Instant.parse("2026-05-19T12:00:00Z")
     private val clock = Clock.fixed(now, ZoneOffset.UTC)
     private val workspaces = mockk<WorkspaceRepository>()
-    private val agentSessions = mockk<WorkspaceAgentSessionRepository>()
+    private val agentSessions = mockk<AgentSessionRepository>()
     private val orchestrator = mockk<AgentRunnerOrchestrator>(relaxed = true)
     private val tracker = WorkspaceActivityTracker(clock)
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
@@ -110,12 +110,12 @@ class RunnerMaintenanceServiceTest {
     fun `gracefulScaleDownAll skips workspace with session pending setup promotion`() {
         val ws = workspace(WorkspaceStatus.READY)
         val session =
-            WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CODEX,
                 gatewayAgentId = "gateway-agent",
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = AgentSessionStatus.RUNNING,
                 createdAt = now.minusSeconds(3600),
                 updatedAt = now.minusSeconds(60),
                 pendingSetupId = AgentSetupId("gpu"),
@@ -171,12 +171,12 @@ class RunnerMaintenanceServiceTest {
     fun `gracefulScaleDownAll clears current gateway bindings without deleting sessions`() {
         val ws = workspace(WorkspaceStatus.READY)
         val session =
-            WorkspaceAgentSession(
-                id = WorkspaceAgentSessionId.random(),
+            AgentSession(
+                id = AgentSessionId.random(),
                 workspaceId = ws.id,
                 kind = WorkspaceAgentKind.CODEX,
                 gatewayAgentId = "gateway-agent",
-                status = WorkspaceAgentSessionStatus.RUNNING,
+                status = AgentSessionStatus.RUNNING,
                 createdAt = now.minusSeconds(3600),
                 updatedAt = now.minusSeconds(60),
                 epoch = 6,
