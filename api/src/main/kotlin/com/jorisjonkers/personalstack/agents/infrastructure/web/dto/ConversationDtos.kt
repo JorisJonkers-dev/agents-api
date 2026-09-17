@@ -4,7 +4,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.Conversation
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationKind
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessage
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageRole
-import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 import java.time.Instant
 import java.util.UUID
@@ -40,16 +39,29 @@ data class ConversationResponse(
     }
 }
 
+// body/content both nullable (rather than one @NotBlank field) so
+// either the canonical `body` or the legacy `content` name can be
+// absent without failing bean validation; resolvedBody() picks
+// whichever is present and the handler still rejects a blank result.
 data class AppendConversationMessageRequest(
-    @field:NotBlank val body: String,
-    val role: ConversationMessageRole = ConversationMessageRole.USER,
-)
+    val body: String? = null,
+    val content: String? = null,
+    val role: ConversationMessageRole? = null,
+) {
+    fun resolvedBody(): String = (body ?: content).orEmpty()
+
+    fun resolvedRole(): ConversationMessageRole = role ?: ConversationMessageRole.USER
+}
 
 data class ConversationMessageResponse(
     val id: UUID,
     val conversationId: UUID,
     val role: String,
     val body: String,
+    // Wire-compat: the legacy /api/v1/conversations response used
+    // `content`; duplicated alongside `body` so an old reader of the
+    // canonical path keeps working.
+    val content: String,
     val createdAt: Instant,
 ) {
     companion object {
@@ -59,17 +71,39 @@ data class ConversationMessageResponse(
                 conversationId = m.conversationId.value,
                 role = m.role.name,
                 body = m.body,
+                content = m.body,
                 createdAt = m.createdAt,
             )
     }
 }
 
-// Criterion: GET /api/v1/chat-sessions/{id} returned an untyped
-// Map<String, Any> (keys "session"/"messages"), giving the generated
-// TS client no real type. The canonical endpoint returns this instead;
-// the deprecated alias keeps returning the untyped map for wire
-// compatibility.
+// Flat shape restored to match the legacy /api/v1/conversations/{id}
+// response (id/userId/title/status/createdAt/updatedAt at top level);
+// only `kind` and `messages` are additions. The deprecated
+// /api/v1/chat-sessions alias keeps its own untyped map instead.
 data class ConversationDetailResponse(
-    val conversation: ConversationResponse,
+    val id: UUID,
+    val userId: UUID,
+    val title: String?,
+    val status: String,
+    val kind: String,
+    val createdAt: Instant,
+    val updatedAt: Instant,
     val messages: List<ConversationMessageResponse>,
-)
+) {
+    companion object {
+        fun of(
+            conversation: Conversation,
+            messages: List<ConversationMessage>,
+        ) = ConversationDetailResponse(
+            id = conversation.id.value,
+            userId = conversation.userId,
+            title = conversation.title,
+            status = conversation.status.name,
+            kind = conversation.kind.name,
+            createdAt = conversation.createdAt,
+            updatedAt = conversation.updatedAt,
+            messages = messages.map(ConversationMessageResponse::of),
+        )
+    }
+}

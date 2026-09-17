@@ -43,6 +43,10 @@ class ConversationOwnershipIntegrationTest
                 .andExpect(status().isNotFound)
 
             mockMvc
+                .perform(get("/api/v1/conversations/$conversationId/messages").header("X-User-Id", otherUserId))
+                .andExpect(status().isNotFound)
+
+            mockMvc
                 .perform(
                     post("/api/v1/conversations/$conversationId/messages")
                         .header("X-User-Id", otherUserId)
@@ -62,6 +66,11 @@ class ConversationOwnershipIntegrationTest
                 .perform(get("/api/v1/conversations/$conversationId").header("X-User-Id", ownerId))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.messages").isEmpty)
+
+            mockMvc
+                .perform(get("/api/v1/conversations/$conversationId/messages").header("X-User-Id", ownerId))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$").isEmpty)
         }
 
         @Test

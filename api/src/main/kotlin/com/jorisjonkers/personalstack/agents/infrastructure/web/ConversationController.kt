@@ -15,6 +15,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.Conversation
 import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartConversationRequest
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.swagger.v3.oas.annotations.Hidden
+import io.swagger.v3.oas.annotations.responses.ApiResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -38,6 +39,9 @@ class ConversationController(
     private val chatAnswerStream: ChatAnswerStreamService,
 ) {
     @PostMapping
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 201 so the spec is truthful.
+    @ApiResponse(responseCode = "201", description = "Created")
     fun create(
         @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: StartConversationRequest,
@@ -74,15 +78,28 @@ class ConversationController(
         val detail =
             conversationQuery.get(ConversationId(id), UUID.fromString(userId))
                 ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(
-            ConversationDetailResponse(
-                conversation = ConversationResponse.of(detail.conversation),
-                messages = detail.messages.map(ConversationMessageResponse::of),
-            ),
-        )
+        return ResponseEntity.ok(ConversationDetailResponse.of(detail.conversation, detail.messages))
+    }
+
+    // Restores the legacy /api/v1/conversations/{conversationId}/messages
+    // list endpoint, serving the renamed model. Ownership is enforced
+    // through the same seam as GET /{id} (see #80): an unowned
+    // conversation reads as 404, not an empty list.
+    @GetMapping("/{id}/messages")
+    fun listMessages(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
+    ): ResponseEntity<List<ConversationMessageResponse>> {
+        val detail =
+            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
+                ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(detail.messages.map(ConversationMessageResponse::of))
     }
 
     @PostMapping("/{id}/messages")
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 201 so the spec is truthful.
+    @ApiResponse(responseCode = "201", description = "Created")
     fun appendMessage(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,
@@ -98,8 +115,8 @@ class ConversationController(
             AppendConversationMessageCommand(
                 messageId = messageId,
                 conversationId = conversationId,
-                role = req.role,
-                body = req.body,
+                role = req.resolvedRole(),
+                body = req.resolvedBody(),
             ),
         )
         val detail = conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
@@ -125,7 +142,7 @@ class ConversationController(
         // Ownership is resolved before streaming starts, so a refused
         // request never drives generation or token spend (see #80).
         conversationQuery.get(conversationId, UUID.fromString(userId)) ?: return ResponseEntity.notFound().build()
-        val emitter = chatAnswerStream.stream(conversationId, req.body)
+        val emitter = chatAnswerStream.stream(conversationId, req.resolvedBody())
         return ResponseEntity
             .ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -135,6 +152,9 @@ class ConversationController(
     }
 
     @DeleteMapping("/{id}")
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 204 so the spec is truthful.
+    @ApiResponse(responseCode = "204", description = "No Content")
     fun archive(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,

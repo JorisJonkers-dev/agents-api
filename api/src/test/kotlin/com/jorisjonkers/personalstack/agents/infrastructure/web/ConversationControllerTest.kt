@@ -2,16 +2,21 @@ package com.jorisjonkers.personalstack.agents.infrastructure.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.jorisjonkers.personalstack.agents.application.chat.ChatAnswerStreamService
+import com.jorisjonkers.personalstack.agents.application.command.AppendConversationMessageCommand
 import com.jorisjonkers.personalstack.agents.application.query.ConversationQueryService
 import com.jorisjonkers.personalstack.agents.domain.model.Conversation
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationId
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationKind
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageRole
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationStatus
+import com.jorisjonkers.personalstack.common.command.Command
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import com.jorisjonkers.personalstack.common.web.GlobalExceptionHandler
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
@@ -81,14 +86,35 @@ class ConversationControllerTest {
     }
 
     @Test
-    fun `GET by id returns a typed ConversationDetailResponse for the owner`() {
+    fun `GET by id returns a flat ConversationDetailResponse for the owner`() {
         val c = conversation()
         every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         mockMvc
             .perform(get("/api/v1/conversations/${c.id.value}").header("X-User-Id", c.userId.toString()))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.conversation.id").value(c.id.value.toString()))
+            .andExpect(jsonPath("$.id").value(c.id.value.toString()))
+            .andExpect(jsonPath("$.title").value("x"))
             .andExpect(jsonPath("$.messages").isArray)
+    }
+
+    @Test
+    fun `GET messages returns the conversation's messages for the owner`() {
+        val c = conversation()
+        every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        mockMvc
+            .perform(get("/api/v1/conversations/${c.id.value}/messages").header("X-User-Id", c.userId.toString()))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$").isArray)
+    }
+
+    @Test
+    fun `GET messages owned by another user returns 404`() {
+        val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(get("/api/v1/conversations/${c.id.value}/messages").header("X-User-Id", otherUser.toString()))
+            .andExpect(status().isNotFound)
     }
 
     @Test
@@ -129,6 +155,29 @@ class ConversationControllerTest {
             // dispatch happened regardless.
         }
         verify { commandBus.dispatch(any()) }
+    }
+
+    @Test
+    fun `POST messages accepts the legacy content field and defaults role to USER`() {
+        val c = conversation()
+        every { query.get(c.id, c.userId) } returns
+            ConversationQueryService.ConversationDetail(c, emptyList())
+        val dispatched = slot<Command>()
+        every { commandBus.dispatch(capture(dispatched)) } returns Unit
+        try {
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations/${c.id.value}/messages")
+                        .header("X-User-Id", c.userId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mapOf("content" to "legacy hello"))),
+                )
+        } catch (_: Throwable) {
+            // Same unhandled-exception caveat as above.
+        }
+        val command = dispatched.captured as AppendConversationMessageCommand
+        assertThat(command.body).isEqualTo("legacy hello")
+        assertThat(command.role).isEqualTo(ConversationMessageRole.USER)
     }
 
     @Test

@@ -739,8 +739,8 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "201" : {
+            "description" : "Created",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -753,6 +753,41 @@
       }
     },
     "/api/v1/conversations/{id}/messages" : {
+      "get" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "listMessages",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ConversationMessageResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post" : {
         "tags" : [ "conversation-controller" ],
         "operationId" : "appendMessage",
@@ -783,8 +818,8 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "201" : {
+            "description" : "Created",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -1445,8 +1480,8 @@
           }
         } ],
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "204" : {
+            "description" : "No Content",
             "content" : { }
           }
         }
@@ -2328,15 +2363,16 @@
         "type" : "object",
         "properties" : {
           "body" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : [ "string", "null" ]
+          },
+          "content" : {
+            "type" : [ "string", "null" ]
           },
           "role" : {
-            "type" : "string",
+            "type" : [ "string", "null" ],
             "enum" : [ "USER", "ASSISTANT", "SYSTEM" ]
           }
-        },
-        "required" : [ "body", "role" ]
+        }
       },
       "ConversationMessageResponse" : {
         "type" : "object",
@@ -2355,12 +2391,15 @@
           "body" : {
             "type" : "string"
           },
+          "content" : {
+            "type" : "string"
+          },
           "createdAt" : {
             "type" : "string",
             "format" : "date-time"
           }
         },
-        "required" : [ "body", "conversationId", "createdAt", "id", "role" ]
+        "required" : [ "body", "content", "conversationId", "createdAt", "id", "role" ]
       },
       "StartChatSessionRequest" : {
         "type" : "object",
@@ -3034,8 +3073,30 @@
       "ConversationDetailResponse" : {
         "type" : "object",
         "properties" : {
-          "conversation" : {
-            "$ref" : "#/components/schemas/ConversationResponse"
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "userId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
           },
           "messages" : {
             "type" : "array",
@@ -3044,7 +3105,7 @@
             }
           }
         },
-        "required" : [ "conversation", "messages" ]
+        "required" : [ "createdAt", "id", "kind", "messages", "status", "updatedAt", "userId" ]
       },
       "AgentSetupCatalogResponse" : {
         "type" : "object",

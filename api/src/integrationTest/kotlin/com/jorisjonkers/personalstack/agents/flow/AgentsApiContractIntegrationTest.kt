@@ -346,7 +346,13 @@ class AgentsApiContractIntegrationTest
             mockMvc
                 .perform(get("/api/v1/conversations/$conversationId").header("X-User-Id", userId))
                 .andExpect(status().isOk)
-                .andExpect(jsonPath("$.conversation.id").value(conversationId))
+                .andExpect(jsonPath("$.id").value(conversationId))
                 .andExpect(jsonPath("$.messages[0].body").value("hello world"))
+
+            mockMvc
+                .perform(get("/api/v1/conversations/$conversationId/messages").header("X-User-Id", userId))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$[0].body").value("hello world"))
+                .andExpect(jsonPath("$[0].content").value("hello world"))
         }
     }
