@@ -1,16 +1,16 @@
 package com.jorisjonkers.personalstack.agents.application.chat
 
-import com.jorisjonkers.personalstack.agents.application.command.AppendChatMessageCommand
-import com.jorisjonkers.personalstack.agents.domain.model.ChatMessage
-import com.jorisjonkers.personalstack.agents.domain.model.ChatMessageId
-import com.jorisjonkers.personalstack.agents.domain.model.ChatMessageRole
-import com.jorisjonkers.personalstack.agents.domain.model.ChatSession
-import com.jorisjonkers.personalstack.agents.domain.model.ChatSessionId
-import com.jorisjonkers.personalstack.agents.domain.model.ChatSessionKind
-import com.jorisjonkers.personalstack.agents.domain.model.ChatSessionStatus
+import com.jorisjonkers.personalstack.agents.application.command.AppendConversationMessageCommand
+import com.jorisjonkers.personalstack.agents.domain.model.Conversation
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationId
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationKind
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessage
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageId
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageRole
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationStatus
 import com.jorisjonkers.personalstack.agents.domain.port.ChatGenerationPort
-import com.jorisjonkers.personalstack.agents.domain.port.ChatMessageRepository
-import com.jorisjonkers.personalstack.agents.domain.port.ChatSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.ConversationMessageRepository
+import com.jorisjonkers.personalstack.agents.domain.port.ConversationRepository
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.mockk.every
 import io.mockk.just
@@ -24,19 +24,19 @@ import java.util.UUID
 import java.util.concurrent.Executor
 
 class ChatAnswerStreamServiceTest {
-    private val sessions = mockk<ChatSessionRepository>()
-    private val messages = mockk<ChatMessageRepository>()
+    private val conversations = mockk<ConversationRepository>()
+    private val messages = mockk<ConversationMessageRepository>()
     private val commandBus = mockk<CommandBus>()
     private val generation = mockk<ChatGenerationPort>()
     private val executor = Executor { it.run() }
-    private val service = ChatAnswerStreamService(sessions, messages, commandBus, generation, executor)
+    private val service = ChatAnswerStreamService(conversations, messages, commandBus, generation, executor)
 
     @Test
     fun `stream persists agent message when an answer is produced`() {
-        val session = session()
-        val commands = mutableListOf<AppendChatMessageCommand>()
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns emptyList()
+        val conversation = conversation()
+        val commands = mutableListOf<AppendConversationMessageCommand>()
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns emptyList()
         every { commandBus.dispatch(capture(commands)) } just runs
         every { generation.generate("Hi", any()) } answers {
             secondArg<(String) -> Unit>().invoke("Hel")
@@ -44,57 +44,57 @@ class ChatAnswerStreamServiceTest {
             "Hello"
         }
 
-        service.stream(session.id, "Hi")
+        service.stream(conversation.id, "Hi")
 
         assertThat(commands).hasSize(1)
-        assertThat(commands[0].sessionId).isEqualTo(session.id)
-        assertThat(commands[0].role).isEqualTo(ChatMessageRole.ASSISTANT)
+        assertThat(commands[0].conversationId).isEqualTo(conversation.id)
+        assertThat(commands[0].role).isEqualTo(ConversationMessageRole.ASSISTANT)
         assertThat(commands[0].body).isEqualTo("Hello")
     }
 
     @Test
     fun `stream persists no agent message when no answer is produced`() {
-        val session = session()
-        val commands = mutableListOf<AppendChatMessageCommand>()
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns emptyList()
+        val conversation = conversation()
+        val commands = mutableListOf<AppendConversationMessageCommand>()
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns emptyList()
         every { commandBus.dispatch(capture(commands)) } just runs
         every { generation.generate("Hi", any()) } returns ""
 
-        service.stream(session.id, "Hi")
+        service.stream(conversation.id, "Hi")
 
         assertThat(commands).isEmpty()
     }
 
     @Test
     fun `stream routes generation through ChatGenerationPort not LightRagClient`() {
-        val session = session()
+        val conversation = conversation()
         val promptSlot = slot<String>()
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns emptyList()
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns emptyList()
         every { commandBus.dispatch(any()) } just runs
         every { generation.generate(capture(promptSlot), any()) } returns "Answer"
 
-        service.stream(session.id, "Hello")
+        service.stream(conversation.id, "Hello")
 
         assertThat(promptSlot.captured).isEqualTo("Hello")
     }
 
     @Test
-    fun `prompt includes prior history turns when session has messages`() {
-        val session = session()
+    fun `prompt includes prior history turns when conversation has messages`() {
+        val conversation = conversation()
         val promptSlot = slot<String>()
         val history =
             listOf(
-                chatMessage(session.id, ChatMessageRole.USER, "What is Kotlin?"),
-                chatMessage(session.id, ChatMessageRole.ASSISTANT, "A JVM language."),
+                conversationMessage(conversation.id, ConversationMessageRole.USER, "What is Kotlin?"),
+                conversationMessage(conversation.id, ConversationMessageRole.ASSISTANT, "A JVM language."),
             )
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns history
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns history
         every { commandBus.dispatch(any()) } just runs
         every { generation.generate(capture(promptSlot), any()) } returns "Answer"
 
-        service.stream(session.id, "Tell me more")
+        service.stream(conversation.id, "Tell me more")
 
         assertThat(promptSlot.captured).contains("User: What is Kotlin?")
         assertThat(promptSlot.captured).contains("Assistant: A JVM language.")
@@ -103,32 +103,32 @@ class ChatAnswerStreamServiceTest {
 
     @Test
     fun `prompt with no history is just the user body`() {
-        val session = session()
+        val conversation = conversation()
         val promptSlot = slot<String>()
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns emptyList()
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns emptyList()
         every { commandBus.dispatch(any()) } just runs
         every { generation.generate(capture(promptSlot), any()) } returns "Answer"
 
-        service.stream(session.id, "Hello")
+        service.stream(conversation.id, "Hello")
 
         assertThat(promptSlot.captured).isEqualTo("Hello")
     }
 
     @Test
     fun `history is bounded to the most recent 20 messages`() {
-        val session = session()
+        val conversation = conversation()
         val promptSlot = slot<String>()
         val history =
             (1..25).map { i ->
-                chatMessage(session.id, ChatMessageRole.USER, "Message $i")
+                conversationMessage(conversation.id, ConversationMessageRole.USER, "Message $i")
             }
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns history
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns history
         every { commandBus.dispatch(any()) } just runs
         every { generation.generate(capture(promptSlot), any()) } returns "Answer"
 
-        service.stream(session.id, "Latest")
+        service.stream(conversation.id, "Latest")
 
         val captured = promptSlot.captured
         assertThat(captured).doesNotContain("User: Message 4\n")
@@ -140,20 +140,20 @@ class ChatAnswerStreamServiceTest {
 
     @Test
     fun `current user turn is not duplicated when already persisted in history`() {
-        val session = session()
+        val conversation = conversation()
         val promptSlot = slot<String>()
         val history =
             listOf(
-                chatMessage(session.id, ChatMessageRole.USER, "What is Kotlin?"),
-                chatMessage(session.id, ChatMessageRole.ASSISTANT, "A JVM language."),
-                chatMessage(session.id, ChatMessageRole.USER, "Tell me more"),
+                conversationMessage(conversation.id, ConversationMessageRole.USER, "What is Kotlin?"),
+                conversationMessage(conversation.id, ConversationMessageRole.ASSISTANT, "A JVM language."),
+                conversationMessage(conversation.id, ConversationMessageRole.USER, "Tell me more"),
             )
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns history
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns history
         every { commandBus.dispatch(any()) } just runs
         every { generation.generate(capture(promptSlot), any()) } returns "Answer"
 
-        service.stream(session.id, "Tell me more")
+        service.stream(conversation.id, "Tell me more")
 
         // History already ends with this exact user turn (persist-then-stream
         // ordering) so it must appear once, not twice.
@@ -163,32 +163,32 @@ class ChatAnswerStreamServiceTest {
 
     @Test
     fun `error during generation emits error SSE event`() {
-        val session = session()
-        every { sessions.findById(session.id) } returns session
-        every { messages.findAllBySessionIdOrderedByTime(session.id) } returns emptyList()
+        val conversation = conversation()
+        every { conversations.findById(conversation.id) } returns conversation
+        every { messages.findAllByConversationIdOrderedByTime(conversation.id) } returns emptyList()
         every { generation.generate(any(), any()) } throws RuntimeException("backend unavailable")
 
-        val emitter = service.stream(session.id, "Hi")
+        val emitter = service.stream(conversation.id, "Hi")
 
         assertThat(emitter).isNotNull()
     }
 
-    private fun session(
-        id: ChatSessionId = ChatSessionId.random(),
+    private fun conversation(
+        id: ConversationId = ConversationId.random(),
         userId: UUID = UUID.randomUUID(),
-    ): ChatSession {
+    ): Conversation {
         val now = Instant.now()
-        return ChatSession(id, userId, "x", ChatSessionStatus.ACTIVE, ChatSessionKind.PLAIN, now, now)
+        return Conversation(id, userId, "x", ConversationStatus.ACTIVE, ConversationKind.PLAIN, now, now)
     }
 
-    private fun chatMessage(
-        sessionId: ChatSessionId,
-        role: ChatMessageRole,
+    private fun conversationMessage(
+        conversationId: ConversationId,
+        role: ConversationMessageRole,
         body: String,
-    ): ChatMessage =
-        ChatMessage(
-            id = ChatMessageId.random(),
-            sessionId = sessionId,
+    ): ConversationMessage =
+        ConversationMessage(
+            id = ConversationMessageId.random(),
+            conversationId = conversationId,
             role = role,
             body = body,
             createdAt = Instant.now(),

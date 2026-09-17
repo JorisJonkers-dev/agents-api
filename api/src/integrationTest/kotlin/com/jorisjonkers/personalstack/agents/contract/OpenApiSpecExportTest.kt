@@ -6,7 +6,7 @@ import com.jorisjonkers.personalstack.agents.application.RepositoryInstallationS
 import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationService
 import com.jorisjonkers.personalstack.agents.application.chat.ChatAnswerStreamService
 import com.jorisjonkers.personalstack.agents.application.maintenance.RunnerMaintenanceService
-import com.jorisjonkers.personalstack.agents.application.query.ChatSessionQueryService
+import com.jorisjonkers.personalstack.agents.application.query.ConversationQueryService
 import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQueryService
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService
 import com.jorisjonkers.personalstack.agents.application.query.ListWorkspacesQueryService
@@ -34,6 +34,7 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSessionCont
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ChatSessionController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.CredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.HealthController
@@ -77,6 +78,7 @@ import java.nio.file.Paths
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
+        ConversationController::class,
         CredentialController::class,
         GitController::class,
         HealthController::class,
@@ -112,6 +114,7 @@ import java.nio.file.Paths
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
+        ConversationController::class,
         CredentialController::class,
         GitController::class,
         HealthController::class,
@@ -246,7 +249,7 @@ class OpenApiSpecExportTest
         @TestConfiguration(proxyBeanMethods = false)
         class QueryCollaborators {
             @Bean
-            fun chatSessionQueryService(): ChatSessionQueryService = mockk(relaxed = true)
+            fun conversationQueryService(): ConversationQueryService = mockk(relaxed = true)
 
             @Bean
             fun getTurnHistoryQueryService(): GetTurnHistoryQueryService = mockk(relaxed = true)

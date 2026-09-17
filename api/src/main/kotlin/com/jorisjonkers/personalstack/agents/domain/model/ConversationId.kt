@@ -3,14 +3,14 @@ package com.jorisjonkers.personalstack.agents.domain.model
 import java.util.UUID
 
 @JvmInline
-value class ChatSessionId(
+value class ConversationId(
     val value: UUID,
 ) {
     override fun toString(): String = value.toString()
 
     companion object {
-        fun random(): ChatSessionId = ChatSessionId(UUID.randomUUID())
+        fun random(): ConversationId = ConversationId(UUID.randomUUID())
 
-        fun parse(s: String): ChatSessionId = ChatSessionId(UUID.fromString(s))
+        fun parse(s: String): ConversationId = ConversationId(UUID.fromString(s))
     }
 }

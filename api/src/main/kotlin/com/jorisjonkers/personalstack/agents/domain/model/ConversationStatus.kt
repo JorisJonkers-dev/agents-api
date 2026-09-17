@@ -1,6 +1,6 @@
 package com.jorisjonkers.personalstack.agents.domain.model
 
-enum class ChatSessionStatus {
+enum class ConversationStatus {
     ACTIVE,
     ARCHIVED,
 }

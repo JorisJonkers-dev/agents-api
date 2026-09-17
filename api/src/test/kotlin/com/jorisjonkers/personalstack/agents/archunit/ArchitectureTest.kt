@@ -96,15 +96,14 @@ class ArchitectureTest {
         val redesignDomainTypes =
             com.tngtech.archunit.base.DescribedPredicate
                 .describe<com.tngtech.archunit.core.domain.JavaClass>(
-                    "redesign domain types (Repository*, ChatSession*, ChatMessage*, WorkspaceKind)",
+                    "redesign domain types (Repository*, Conversation*, WorkspaceKind)",
                 ) { javaClass ->
                     val inDomainModel = javaClass.packageName.endsWith(".domain.model")
                     val simpleName = javaClass.simpleName
                     inDomainModel &&
                         (
                             simpleName.startsWith("Repository") ||
-                                simpleName.startsWith("ChatSession") ||
-                                simpleName.startsWith("ChatMessage") ||
+                                simpleName.startsWith("Conversation") ||
                                 simpleName == "WorkspaceKind"
                         )
                 }
@@ -118,7 +117,7 @@ class ArchitectureTest {
                 "org.jooq..",
                 "com.fasterxml.jackson..",
             ).because(
-                "redesign domain entities (Repository / ChatSession / ChatMessage / " +
+                "redesign domain entities (Repository / Conversation / " +
                     "WorkspaceKind) must remain framework-free (ADR-006)",
             ).check(importedClasses)
     }

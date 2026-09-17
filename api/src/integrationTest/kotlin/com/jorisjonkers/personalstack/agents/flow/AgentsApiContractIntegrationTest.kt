@@ -278,4 +278,73 @@ class AgentsApiContractIntegrationTest
                 .andExpect(jsonPath("$.session.id").value(sessionId))
                 .andExpect(jsonPath("$.messages[0].body").value("hello world"))
         }
+
+        @Test
+        fun conversationCreationResponseMatchesExpectedSchema() {
+            val userId = UUID.randomUUID().toString()
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations")
+                        .header("X-User-Id", userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mapOf("title" to "Demo chat"))),
+                ).andExpect(status().isCreated)
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.userId").value(userId))
+                .andExpect(jsonPath("$.title").value("Demo chat"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.kind").value("PLAIN"))
+        }
+
+        @Test
+        fun conversationListResponseIsValidJSONArray() {
+            val userId = UUID.randomUUID().toString()
+            mockMvc.perform(
+                post("/api/v1/conversations")
+                    .header("X-User-Id", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("title" to "List me"))),
+            )
+            mockMvc
+                .perform(get("/api/v1/conversations").header("X-User-Id", userId))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$").isArray)
+                .andExpect(jsonPath("$[0].id").exists())
+                .andExpect(jsonPath("$[0].status").exists())
+        }
+
+        @Test
+        fun appendingAConversationMessageReturnsTheTypedEnvelopeAndDetail() {
+            val userId = UUID.randomUUID().toString()
+            val createResult =
+                mockMvc
+                    .perform(
+                        post("/api/v1/conversations")
+                            .header("X-User-Id", userId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(mapOf("title" to "msg-test"))),
+                    ).andExpect(status().isCreated)
+                    .andReturn()
+            val conversationId = objectMapper.readTree(createResult.response.contentAsString)["id"].asText()
+
+            mockMvc
+                .perform(
+                    post("/api/v1/conversations/$conversationId/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                mapOf("body" to "hello world", "role" to "USER"),
+                            ),
+                        ),
+                ).andExpect(status().isCreated)
+                .andExpect(jsonPath("$.body").value("hello world"))
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andExpect(jsonPath("$.conversationId").value(conversationId))
+
+            mockMvc
+                .perform(get("/api/v1/conversations/$conversationId"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.conversation.id").value(conversationId))
+                .andExpect(jsonPath("$.messages[0].body").value("hello world"))
+        }
     }

@@ -1,12 +1,12 @@
 package com.jorisjonkers.personalstack.agents.application.chat
 
-import com.jorisjonkers.personalstack.agents.application.command.AppendChatMessageCommand
-import com.jorisjonkers.personalstack.agents.domain.model.ChatMessageId
-import com.jorisjonkers.personalstack.agents.domain.model.ChatMessageRole
-import com.jorisjonkers.personalstack.agents.domain.model.ChatSessionId
+import com.jorisjonkers.personalstack.agents.application.command.AppendConversationMessageCommand
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationId
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageId
+import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageRole
 import com.jorisjonkers.personalstack.agents.domain.port.ChatGenerationPort
-import com.jorisjonkers.personalstack.agents.domain.port.ChatMessageRepository
-import com.jorisjonkers.personalstack.agents.domain.port.ChatSessionRepository
+import com.jorisjonkers.personalstack.agents.domain.port.ConversationMessageRepository
+import com.jorisjonkers.personalstack.agents.domain.port.ConversationRepository
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import com.jorisjonkers.personalstack.common.exception.NotFoundException
 import org.springframework.beans.factory.annotation.Qualifier
@@ -17,52 +17,52 @@ import java.util.concurrent.Executor
 
 @Service
 class ChatAnswerStreamService(
-    private val sessions: ChatSessionRepository,
-    private val messages: ChatMessageRepository,
+    private val conversations: ConversationRepository,
+    private val messages: ConversationMessageRepository,
     private val commandBus: CommandBus,
     private val generation: ChatGenerationPort,
     @param:Qualifier("chatStreamExecutor") private val executor: Executor,
 ) {
     fun stream(
-        sessionId: ChatSessionId,
+        conversationId: ConversationId,
         userBody: String,
     ): SseEmitter {
         require(userBody.isNotBlank()) { "chat message body must not be blank" }
-        sessions.findById(sessionId)
-            ?: throw NotFoundException("ChatSession", sessionId.value.toString())
+        conversations.findById(conversationId)
+            ?: throw NotFoundException("Conversation", conversationId.value.toString())
 
         val emitter = SseEmitter(TIMEOUT_MILLIS)
         executor.execute {
-            generateAnswer(sessionId, userBody, emitter)
+            generateAnswer(conversationId, userBody, emitter)
         }
         return emitter
     }
 
     private fun generateAnswer(
-        sessionId: ChatSessionId,
+        conversationId: ConversationId,
         userBody: String,
         emitter: SseEmitter,
     ) {
         runCatching {
-            val prompt = buildPrompt(sessionId, userBody)
+            val prompt = buildPrompt(conversationId, userBody)
             val full =
                 generation.generate(prompt) { piece ->
                     sendEvent(emitter, "chunk", mapOf("text" to piece))
                 }
             check(full.isNotBlank()) { "no answer produced" }
-            persistAgentMessage(sessionId, full, emitter)
+            persistAgentMessage(conversationId, full, emitter)
         }.onFailure {
             sendTerminalError(emitter, it)
         }
     }
 
     private fun buildPrompt(
-        sessionId: ChatSessionId,
+        conversationId: ConversationId,
         userBody: String,
     ): String {
         val history =
             messages
-                .findAllBySessionIdOrderedByTime(sessionId)
+                .findAllByConversationIdOrderedByTime(conversationId)
                 .takeLast(MAX_HISTORY_MESSAGES)
         if (history.isEmpty()) return userBody
 
@@ -70,7 +70,7 @@ class ChatAnswerStreamService(
         // streaming. Only append it when history does not already end with it, so
         // the prompt is identical regardless of persist-then-stream ordering.
         val currentTurnAlreadyPersisted =
-            history.last().let { it.role == ChatMessageRole.USER && it.body == userBody }
+            history.last().let { it.role == ConversationMessageRole.USER && it.body == userBody }
         return buildString {
             for (message in history) {
                 append(labelFor(message.role))
@@ -85,24 +85,24 @@ class ChatAnswerStreamService(
         }.trimEnd('\n')
     }
 
-    private fun labelFor(role: ChatMessageRole): String =
+    private fun labelFor(role: ConversationMessageRole): String =
         when (role) {
-            ChatMessageRole.USER -> "User"
-            ChatMessageRole.ASSISTANT -> "Assistant"
-            ChatMessageRole.SYSTEM -> "System"
+            ConversationMessageRole.USER -> "User"
+            ConversationMessageRole.ASSISTANT -> "Assistant"
+            ConversationMessageRole.SYSTEM -> "System"
         }
 
     private fun persistAgentMessage(
-        sessionId: ChatSessionId,
+        conversationId: ConversationId,
         full: String,
         emitter: SseEmitter,
     ) {
-        val messageId = ChatMessageId.random()
+        val messageId = ConversationMessageId.random()
         commandBus.dispatch(
-            AppendChatMessageCommand(
+            AppendConversationMessageCommand(
                 messageId = messageId,
-                sessionId = sessionId,
-                role = ChatMessageRole.ASSISTANT,
+                conversationId = conversationId,
+                role = ConversationMessageRole.ASSISTANT,
                 body = full,
             ),
         )
