@@ -14,7 +14,7 @@ enum class RunnerSetupOperation { IDLE, RESTARTING, FAILED }
  *   a workspace-scoped k8s Secret.
  * - `SCRATCH`     — Pod without a clone. `repositoryId` is null.
  * - `CHAT`        — never actually persisted as a workspace row
- *   today; chat lives in its own [ChatSession] table. The enum
+ *   today; chat lives in its own [Conversation] table. The enum
  *   value exists for type-symmetry with the UI tabs.
  *
  * `projectId` is set when the workspace was opened "inside a

@@ -21,8 +21,8 @@ import com.jorisjonkers.personalstack.common.command.Command
  *    supplied if the operator wants a free-text URL for future
  *    use, but the orchestrator does not act on it.
  *
- * 3. `CHAT`: not handled here — chat lives in [ChatSession] and
- *    is created via [StartChatSessionCommand]. A `kind = CHAT`
+ * 3. `CHAT`: not handled here — chat lives in [Conversation] and
+ *    is created via [StartConversationCommand]. A `kind = CHAT`
  *    workspace creation request is rejected.
  *
  * [projectId] is optional context: setting it groups the workspace

@@ -689,10 +689,152 @@
         }
       }
     },
+    "/api/v1/conversations" : {
+      "get" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "list_3",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ConversationResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "create_3",
+        "parameters" : [ {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartConversationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/messages" : {
+      "get" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "listMessages",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ConversationMessageResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "appendMessage",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppendConversationMessageRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConversationMessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat-sessions" : {
       "get" : {
         "tags" : [ "chat-session-controller" ],
-        "operationId" : "list_3",
+        "operationId" : "list_4",
         "parameters" : [ {
           "name" : "X-User-Id",
           "in" : "header",
@@ -715,11 +857,12 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       },
       "post" : {
         "tags" : [ "chat-session-controller" ],
-        "operationId" : "create_3",
+        "operationId" : "create_4",
         "parameters" : [ {
           "name" : "X-User-Id",
           "in" : "header",
@@ -749,13 +892,14 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/chat-sessions/{id}/messages" : {
       "post" : {
         "tags" : [ "chat-session-controller" ],
-        "operationId" : "appendMessage",
+        "operationId" : "appendMessage_1",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -763,6 +907,13 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "requestBody" : {
@@ -786,7 +937,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/workspaces/{workspaceId}/setup" : {
@@ -1275,9 +1427,9 @@
         }
       }
     },
-    "/api/v1/chat-sessions/{id}" : {
+    "/api/v1/conversations/{id}" : {
       "get" : {
-        "tags" : [ "chat-session-controller" ],
+        "tags" : [ "conversation-controller" ],
         "operationId" : "get_3",
         "parameters" : [ {
           "name" : "id",
@@ -1286,6 +1438,73 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConversationDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "conversation-controller" ],
+        "operationId" : "archive",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content",
+            "content" : { }
+          }
+        }
+      }
+    },
+    "/api/v1/chat-sessions/{id}" : {
+      "get" : {
+        "tags" : [ "chat-session-controller" ],
+        "operationId" : "get_4",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "responses" : {
@@ -1300,11 +1519,12 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       },
       "delete" : {
         "tags" : [ "chat-session-controller" ],
-        "operationId" : "archive",
+        "operationId" : "archive_1",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1326,7 +1546,8 @@
             "description" : "OK",
             "content" : { }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/agent-setups" : {
@@ -2093,6 +2314,93 @@
         },
         "required" : [ "url" ]
       },
+      "StartConversationRequest" : {
+        "type" : "object",
+        "properties" : {
+          "title" : {
+            "type" : [ "string", "null" ],
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "kind" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "PLAIN", "KNOWLEDGE" ]
+          }
+        }
+      },
+      "ConversationResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "userId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "createdAt", "id", "kind", "status", "updatedAt", "userId" ]
+      },
+      "AppendConversationMessageRequest" : {
+        "type" : "object",
+        "properties" : {
+          "body" : {
+            "type" : [ "string", "null" ]
+          },
+          "content" : {
+            "type" : [ "string", "null" ]
+          },
+          "role" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "USER", "ASSISTANT", "SYSTEM" ]
+          }
+        }
+      },
+      "ConversationMessageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "conversationId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        },
+        "required" : [ "body", "content", "conversationId", "createdAt", "id", "role" ]
+      },
       "StartChatSessionRequest" : {
         "type" : "object",
         "properties" : {
@@ -2761,6 +3069,43 @@
           }
         },
         "required" : [ "exists", "state" ]
+      },
+      "ConversationDetailResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "userId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "title" : {
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "messages" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConversationMessageResponse"
+            }
+          }
+        },
+        "required" : [ "createdAt", "id", "kind", "messages", "status", "updatedAt", "userId" ]
       },
       "AgentSetupCatalogResponse" : {
         "type" : "object",

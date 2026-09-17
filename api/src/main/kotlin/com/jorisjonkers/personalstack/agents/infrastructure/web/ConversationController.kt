@@ -8,12 +8,14 @@ import com.jorisjonkers.personalstack.agents.application.query.ConversationQuery
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationId
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationKind
 import com.jorisjonkers.personalstack.agents.domain.model.ConversationMessageId
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AppendChatMessageRequest
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ChatMessageResponse
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ChatSessionResponse
-import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartChatSessionRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.AppendConversationMessageRequest
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ConversationDetailResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ConversationMessageResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.ConversationResponse
+import com.jorisjonkers.personalstack.agents.infrastructure.web.dto.StartConversationRequest
 import com.jorisjonkers.personalstack.common.command.CommandBus
 import io.swagger.v3.oas.annotations.Hidden
+import io.swagger.v3.oas.annotations.responses.ApiResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -29,25 +31,21 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.util.UUID
 
-/**
- * Deprecated alias for [ConversationController] at the old path.
- * Serves the same Conversation model with the pre-rename shapes so
- * agents-ui keeps working unchanged; remove once agents-ui migrates to
- * /api/v1/conversations.
- */
 @RestController
-@RequestMapping("/api/v1/chat-sessions")
-class ChatSessionController(
+@RequestMapping("/api/v1/conversations")
+class ConversationController(
     private val commandBus: CommandBus,
     private val conversationQuery: ConversationQueryService,
     private val chatAnswerStream: ChatAnswerStreamService,
 ) {
     @PostMapping
-    @Deprecated("Use POST /api/v1/conversations.")
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 201 so the spec is truthful.
+    @ApiResponse(responseCode = "201", description = "Created")
     fun create(
         @RequestHeader("X-User-Id") userId: String,
-        @Valid @RequestBody req: StartChatSessionRequest,
-    ): ResponseEntity<ChatSessionResponse> {
+        @Valid @RequestBody req: StartConversationRequest,
+    ): ResponseEntity<ConversationResponse> {
         val userUuid = UUID.fromString(userId)
         val conversationId = ConversationId.random()
         commandBus.dispatch(
@@ -60,87 +58,91 @@ class ChatSessionController(
         )
         val detail =
             conversationQuery.get(conversationId, userUuid)
-                ?: error("chat session not visible immediately after create")
-        return ResponseEntity.status(HttpStatus.CREATED).body(ChatSessionResponse.of(detail.conversation))
+                ?: error("conversation not visible immediately after create")
+        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationResponse.of(detail.conversation))
     }
 
     @GetMapping
-    @Deprecated("Use GET /api/v1/conversations.")
     fun list(
         @RequestHeader("X-User-Id") userId: String,
-    ): List<ChatSessionResponse> =
+    ): List<ConversationResponse> =
         conversationQuery
             .list(UUID.fromString(userId))
-            .map(ChatSessionResponse::of)
-
-    // These two predate #80 and carried no identity, so declaring the header
-    // required would break their published contract. Absent or unparseable
-    // identity refuses exactly like a wrong one: 404, never a hint.
-    private fun callerId(userId: String?): UUID? =
-        userId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            .map(ConversationResponse::of)
 
     @GetMapping("/{id}")
-    @Deprecated("Use GET /api/v1/conversations/{id}, which returns a typed ConversationDetailResponse.")
     fun get(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id", required = false) userId: String?,
-    ): ResponseEntity<Map<String, Any>> {
-        val userUuid = callerId(userId) ?: return ResponseEntity.notFound().build()
+        @RequestHeader("X-User-Id") userId: String,
+    ): ResponseEntity<ConversationDetailResponse> {
         val detail =
-            conversationQuery.get(ConversationId(id), userUuid)
+            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
                 ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(
-            mapOf(
-                "session" to ChatSessionResponse.of(detail.conversation),
-                "messages" to detail.messages.map(ChatMessageResponse::of),
-            ),
-        )
+        return ResponseEntity.ok(ConversationDetailResponse.of(detail.conversation, detail.messages))
+    }
+
+    // Restores the legacy /api/v1/conversations/{conversationId}/messages
+    // list endpoint, serving the renamed model. Ownership is enforced
+    // through the same seam as GET /{id} (see #80): an unowned
+    // conversation reads as 404, not an empty list.
+    @GetMapping("/{id}/messages")
+    fun listMessages(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
+    ): ResponseEntity<List<ConversationMessageResponse>> {
+        val detail =
+            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
+                ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(detail.messages.map(ConversationMessageResponse::of))
     }
 
     @PostMapping("/{id}/messages")
-    @Deprecated("Use POST /api/v1/conversations/{id}/messages.")
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 201 so the spec is truthful.
+    @ApiResponse(responseCode = "201", description = "Created")
     fun appendMessage(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id", required = false) userId: String?,
-        @Valid @RequestBody req: AppendChatMessageRequest,
-    ): ResponseEntity<ChatMessageResponse> {
+        @RequestHeader("X-User-Id") userId: String,
+        @Valid @RequestBody req: AppendConversationMessageRequest,
+    ): ResponseEntity<ConversationMessageResponse> {
+        val userUuid = UUID.fromString(userId)
         val conversationId = ConversationId(id)
-        // Resolve the caller and their ownership in one step, before anything
-        // is dispatched: the alias delegates to ConversationQueryService so it
-        // inherits the check rather than reimplementing it (see #80).
-        val userUuid =
-            callerId(userId)?.takeIf { conversationQuery.get(conversationId, it) != null }
-                ?: return ResponseEntity.notFound().build()
+        // Ownership is resolved before dispatch, so a refused request has
+        // no side effect (see #80).
+        conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val messageId = ConversationMessageId.random()
         commandBus.dispatch(
             AppendConversationMessageCommand(
                 messageId = messageId,
                 conversationId = conversationId,
-                role = req.role,
-                body = req.body,
+                role = req.resolvedRole(),
+                body = req.resolvedBody(),
             ),
         )
         val detail = conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val message =
             detail.messages.firstOrNull { it.id == messageId }
                 ?: error("message not visible immediately after append")
-        return ResponseEntity.status(HttpStatus.CREATED).body(ChatMessageResponse.of(message))
+        return ResponseEntity.status(HttpStatus.CREATED).body(ConversationMessageResponse.of(message))
     }
 
-    // Excluded from the OpenAPI contract for the same reason as the
-    // canonical controller's stream endpoint (see there); this alias
-    // exists purely so an in-flight stream connection from an old
-    // client keeps working.
+    // Excluded from the OpenAPI contract: an SSE/text-event-stream
+    // endpoint cannot be modelled usefully by openapi-typescript, and the
+    // UI consumes it through a hand-written fetch + ReadableStream reader
+    // rather than the generated client. Keeping it out of the spec leaves
+    // the generated types in sync without a degenerate stream type.
     @Hidden
     @PostMapping("/{id}/messages/stream")
     fun streamMessage(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,
-        @Valid @RequestBody req: AppendChatMessageRequest,
+        @Valid @RequestBody req: AppendConversationMessageRequest,
     ): ResponseEntity<SseEmitter> {
         val conversationId = ConversationId(id)
+        // Ownership is resolved before streaming starts, so a refused
+        // request never drives generation or token spend (see #80).
         conversationQuery.get(conversationId, UUID.fromString(userId)) ?: return ResponseEntity.notFound().build()
-        val emitter = chatAnswerStream.stream(conversationId, req.body)
+        val emitter = chatAnswerStream.stream(conversationId, req.resolvedBody())
         return ResponseEntity
             .ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -150,7 +152,9 @@ class ChatSessionController(
     }
 
     @DeleteMapping("/{id}")
-    @Deprecated("Use DELETE /api/v1/conversations/{id}.")
+    // springdoc can't infer the status from a dynamically built
+    // ResponseEntity; document the real 204 so the spec is truthful.
+    @ApiResponse(responseCode = "204", description = "No Content")
     fun archive(
         @PathVariable id: UUID,
         @RequestHeader("X-User-Id") userId: String,

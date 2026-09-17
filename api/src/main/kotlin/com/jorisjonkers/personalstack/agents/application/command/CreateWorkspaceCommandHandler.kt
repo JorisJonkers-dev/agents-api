@@ -55,7 +55,7 @@ class CreateWorkspaceCommandHandler(
 
     override fun handle(command: CreateWorkspaceCommand) {
         require(command.kind != WorkspaceKind.CHAT) {
-            "CHAT workspaces are not persisted — use StartChatSessionCommand instead"
+            "CHAT workspaces are not persisted — use StartConversationCommand instead"
         }
         warnDeprecatedGithubLink(command)
         val resolved = resolveRepo(command)

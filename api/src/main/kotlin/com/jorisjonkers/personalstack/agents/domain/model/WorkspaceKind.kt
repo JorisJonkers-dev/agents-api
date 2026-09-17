@@ -7,7 +7,7 @@ package com.jorisjonkers.personalstack.agents.domain.model
  * - `SCRATCH`     — Pod without a clone. Repository is null.
  * - `CHAT`        — no Pod. A plain LLM conversation surface that
  *                   lives outside the workspaces table (see
- *                   [ChatSession]); the enum value exists here so a
+ *                   [Conversation]); the enum value exists here so a
  *                   workspace row with `kind = CHAT` can never be
  *                   created — the type system gives the orchestrator
  *                   a single value to switch on.

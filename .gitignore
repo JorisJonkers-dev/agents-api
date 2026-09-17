@@ -47,3 +47,6 @@ templates/**/.claude/commands/speckit*.md
 # Scoped to worktrees/ rather than all of .claude/ so tracked agent config
 # elsewhere in the estate is not silently ignored.
 .claude/worktrees/
+
+# Kotlin compiler daemon session lock files.
+.kotlin/

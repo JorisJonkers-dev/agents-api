@@ -5,8 +5,13 @@ import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestHeader
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ArchitectureTest {
@@ -96,15 +101,14 @@ class ArchitectureTest {
         val redesignDomainTypes =
             com.tngtech.archunit.base.DescribedPredicate
                 .describe<com.tngtech.archunit.core.domain.JavaClass>(
-                    "redesign domain types (Repository*, ChatSession*, ChatMessage*, WorkspaceKind)",
+                    "redesign domain types (Repository*, Conversation*, WorkspaceKind)",
                 ) { javaClass ->
                     val inDomainModel = javaClass.packageName.endsWith(".domain.model")
                     val simpleName = javaClass.simpleName
                     inDomainModel &&
                         (
                             simpleName.startsWith("Repository") ||
-                                simpleName.startsWith("ChatSession") ||
-                                simpleName.startsWith("ChatMessage") ||
+                                simpleName.startsWith("Conversation") ||
                                 simpleName == "WorkspaceKind"
                         )
                 }
@@ -118,7 +122,7 @@ class ArchitectureTest {
                 "org.jooq..",
                 "com.fasterxml.jackson..",
             ).because(
-                "redesign domain entities (Repository / ChatSession / ChatMessage / " +
+                "redesign domain entities (Repository / Conversation / " +
                     "WorkspaceKind) must remain framework-free (ADR-006)",
             ).check(importedClasses)
     }
@@ -134,5 +138,36 @@ class ArchitectureTest {
             .haveSimpleNameEndingWith("QueryService")
             .because("query services must follow *QueryService naming convention")
             .check(importedClasses)
+    }
+
+    @Test
+    fun `every Conversation handler requires the caller identity header`() {
+        val httpMappingAnnotations = listOf(GetMapping::class.java, PostMapping::class.java, DeleteMapping::class.java)
+        val handlerMethods =
+            importedClasses
+                .filter { it.simpleName == "ConversationController" || it.simpleName == "ChatSessionController" }
+                .flatMap { it.methods }
+                .filter { method -> httpMappingAnnotations.any(method::isAnnotatedWith) }
+
+        // The trap this guards against: a rename that leaves a name-based
+        // predicate matching zero classes, so the rule below would pass
+        // having checked nothing (see the CommandHandler-naming rule above
+        // and #80). Fail loudly instead of vacuously.
+        assertThat(handlerMethods)
+            .describedAs("expected to find Conversation/ChatSession handler methods to check")
+            .isNotEmpty()
+
+        val missingIdentityHeader =
+            handlerMethods.filterNot { method ->
+                method.reflect().parameters.any { parameter ->
+                    parameter.getAnnotation(RequestHeader::class.java)?.value == "X-User-Id"
+                }
+            }
+
+        assertThat(missingIdentityHeader)
+            .describedAs(
+                "handlers missing the X-User-Id header: %s",
+                missingIdentityHeader.map { it.fullName },
+            ).isEmpty()
     }
 }
