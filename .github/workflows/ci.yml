@@ -36,19 +36,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
-          java-version: '21'
-      - uses: gradle/actions/setup-gradle@v6
+          java-version: '21.0.12+8.0.LTS'
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Export OpenAPI spec
         run: ./gradlew :api:exportOpenApiSpec --no-daemon
       - name: Check committed OpenAPI spec
         run: git diff --exit-code -- client-spec/openapi/agents-api.json
-      - uses: JorisJonkers-dev/api-contract-checks@v1.0.0
+      - uses: JorisJonkers-dev/api-contract-checks@f1b324b45e4fadf3be9581c68ad0713b754f3196 # v1.1.0
         with:
           profile: agents-api
           spec-path: client-spec/openapi/agents-api.json
@@ -56,7 +56,7 @@ jobs:
           guidance: ./gradlew :api:exportOpenApiSpec
       - name: Fetch base OpenAPI spec
         run: git fetch --depth=1 origin ${{ github.base_ref || 'main' }}
-      - uses: oasdiff/oasdiff-action/breaking@v0
+      - uses: oasdiff/oasdiff-action/breaking@5e81b5c380accc6b523f9d32a637ca630e33620b # v0.1.17
         with:
           base: origin/${{ github.base_ref || 'main' }}:client-spec/openapi/agents-api.json
           revision: HEAD:client-spec/openapi/agents-api.json
@@ -91,10 +91,10 @@ jobs:
     # layers; the timeout covers the cold build after a tooling-pin bump.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build agents-api image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile
@@ -151,6 +151,6 @@ jobs:
       ]
     if: ${{ always() }}
     steps:
-      - uses: re-actors/alls-green@release/v1
+      - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
         with:
           jobs: ${{ toJSON(needs) }}
