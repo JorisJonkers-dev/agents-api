@@ -911,7 +911,7 @@
         }, {
           "name" : "X-User-Id",
           "in" : "header",
-          "required" : true,
+          "required" : false,
           "schema" : {
             "type" : "string"
           }
@@ -1502,7 +1502,7 @@
         }, {
           "name" : "X-User-Id",
           "in" : "header",
-          "required" : true,
+          "required" : false,
           "schema" : {
             "type" : "string"
           }

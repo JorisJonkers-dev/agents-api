@@ -115,6 +115,30 @@ class ChatSessionControllerTest {
             .andExpect(status().isNotFound)
     }
 
+    // The header is declared optional so the alias keeps the contract it
+    // published before #80. That is only safe while its absence refuses
+    // exactly like a wrong identity does.
+    @Test
+    fun `GET by id without the identity header returns 404, never the conversation`() {
+        val c = conversation()
+        mockMvc
+            .perform(get("/api/v1/chat-sessions/${c.id.value}"))
+            .andExpect(status().isNotFound)
+        verify(exactly = 0) { query.get(any(), any()) }
+    }
+
+    @Test
+    fun `POST messages without the identity header returns 404 and appends no Turn`() {
+        val c = conversation()
+        mockMvc
+            .perform(
+                post("/api/v1/chat-sessions/${c.id.value}/messages")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hi", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
     @Test
     fun `POST messages dispatches the append command for the owner`() {
         val c = conversation()

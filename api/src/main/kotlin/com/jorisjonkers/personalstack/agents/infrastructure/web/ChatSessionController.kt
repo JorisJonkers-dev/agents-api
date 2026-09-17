@@ -73,14 +73,21 @@ class ChatSessionController(
             .list(UUID.fromString(userId))
             .map(ChatSessionResponse::of)
 
+    // These two predate #80 and carried no identity, so declaring the header
+    // required would break their published contract. Absent or unparseable
+    // identity refuses exactly like a wrong one: 404, never a hint.
+    private fun callerId(userId: String?): UUID? =
+        userId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+
     @GetMapping("/{id}")
     @Deprecated("Use GET /api/v1/conversations/{id}, which returns a typed ConversationDetailResponse.")
     fun get(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id") userId: String,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
     ): ResponseEntity<Map<String, Any>> {
+        val userUuid = callerId(userId) ?: return ResponseEntity.notFound().build()
         val detail =
-            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
+            conversationQuery.get(ConversationId(id), userUuid)
                 ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(
             mapOf(
@@ -94,15 +101,16 @@ class ChatSessionController(
     @Deprecated("Use POST /api/v1/conversations/{id}/messages.")
     fun appendMessage(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id") userId: String,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
         @Valid @RequestBody req: AppendChatMessageRequest,
     ): ResponseEntity<ChatMessageResponse> {
-        val userUuid = UUID.fromString(userId)
         val conversationId = ConversationId(id)
-        // Same ownership check as the canonical controller: the alias
-        // delegates to ConversationQueryService, so it inherits the
-        // check rather than reimplementing it (see #80).
-        conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
+        // Resolve the caller and their ownership in one step, before anything
+        // is dispatched: the alias delegates to ConversationQueryService so it
+        // inherits the check rather than reimplementing it (see #80).
+        val userUuid =
+            callerId(userId)?.takeIf { conversationQuery.get(conversationId, it) != null }
+                ?: return ResponseEntity.notFound().build()
         val messageId = ConversationMessageId.random()
         commandBus.dispatch(
             AppendConversationMessageCommand(
