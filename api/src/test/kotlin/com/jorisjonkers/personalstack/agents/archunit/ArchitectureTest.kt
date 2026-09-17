@@ -75,11 +75,16 @@ class ArchitectureTest {
 
     @Test
     fun `command handlers end with CommandHandler`() {
+        // Matched on @Service until the legacy Conversation/Message handlers
+        // (the only @Service ones) were dropped; every remaining handler is
+        // @Component, which made this rule check zero classes and fail
+        // outright (ArchUnit's failOnEmptyShould). Matching the CommandHandler
+        // interface directly is annotation-agnostic and keeps the rule live.
         classes()
             .that()
             .resideInAPackage("..application.command..")
             .and()
-            .areAnnotatedWith("org.springframework.stereotype.Service")
+            .implement(com.jorisjonkers.personalstack.common.command.CommandHandler::class.java)
             .should()
             .haveSimpleNameEndingWith("CommandHandler")
             .because("command handlers must follow *CommandHandler naming convention")
