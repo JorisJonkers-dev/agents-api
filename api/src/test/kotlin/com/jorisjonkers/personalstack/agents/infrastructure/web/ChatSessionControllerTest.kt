@@ -32,7 +32,7 @@ import java.util.UUID
 // This is the deprecated /api/v1/chat-sessions alias -- see
 // ConversationControllerTest for the canonical /api/v1/conversations
 // coverage. Kept to prove the alias still serves the pre-rename shapes
-// byte-for-byte.
+// byte-for-byte, and inherits the same ownership check (see #80).
 @Suppress("DEPRECATION")
 class ChatSessionControllerTest {
     private val commandBus = mockk<CommandBus>(relaxed = true)
@@ -62,7 +62,7 @@ class ChatSessionControllerTest {
     @Test
     fun `POST creates session and returns 201`() {
         val c = conversation()
-        every { query.get(any()) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        every { query.get(any(), c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         mockMvc
             .perform(
                 post("/api/v1/chat-sessions")
@@ -86,37 +86,49 @@ class ChatSessionControllerTest {
     }
 
     @Test
-    fun `GET by id returns envelope`() {
+    fun `GET by id returns envelope for the owner`() {
         val c = conversation()
-        every { query.get(c.id) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         mockMvc
-            .perform(get("/api/v1/chat-sessions/${c.id.value}"))
+            .perform(get("/api/v1/chat-sessions/${c.id.value}").header("X-User-Id", c.userId.toString()))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.session.id").value(c.id.value.toString()))
             .andExpect(jsonPath("$.messages").isArray)
     }
 
     @Test
-    fun `GET by id with unknown returns 404`() {
-        every { query.get(any()) } returns null
+    fun `GET by id with unknown session returns 404`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
         mockMvc
-            .perform(get("/api/v1/chat-sessions/${UUID.randomUUID()}"))
+            .perform(get("/api/v1/chat-sessions/${UUID.randomUUID()}").header("X-User-Id", requester.toString()))
             .andExpect(status().isNotFound)
     }
 
     @Test
-    fun `POST messages dispatches the append command`() {
+    fun `GET by id owned by another user returns 404, indistinguishable from unknown`() {
+        val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(get("/api/v1/chat-sessions/${c.id.value}").header("X-User-Id", otherUser.toString()))
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `POST messages dispatches the append command for the owner`() {
         val c = conversation()
         // The controller looks up the just-appended message by id after
         // dispatch. Return a detail with no matching message so the
         // controller takes the error path; the test asserts the
         // dispatch happened either way.
-        every { query.get(any<ConversationId>()) } returns
+        every { query.get(c.id, c.userId) } returns
             ConversationQueryService.ConversationDetail(c, emptyList())
         try {
             mockMvc
                 .perform(
                     post("/api/v1/chat-sessions/${c.id.value}/messages")
+                        .header("X-User-Id", c.userId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
                 )
@@ -129,13 +141,44 @@ class ChatSessionControllerTest {
     }
 
     @Test
-    fun `POST stream messages returns SSE response headers`() {
+    fun `POST messages with unknown session returns 404 and appends no Turn`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/chat-sessions/${UUID.randomUUID()}/messages")
+                    .header("X-User-Id", requester.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
+    @Test
+    fun `POST messages owned by another user returns 404 and appends no Turn`() {
         val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/chat-sessions/${c.id.value}/messages")
+                    .header("X-User-Id", otherUser.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
+    @Test
+    fun `POST stream messages returns SSE response headers for the owner`() {
+        val c = conversation()
+        every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         every { chatAnswerStream.stream(c.id, "hello") } returns SseEmitter()
 
         mockMvc
             .perform(
                 post("/api/v1/chat-sessions/${c.id.value}/messages/stream")
+                    .header("X-User-Id", c.userId.toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
             ).andExpect(status().isOk)
@@ -143,13 +186,17 @@ class ChatSessionControllerTest {
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
             .andExpect(header().string("X-Accel-Buffering", "no"))
             .andExpect(header().string("Cache-Control", "no-cache"))
+
+        verify { chatAnswerStream.stream(c.id, "hello") }
     }
 
     @Test
     fun `POST stream messages with blank body returns validation error`() {
+        val requester = UUID.randomUUID()
         mockMvc
             .perform(
                 post("/api/v1/chat-sessions/${UUID.randomUUID()}/messages/stream")
+                    .header("X-User-Id", requester.toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("body" to "", "role" to "USER"))),
             ).andExpect(status().isUnprocessableContent)
@@ -160,19 +207,38 @@ class ChatSessionControllerTest {
         mockMvc
             .perform(
                 post("/api/v1/chat-sessions/${UUID.randomUUID()}/messages/stream")
+                    .header("X-User-Id", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON),
             ).andExpect(status().isBadRequest)
     }
 
     @Test
-    fun `POST messages with unknown session returns 404`() {
-        every { query.get(any<ConversationId>()) } returns null
+    fun `POST stream messages with unknown session returns 404 and never starts a stream`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
         mockMvc
             .perform(
-                post("/api/v1/chat-sessions/${UUID.randomUUID()}/messages")
+                post("/api/v1/chat-sessions/${UUID.randomUUID()}/messages/stream")
+                    .header("X-User-Id", requester.toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
             ).andExpect(status().isNotFound)
+        verify(exactly = 0) { chatAnswerStream.stream(any(), any()) }
+    }
+
+    @Test
+    fun `POST stream messages owned by another user returns 404 and never starts a stream`() {
+        val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/chat-sessions/${c.id.value}/messages/stream")
+                    .header("X-User-Id", otherUser.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { chatAnswerStream.stream(any(), any()) }
     }
 
     @Test

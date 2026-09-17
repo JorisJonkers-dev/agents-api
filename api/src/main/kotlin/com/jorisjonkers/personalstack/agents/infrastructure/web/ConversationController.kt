@@ -53,7 +53,7 @@ class ConversationController(
             ),
         )
         val detail =
-            conversationQuery.get(conversationId)
+            conversationQuery.get(conversationId, userUuid)
                 ?: error("conversation not visible immediately after create")
         return ResponseEntity.status(HttpStatus.CREATED).body(ConversationResponse.of(detail.conversation))
     }
@@ -69,8 +69,11 @@ class ConversationController(
     @GetMapping("/{id}")
     fun get(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
     ): ResponseEntity<ConversationDetailResponse> {
-        val detail = conversationQuery.get(ConversationId(id)) ?: return ResponseEntity.notFound().build()
+        val detail =
+            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
+                ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(
             ConversationDetailResponse(
                 conversation = ConversationResponse.of(detail.conversation),
@@ -82,18 +85,24 @@ class ConversationController(
     @PostMapping("/{id}/messages")
     fun appendMessage(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: AppendConversationMessageRequest,
     ): ResponseEntity<ConversationMessageResponse> {
+        val userUuid = UUID.fromString(userId)
+        val conversationId = ConversationId(id)
+        // Ownership is resolved before dispatch, so a refused request has
+        // no side effect (see #80).
+        conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val messageId = ConversationMessageId.random()
         commandBus.dispatch(
             AppendConversationMessageCommand(
                 messageId = messageId,
-                conversationId = ConversationId(id),
+                conversationId = conversationId,
                 role = req.role,
                 body = req.body,
             ),
         )
-        val detail = conversationQuery.get(ConversationId(id)) ?: return ResponseEntity.notFound().build()
+        val detail = conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val message =
             detail.messages.firstOrNull { it.id == messageId }
                 ?: error("message not visible immediately after append")
@@ -109,9 +118,14 @@ class ConversationController(
     @PostMapping("/{id}/messages/stream")
     fun streamMessage(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: AppendConversationMessageRequest,
     ): ResponseEntity<SseEmitter> {
-        val emitter = chatAnswerStream.stream(ConversationId(id), req.body)
+        val conversationId = ConversationId(id)
+        // Ownership is resolved before streaming starts, so a refused
+        // request never drives generation or token spend (see #80).
+        conversationQuery.get(conversationId, UUID.fromString(userId)) ?: return ResponseEntity.notFound().build()
+        val emitter = chatAnswerStream.stream(conversationId, req.body)
         return ResponseEntity
             .ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)

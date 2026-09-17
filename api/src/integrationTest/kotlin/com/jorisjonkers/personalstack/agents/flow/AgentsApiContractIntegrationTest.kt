@@ -261,6 +261,7 @@ class AgentsApiContractIntegrationTest
             mockMvc
                 .perform(
                     post("/api/v1/chat-sessions/$sessionId/messages")
+                        .header("X-User-Id", userId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
                             objectMapper.writeValueAsString(
@@ -273,7 +274,7 @@ class AgentsApiContractIntegrationTest
                 .andExpect(jsonPath("$.sessionId").value(sessionId))
 
             mockMvc
-                .perform(get("/api/v1/chat-sessions/$sessionId"))
+                .perform(get("/api/v1/chat-sessions/$sessionId").header("X-User-Id", userId))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.session.id").value(sessionId))
                 .andExpect(jsonPath("$.messages[0].body").value("hello world"))
@@ -330,6 +331,7 @@ class AgentsApiContractIntegrationTest
             mockMvc
                 .perform(
                     post("/api/v1/conversations/$conversationId/messages")
+                        .header("X-User-Id", userId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
                             objectMapper.writeValueAsString(
@@ -342,7 +344,7 @@ class AgentsApiContractIntegrationTest
                 .andExpect(jsonPath("$.conversationId").value(conversationId))
 
             mockMvc
-                .perform(get("/api/v1/conversations/$conversationId"))
+                .perform(get("/api/v1/conversations/$conversationId").header("X-User-Id", userId))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.conversation.id").value(conversationId))
                 .andExpect(jsonPath("$.messages[0].body").value("hello world"))

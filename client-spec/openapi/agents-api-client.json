@@ -764,6 +764,13 @@
             "type" : "string",
             "format" : "uuid"
           }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
         } ],
         "requestBody" : {
           "content" : {
@@ -865,6 +872,13 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "requestBody" : {
@@ -1390,6 +1404,13 @@
             "type" : "string",
             "format" : "uuid"
           }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -1442,6 +1463,13 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "X-User-Id",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "responses" : {

@@ -19,9 +19,13 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.request
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.time.Instant
 import java.util.UUID
 
@@ -53,7 +57,7 @@ class ConversationControllerTest {
     @Test
     fun `POST creates conversation and returns 201`() {
         val c = conversation()
-        every { query.get(any()) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        every { query.get(any(), c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         mockMvc
             .perform(
                 post("/api/v1/conversations")
@@ -77,33 +81,45 @@ class ConversationControllerTest {
     }
 
     @Test
-    fun `GET by id returns a typed ConversationDetailResponse`() {
+    fun `GET by id returns a typed ConversationDetailResponse for the owner`() {
         val c = conversation()
-        every { query.get(c.id) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
         mockMvc
-            .perform(get("/api/v1/conversations/${c.id.value}"))
+            .perform(get("/api/v1/conversations/${c.id.value}").header("X-User-Id", c.userId.toString()))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.conversation.id").value(c.id.value.toString()))
             .andExpect(jsonPath("$.messages").isArray)
     }
 
     @Test
-    fun `GET by id with unknown returns 404`() {
-        every { query.get(any()) } returns null
+    fun `GET by id with unknown conversation returns 404`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
         mockMvc
-            .perform(get("/api/v1/conversations/${UUID.randomUUID()}"))
+            .perform(get("/api/v1/conversations/${UUID.randomUUID()}").header("X-User-Id", requester.toString()))
             .andExpect(status().isNotFound)
     }
 
     @Test
-    fun `POST messages dispatches the append command`() {
+    fun `GET by id owned by another user returns 404, indistinguishable from unknown`() {
         val c = conversation()
-        every { query.get(any<ConversationId>()) } returns
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(get("/api/v1/conversations/${c.id.value}").header("X-User-Id", otherUser.toString()))
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `POST messages dispatches the append command for the owner`() {
+        val c = conversation()
+        every { query.get(c.id, c.userId) } returns
             ConversationQueryService.ConversationDetail(c, emptyList())
         try {
             mockMvc
                 .perform(
                     post("/api/v1/conversations/${c.id.value}/messages")
+                        .header("X-User-Id", c.userId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
                 )
@@ -116,14 +132,82 @@ class ConversationControllerTest {
     }
 
     @Test
-    fun `POST messages with unknown conversation returns 404`() {
-        every { query.get(any<ConversationId>()) } returns null
+    fun `POST messages with unknown conversation returns 404 and appends no Turn`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
         mockMvc
             .perform(
                 post("/api/v1/conversations/${UUID.randomUUID()}/messages")
+                    .header("X-User-Id", requester.toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
             ).andExpect(status().isNotFound)
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
+    @Test
+    fun `POST messages owned by another user returns 404 and appends no Turn`() {
+        val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/conversations/${c.id.value}/messages")
+                    .header("X-User-Id", otherUser.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { commandBus.dispatch(any()) }
+    }
+
+    @Test
+    fun `POST messages stream starts for the owner`() {
+        val c = conversation()
+        every { query.get(c.id, c.userId) } returns ConversationQueryService.ConversationDetail(c, emptyList())
+        every { chatAnswerStream.stream(c.id, "hello") } returns SseEmitter()
+
+        mockMvc
+            .perform(
+                post("/api/v1/conversations/${c.id.value}/messages/stream")
+                    .header("X-User-Id", c.userId.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isOk)
+            .andExpect(request().asyncStarted())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(header().string("Cache-Control", "no-cache"))
+            .andExpect(header().string("X-Accel-Buffering", "no"))
+
+        verify { chatAnswerStream.stream(c.id, "hello") }
+    }
+
+    @Test
+    fun `POST messages stream with unknown conversation returns 404 and never starts a stream`() {
+        val requester = UUID.randomUUID()
+        every { query.get(any(), requester) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/conversations/${UUID.randomUUID()}/messages/stream")
+                    .header("X-User-Id", requester.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { chatAnswerStream.stream(any(), any()) }
+    }
+
+    @Test
+    fun `POST messages stream owned by another user returns 404 and never starts a stream`() {
+        val c = conversation()
+        val otherUser = UUID.randomUUID()
+        every { query.get(c.id, otherUser) } returns null
+        mockMvc
+            .perform(
+                post("/api/v1/conversations/${c.id.value}/messages/stream")
+                    .header("X-User-Id", otherUser.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(mapOf("body" to "hello", "role" to "USER"))),
+            ).andExpect(status().isNotFound)
+        verify(exactly = 0) { chatAnswerStream.stream(any(), any()) }
     }
 
     @Test

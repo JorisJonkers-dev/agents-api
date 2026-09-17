@@ -59,7 +59,7 @@ class ChatSessionController(
             ),
         )
         val detail =
-            conversationQuery.get(conversationId)
+            conversationQuery.get(conversationId, userUuid)
                 ?: error("chat session not visible immediately after create")
         return ResponseEntity.status(HttpStatus.CREATED).body(ChatSessionResponse.of(detail.conversation))
     }
@@ -77,8 +77,11 @@ class ChatSessionController(
     @Deprecated("Use GET /api/v1/conversations/{id}, which returns a typed ConversationDetailResponse.")
     fun get(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
     ): ResponseEntity<Map<String, Any>> {
-        val detail = conversationQuery.get(ConversationId(id)) ?: return ResponseEntity.notFound().build()
+        val detail =
+            conversationQuery.get(ConversationId(id), UUID.fromString(userId))
+                ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(
             mapOf(
                 "session" to ChatSessionResponse.of(detail.conversation),
@@ -91,18 +94,25 @@ class ChatSessionController(
     @Deprecated("Use POST /api/v1/conversations/{id}/messages.")
     fun appendMessage(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: AppendChatMessageRequest,
     ): ResponseEntity<ChatMessageResponse> {
+        val userUuid = UUID.fromString(userId)
+        val conversationId = ConversationId(id)
+        // Same ownership check as the canonical controller: the alias
+        // delegates to ConversationQueryService, so it inherits the
+        // check rather than reimplementing it (see #80).
+        conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val messageId = ConversationMessageId.random()
         commandBus.dispatch(
             AppendConversationMessageCommand(
                 messageId = messageId,
-                conversationId = ConversationId(id),
+                conversationId = conversationId,
                 role = req.role,
                 body = req.body,
             ),
         )
-        val detail = conversationQuery.get(ConversationId(id)) ?: return ResponseEntity.notFound().build()
+        val detail = conversationQuery.get(conversationId, userUuid) ?: return ResponseEntity.notFound().build()
         val message =
             detail.messages.firstOrNull { it.id == messageId }
                 ?: error("message not visible immediately after append")
@@ -117,9 +127,12 @@ class ChatSessionController(
     @PostMapping("/{id}/messages/stream")
     fun streamMessage(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id") userId: String,
         @Valid @RequestBody req: AppendChatMessageRequest,
     ): ResponseEntity<SseEmitter> {
-        val emitter = chatAnswerStream.stream(ConversationId(id), req.body)
+        val conversationId = ConversationId(id)
+        conversationQuery.get(conversationId, UUID.fromString(userId)) ?: return ResponseEntity.notFound().build()
+        val emitter = chatAnswerStream.stream(conversationId, req.body)
         return ResponseEntity
             .ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)
