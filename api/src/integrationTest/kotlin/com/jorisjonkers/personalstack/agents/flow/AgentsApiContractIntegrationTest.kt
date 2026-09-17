@@ -46,57 +46,6 @@ class AgentsApiContractIntegrationTest
         }
 
         @Test
-        fun conversationCreationResponseMatchesExpectedSchema() {
-            val userId = UUID.randomUUID().toString()
-
-            mockMvc
-                .perform(
-                    post("/api/v1/conversations")
-                        .header("X-User-Id", userId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("title" to "Contract Test Chat"))),
-                ).andExpect(status().isCreated)
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.userId").exists())
-                .andExpect(jsonPath("$.title").value("Contract Test Chat"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.createdAt").exists())
-                .andExpect(jsonPath("$.updatedAt").exists())
-        }
-
-        @Test
-        fun messageResponseMatchesExpectedSchema() {
-            val userId = UUID.randomUUID().toString()
-
-            val convResult =
-                mockMvc
-                    .perform(
-                        post("/api/v1/conversations")
-                            .header("X-User-Id", userId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(mapOf("title" to "Message Schema Test"))),
-                    ).andExpect(status().isCreated)
-                    .andReturn()
-
-            val conversationId = objectMapper.readTree(convResult.response.contentAsString)["id"].asText()
-
-            mockMvc
-                .perform(
-                    post("/api/v1/conversations/$conversationId/messages")
-                        .header("X-User-Id", userId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mapOf("content" to "Schema check"))),
-                ).andExpect(status().isCreated)
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.conversationId").exists())
-                .andExpect(jsonPath("$.role").value("USER"))
-                .andExpect(jsonPath("$.content").value("Schema check"))
-                .andExpect(jsonPath("$.createdAt").exists())
-        }
-
-        @Test
         fun healthEndpointResponseMatchesSchema() {
             mockMvc
                 .perform(get("/api/v1/health"))
@@ -328,27 +277,5 @@ class AgentsApiContractIntegrationTest
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.session.id").value(sessionId))
                 .andExpect(jsonPath("$.messages[0].body").value("hello world"))
-        }
-
-        @Test
-        fun conversationListResponseIsValidJSONArray() {
-            val userId = UUID.randomUUID().toString()
-
-            // Create a conversation so the list is non-empty
-            mockMvc.perform(
-                post("/api/v1/conversations")
-                    .header("X-User-Id", userId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(mapOf("title" to "List Test Chat"))),
-            )
-
-            mockMvc
-                .perform(get("/api/v1/conversations").header("X-User-Id", userId))
-                .andExpect(status().isOk)
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$").isArray)
-                .andExpect(jsonPath("$[0].id").exists())
-                .andExpect(jsonPath("$[0].title").exists())
-                .andExpect(jsonPath("$[0].status").exists())
         }
     }

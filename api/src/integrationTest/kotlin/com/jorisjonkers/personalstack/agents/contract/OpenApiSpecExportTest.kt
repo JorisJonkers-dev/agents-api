@@ -7,8 +7,6 @@ import com.jorisjonkers.personalstack.agents.application.RepositoryVerificationS
 import com.jorisjonkers.personalstack.agents.application.chat.ChatAnswerStreamService
 import com.jorisjonkers.personalstack.agents.application.maintenance.RunnerMaintenanceService
 import com.jorisjonkers.personalstack.agents.application.query.ChatSessionQueryService
-import com.jorisjonkers.personalstack.agents.application.query.GetConversationQueryService
-import com.jorisjonkers.personalstack.agents.application.query.GetMessageQueryService
 import com.jorisjonkers.personalstack.agents.application.query.GetTurnHistoryQueryService
 import com.jorisjonkers.personalstack.agents.application.query.GetWorkspaceQueryService
 import com.jorisjonkers.personalstack.agents.application.query.ListWorkspacesQueryService
@@ -36,14 +34,12 @@ import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSessionCont
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ChatSessionController
-import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.CredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.HealthController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalCredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalGitHubTokenController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.KubernetesExceptionHandler
-import com.jorisjonkers.personalstack.agents.infrastructure.web.MessageController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ProjectController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryAccessDeniedExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.RepositoryController
@@ -81,13 +77,11 @@ import java.nio.file.Paths
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
-        ConversationController::class,
         CredentialController::class,
         GitController::class,
         HealthController::class,
         InternalCredentialController::class,
         InternalGitHubTokenController::class,
-        MessageController::class,
         ProjectController::class,
         RepositoryController::class,
         SessionStatusController::class,
@@ -118,13 +112,11 @@ import java.nio.file.Paths
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
-        ConversationController::class,
         CredentialController::class,
         GitController::class,
         HealthController::class,
         InternalCredentialController::class,
         InternalGitHubTokenController::class,
-        MessageController::class,
         ProjectController::class,
         RepositoryController::class,
         SessionStatusController::class,
@@ -255,12 +247,6 @@ class OpenApiSpecExportTest
         class QueryCollaborators {
             @Bean
             fun chatSessionQueryService(): ChatSessionQueryService = mockk(relaxed = true)
-
-            @Bean
-            fun getConversationQueryService(): GetConversationQueryService = mockk(relaxed = true)
-
-            @Bean
-            fun getMessageQueryService(): GetMessageQueryService = mockk(relaxed = true)
 
             @Bean
             fun getTurnHistoryQueryService(): GetTurnHistoryQueryService = mockk(relaxed = true)
