@@ -26,6 +26,9 @@ class ConversationController(
     private val commandBus: CommandBus,
     private val getConversationQueryService: GetConversationQueryService,
 ) {
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun create(
@@ -45,6 +48,9 @@ class ConversationController(
         return ConversationResponse.from(created)
     }
 
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @GetMapping("/{id}")
     fun getById(
         @PathVariable id: UUID,
@@ -53,6 +59,9 @@ class ConversationController(
         return ConversationResponse.from(conversation)
     }
 
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun archive(
@@ -62,6 +71,9 @@ class ConversationController(
         commandBus.dispatch(ArchiveConversationCommand(conversationId = ConversationId(id), userId = userId))
     }
 
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @GetMapping
     fun listByUser(
         @RequestHeader("X-User-Id") userId: String,
