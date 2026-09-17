@@ -715,7 +715,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       },
       "post" : {
         "tags" : [ "conversation-controller" ],
@@ -749,7 +750,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/conversations/{conversationId}/messages" : {
@@ -779,7 +781,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       },
       "post" : {
         "tags" : [ "message-controller" ],
@@ -821,7 +824,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/chat-sessions" : {
@@ -1434,7 +1438,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       },
       "delete" : {
         "tags" : [ "conversation-controller" ],
@@ -1459,7 +1464,8 @@
           "204" : {
             "description" : "No Content"
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/chat-sessions/{id}" : {

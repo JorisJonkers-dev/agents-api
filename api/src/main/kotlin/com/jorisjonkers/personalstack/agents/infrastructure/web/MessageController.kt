@@ -26,6 +26,9 @@ class MessageController(
     private val commandBus: CommandBus,
     private val getMessageQueryService: GetMessageQueryService,
 ) {
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun send(
@@ -52,6 +55,9 @@ class MessageController(
         return MessageResponse.from(saved)
     }
 
+    @Deprecated(
+        "Replaced by the Conversation surface backed by the renamed model (#68). Removed once nothing calls it.",
+    )
     @GetMapping
     fun list(
         @PathVariable conversationId: UUID,
