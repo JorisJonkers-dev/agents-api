@@ -47,6 +47,9 @@ class CredentialController(
     // expose an ObjectMapper bean, so a constructor dependency would break it.
     private val objectMapper = ObjectMapper()
 
+    @Deprecated(
+        "Agent Login moves to the home volume (#64). Removed once agents-ui no longer calls it.",
+    )
     @GetMapping("/status")
     @Operation(summary = "Report what credentials are currently stored for each provider")
     fun storedStatus(
@@ -54,6 +57,9 @@ class CredentialController(
     ): ResponseEntity<StoredCredentialStatusResponse> =
         ResponseEntity.ok(StoredCredentialStatusResponse.of(credentials.statusFor(userId)))
 
+    @Deprecated(
+        "Agent Login moves to the home volume (#64). Removed once agents-ui no longer calls it.",
+    )
     @PostMapping("/sessions")
     @Operation(summary = "Start a CLI re-authentication session for Claude or Codex")
     fun start(
@@ -66,6 +72,9 @@ class CredentialController(
             ResponseEntity.status(HttpStatus.CREATED).body(CredentialSessionResponse.of(status))
         }
 
+    @Deprecated(
+        "Agent Login moves to the home volume (#64). Removed once agents-ui no longer calls it.",
+    )
     @GetMapping("/sessions/{id}")
     @Operation(summary = "Get the current status of a re-authentication session")
     fun status(
@@ -75,6 +84,9 @@ class CredentialController(
             ResponseEntity.ok(CredentialSessionResponse.of(worker.status(id)))
         }
 
+    @Deprecated(
+        "Agent Login moves to the home volume (#64). Removed once agents-ui no longer calls it.",
+    )
     @PostMapping("/sessions/{id}/redirect")
     @Operation(summary = "Submit the Claude post-approval redirect URL back to a session")
     fun redirect(
@@ -85,6 +97,9 @@ class CredentialController(
             ResponseEntity.ok(CredentialActionResponse.of(worker.submitRedirect(id, req.url)))
         }
 
+    @Deprecated(
+        "Agent Login moves to the home volume (#64). Removed once agents-ui no longer calls it.",
+    )
     @PostMapping("/sessions/{id}/cancel")
     @Operation(summary = "Cancel an in-flight re-authentication session")
     fun cancel(

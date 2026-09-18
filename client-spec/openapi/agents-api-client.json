@@ -622,7 +622,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/credentials/sessions/{id}/redirect" : {
@@ -659,7 +660,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/credentials/sessions/{id}/cancel" : {
@@ -686,7 +688,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/conversations" : {
@@ -1397,7 +1400,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/credentials/sessions/{id}" : {
@@ -1424,7 +1428,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated" : true
       }
     },
     "/api/v1/conversations/{id}" : {
