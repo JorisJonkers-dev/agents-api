@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0](https://github.com/JorisJonkers-dev/agents-api/compare/v0.19.2...v0.20.0) (2026-09-18)
+
+
+### Features
+
+* **agents:** clone a Repo-backed Workspace in-container over the credential socket ([#74](https://github.com/JorisJonkers-dev/agents-api/issues/74)) ([5662b1e](https://github.com/JorisJonkers-dev/agents-api/commit/5662b1e74b3dec8a87a20b3efe54b647e1b960c7))
+* **agents:** drive Workspace to Ready or Failed with a reason ([#75](https://github.com/JorisJonkers-dev/agents-api/issues/75)) ([8c518f5](https://github.com/JorisJonkers-dev/agents-api/commit/8c518f5cca67cea80e3a7e7d1591c213ab201eaf))
+* **agents:** drop the legacy Conversation/Message model ([#82](https://github.com/JorisJonkers-dev/agents-api/issues/82)) ([92c5cc0](https://github.com/JorisJonkers-dev/agents-api/commit/92c5cc03549ee7670d3faf0dc01f552302c49b96))
+* **agents:** mint workspace-scoped git tokens over a unix socket ([#73](https://github.com/JorisJonkers-dev/agents-api/issues/73)) ([16b90d6](https://github.com/JorisJonkers-dev/agents-api/commit/16b90d6be3b3ef3bf22edc288b6c2b9d9c177f9e))
+* **agents:** run a Shell Agent Session in tmux inside the api container ([#72](https://github.com/JorisJonkers-dev/agents-api/issues/72)) ([fee09f9](https://github.com/JorisJonkers-dev/agents-api/commit/fee09f988fed3a9bc1bc99b878738dd846d24310))
+* **agents:** run Claude and Codex in-container off the home volume ([#86](https://github.com/JorisJonkers-dev/agents-api/issues/86)) ([27c1e25](https://github.com/JorisJonkers-dev/agents-api/commit/27c1e25d2dc2d11f00ef7d13488e5e7db624ed8c))
+* **image:** build the agents image with baked tools and separate api and agent users ([#70](https://github.com/JorisJonkers-dev/agents-api/issues/70)) ([dab4901](https://github.com/JorisJonkers-dev/agents-api/commit/dab4901e530ce321cec1ee67ffedac8bdf6d7d3d)), closes [#61](https://github.com/JorisJonkers-dev/agents-api/issues/61)
+
 ## [0.19.2](https://github.com/JorisJonkers-dev/agents-api/compare/v0.19.1...v0.19.2) (2026-08-27)
 
 
