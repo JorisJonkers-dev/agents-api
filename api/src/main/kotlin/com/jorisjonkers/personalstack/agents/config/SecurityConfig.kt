@@ -27,15 +27,6 @@ class SecurityConfig {
             addUrlPatterns("/api/v1/internal/github/*")
             order = 0
         }
-
-    @Bean
-    fun credentialInternalBearerFilterRegistration(
-        props: AgentRuntimeProperties,
-    ): FilterRegistrationBean<InternalBearerAuthFilter> =
-        FilterRegistrationBean(InternalBearerAuthFilter(props.credentialIngestBearer)).apply {
-            addUrlPatterns("/api/v1/internal/credentials")
-            order = 0
-        }
 }
 
 class XUserIdFilter : OncePerRequestFilter() {

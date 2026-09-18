@@ -1,0 +1,14 @@
+-- Agent Login moves to the home volume (ADR 0002, #64). The user signs in once
+-- from a terminal in an Agent Session; the CLI writes its own login files under
+-- $HOME and the home volume keeps them across restarts. agents-api no longer
+-- captures, stores, validates or injects a credential, so the table V18 created
+-- has no reader and no writer left.
+--
+-- Forward-only, and deliberately so: the rows are OAuth tokens that nothing
+-- reads any more, and keeping them would leave live credentials in the database
+-- purely so a rollback could use a mechanism this release removes. Rolling
+-- agents-api back past this migration therefore does not restore the old login
+-- path -- the agents-login worker and its endpoints are gone too. The recovery
+-- for a bad release is to sign in again from an Agent Session, which is the
+-- whole point of putting the login on a volume.
+DROP TABLE IF EXISTS agent_oauth_credentials;

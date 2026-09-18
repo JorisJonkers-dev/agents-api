@@ -18,27 +18,24 @@ import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupDiffSer
 import com.jorisjonkers.personalstack.agents.application.setup.AgentSetupValidationService
 import com.jorisjonkers.personalstack.agents.application.workspacerunner.WorkspaceRunnerLifecycleService
 import com.jorisjonkers.personalstack.agents.config.OpenApiConfig
-import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
+import com.jorisjonkers.personalstack.agents.domain.port.AgentLoginStore
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSetupRepository
 import com.jorisjonkers.personalstack.agents.domain.port.GithubLinkRepository
 import com.jorisjonkers.personalstack.agents.domain.port.SetupRestartEventRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
-import com.jorisjonkers.personalstack.agents.infrastructure.credentials.CredentialValidator
 import com.jorisjonkers.personalstack.agents.infrastructure.integration.GitHubAppInstallationTokenClient
-import com.jorisjonkers.personalstack.agents.infrastructure.integration.HttpCredentialWorkerClient
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AdminRunnerController
+import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentLoginController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentRunnerUnavailableExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSessionController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.AgentSetupExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ChatSessionController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ConversationController
-import com.jorisjonkers.personalstack.agents.infrastructure.web.CredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.GitController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.HealthController
-import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalCredentialController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.InternalGitHubTokenController
 import com.jorisjonkers.personalstack.agents.infrastructure.web.KubernetesExceptionHandler
 import com.jorisjonkers.personalstack.agents.infrastructure.web.ProjectController
@@ -75,14 +72,13 @@ import java.nio.file.Paths
 @WebMvcTest(
     controllers = [
         AdminRunnerController::class,
+        AgentLoginController::class,
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
-        CredentialController::class,
         GitController::class,
         HealthController::class,
-        InternalCredentialController::class,
         InternalGitHubTokenController::class,
         ProjectController::class,
         RepositoryController::class,
@@ -111,14 +107,13 @@ import java.nio.file.Paths
         KubernetesExceptionHandler::class,
         RepositoryAccessDeniedExceptionHandler::class,
         AdminRunnerController::class,
+        AgentLoginController::class,
         AgentSetupController::class,
         AgentSessionController::class,
         ChatSessionController::class,
         ConversationController::class,
-        CredentialController::class,
         GitController::class,
         HealthController::class,
-        InternalCredentialController::class,
         InternalGitHubTokenController::class,
         ProjectController::class,
         RepositoryController::class,
@@ -145,12 +140,18 @@ class OpenApiSpecExportTest
                 .andExpect(jsonPath("$['paths']['/api/v1/sessions/events']").doesNotExist())
         }
 
+        // #64 retired the whole credential-capture surface: the browser proxy,
+        // the @Hidden internal ingest endpoint, and the stored-credential
+        // status it reported. `/api/v1/agent-logins` replaces the last of those
+        // and reports presence only, read off the home volume (ADR 0002).
         @Test
-        fun internalCredentialEndpointIsHiddenWhileBrowserCredentialStatusRemainsExported() {
+        fun credentialEndpointsAreGoneAndAgentLoginStatusReplacesThem() {
             mockMvc
                 .perform(get("/api/v1/api-docs"))
                 .andExpect(jsonPath("$['paths']['/api/v1/internal/credentials']").doesNotExist())
-                .andExpect(jsonPath("$['paths']['/api/v1/credentials/status']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/credentials/status']").doesNotExist())
+                .andExpect(jsonPath("$['paths']['/api/v1/credentials/sessions']").doesNotExist())
+                .andExpect(jsonPath("$['paths']['/api/v1/agent-logins']").exists())
         }
 
         @Test
@@ -270,9 +271,6 @@ class OpenApiSpecExportTest
         @TestConfiguration(proxyBeanMethods = false)
         class RepositoryCollaborators {
             @Bean
-            fun agentCredentialRepository(): AgentCredentialRepository = mockk(relaxed = true)
-
-            @Bean
             fun agentSetupRepository(): AgentSetupRepository = mockk(relaxed = true)
 
             @Bean
@@ -291,13 +289,10 @@ class OpenApiSpecExportTest
         @TestConfiguration(proxyBeanMethods = false)
         class InfrastructureCollaborators {
             @Bean
-            fun credentialValidator(): CredentialValidator = mockk(relaxed = true)
+            fun agentLoginStore(): AgentLoginStore = mockk(relaxed = true)
 
             @Bean
             fun githubAppInstallationTokenClient(): GitHubAppInstallationTokenClient = mockk(relaxed = true)
-
-            @Bean
-            fun httpCredentialWorkerClient(): HttpCredentialWorkerClient = mockk(relaxed = true)
 
             @Bean
             fun workspaceRunnerLifecycleService(): WorkspaceRunnerLifecycleService = mockk(relaxed = true)

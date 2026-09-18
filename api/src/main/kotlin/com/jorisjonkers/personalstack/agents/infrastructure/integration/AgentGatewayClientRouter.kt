@@ -89,23 +89,29 @@ class AgentGatewayClientRouter(
         headlessJobId: String,
     ): AgentGatewayClient.HeadlessJob = target(workspace).pollHeadlessJob(workspace, headlessJobId)
 
-    /** Spawn has no session yet, so it routes on the Agent Kind it is about to start. */
+    /**
+     * Spawn has no session yet. Since #64 the Agent Kind no longer selects a
+     * gateway -- Claude and Codex run in this container too -- so this is the
+     * same test RunnerSessionBindingRouter applies, and the two must not drift.
+     */
     private fun target(
         workspace: Workspace,
-        kind: WorkspaceAgentKind,
-    ): AgentGatewayClient =
-        if (workspace.kind == WorkspaceKind.SCRATCH && kind == WorkspaceAgentKind.SHELL) {
-            inContainerGateway
-        } else {
-            podGateway
-        }
+        @Suppress("UNUSED_PARAMETER") kind: WorkspaceAgentKind,
+    ): AgentGatewayClient = target(workspace)
 
     private fun target(
         workspace: Workspace,
         gatewayAgentId: String,
     ): AgentGatewayClient = if (registry.find(workspace.id, gatewayAgentId) != null) inContainerGateway else podGateway
 
-    /** Workspace-wide, no session named: only a Scratch Workspace runs in this container. */
+    /**
+     * Workspace-wide, no session named. A Scratch Workspace runs in this
+     * container, unless it is an older one that still has a runner Pod bound.
+     */
     private fun target(workspace: Workspace): AgentGatewayClient =
-        if (workspace.kind == WorkspaceKind.SCRATCH) inContainerGateway else podGateway
+        if (workspace.kind == WorkspaceKind.SCRATCH && workspace.podName == null) {
+            inContainerGateway
+        } else {
+            podGateway
+        }
 }

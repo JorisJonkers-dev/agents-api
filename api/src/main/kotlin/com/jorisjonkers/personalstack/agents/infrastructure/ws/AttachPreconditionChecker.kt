@@ -17,7 +17,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionId
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupOperation
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepository
@@ -179,7 +178,7 @@ internal class AttachPreconditionChecker(
     ): AttachOutcome {
         val gatewayAgentId = session.gatewayAgentId
         val endpoint = workspace.gatewayEndpoint
-        val local = isInContainerShellSession(workspace, session)
+        val local = isInContainerSession(workspace)
         return when {
             isSetupTransitionInProgress(session, workspace) ->
                 AttachOutcome.Rejected(
@@ -208,10 +207,15 @@ internal class AttachPreconditionChecker(
         }
     }
 
-    private fun isInContainerShellSession(
-        workspace: Workspace,
-        session: AgentSession,
-    ): Boolean = workspace.kind == WorkspaceKind.SCRATCH && session.kind == WorkspaceAgentKind.SHELL
+    // Must mirror RunnerSessionBindingRouter.targetFor exactly. A session this
+    // container binds has no gateway endpoint -- a Scratch Workspace never
+    // provisions a Pod -- so a checker that disagrees rejects the attach with
+    // "workspace has no gateway endpoint". For a Claude or Codex session that
+    // is fatal rather than cosmetic: the terminal is the only place an Agent
+    // Login can be created, so an unopenable one leaves the user with no way to
+    // sign in at all (ADR 0002).
+    private fun isInContainerSession(workspace: Workspace): Boolean =
+        workspace.kind == WorkspaceKind.SCRATCH && workspace.podName == null
 
     private fun isSetupTransitionInProgress(
         agentSession: AgentSession,

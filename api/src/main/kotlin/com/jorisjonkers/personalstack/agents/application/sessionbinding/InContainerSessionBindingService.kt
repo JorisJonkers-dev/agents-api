@@ -4,7 +4,6 @@ import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionSt
 import com.jorisjonkers.personalstack.agents.application.workspace.WorkspaceDirectoryService
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSessionStatus
-import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
@@ -15,14 +14,16 @@ import org.springframework.stereotype.Component
 import java.time.Instant
 
 /**
- * Binds a Shell Agent Session running in-container: no runner Pod, no
- * setup catalog, no boot lease — the tmux session either starts or it
- * doesn't, synchronously. [RunnerSessionBinder]'s CAS/generation/setup
- * machinery exists for the Pod path's provisioning races; there is
- * nothing to provision here, so this stays deliberately small.
+ * Binds an Agent Session running in-container: no runner Pod, no setup
+ * catalog, no boot lease — the tmux session either starts or it doesn't,
+ * synchronously. [RunnerSessionBinder]'s CAS/generation/setup machinery
+ * exists for the Pod path's provisioning races; there is nothing to
+ * provision here, so this stays deliberately small.
  *
- * Selected by [RunnerSessionBindingRouter] for a Shell Agent Session in
- * a Scratch Workspace.
+ * Selected by [RunnerSessionBindingRouter] for any Agent Session in a
+ * Scratch Workspace. Claude and Codex joined Shell here in #64: the CLI
+ * reads its Agent Login from the home volume, which only this container
+ * has, so an Agent Session that needs a login has to run here.
  */
 @Component
 class InContainerSessionBindingService(
@@ -40,9 +41,6 @@ class InContainerSessionBindingService(
                 ?: throw NoSuchElementException("workspace not found: ${request.workspaceId.value}")
         require(workspace.kind == WorkspaceKind.SCRATCH) {
             "the in-container binding service only starts sessions in a Scratch Workspace: ${workspace.id.value}"
-        }
-        require(request.kind == WorkspaceAgentKind.SHELL) {
-            "the in-container binding service only starts Shell Agent Sessions; requested kind=${request.kind}"
         }
         val now = Instant.now()
         val session =
@@ -93,8 +91,8 @@ class InContainerSessionBindingService(
     // tracer-bullet's scope (#62); it lands with the idle/suspend sweep (#65).
     override fun restart(request: RestartRunnerSessionBindingInput): RunnerSessionBindingResult =
         throw UnsupportedOperationException(
-            "restart of an in-container Shell Agent Session is not implemented (tracer bullet #62 scope; " +
-                "Suspend/Resume for Shell lands with #65)",
+            "restart of an in-container Agent Session is not implemented (tracer bullet #62 scope; " +
+                "Suspend/Resume lands with #65)",
         )
 
     override fun ensureBound(request: EnsureRunnerSessionBoundInput): RunnerSessionBindingResult {
@@ -108,6 +106,8 @@ class InContainerSessionBindingService(
         // The tmux session is only ever bound at start() and unbound at stop();
         // a RUNNING session with no gatewayAgentId lost its process (a container
         // restart killed tmux) and isn't resumable in this scope — see restart().
+        // The Agent Login itself does survive that restart, on the home volume:
+        // it is the tmux process that is gone, not the sign-in.
         if (gatewayAgentId == null || session.status != AgentSessionStatus.RUNNING) {
             return RunnerSessionBindingResult.Unavailable(
                 workspaceId = workspace.id,

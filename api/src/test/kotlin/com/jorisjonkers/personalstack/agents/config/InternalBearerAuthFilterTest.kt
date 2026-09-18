@@ -59,15 +59,13 @@ class InternalBearerAuthFilterTest {
                 codexCredentialsPvc = "codex-credentials",
                 githubDeployKeySecret = "github-deploy-key",
                 githubAppTokenBearer = "github-bearer",
-                credentialIngestBearer = "credential-bearer",
             )
         val config = SecurityConfig()
 
         val github = config.githubInternalBearerFilterRegistration(props)
-        val credentials = config.credentialInternalBearerFilterRegistration(props)
 
+        // The credential-ingest filter went with the endpoint it guarded (#64);
+        // the GitHub token filter is the only internal bearer left.
         assertThat(github.urlPatterns).containsExactly("/api/v1/internal/github/*")
-        assertThat(credentials.urlPatterns).containsExactly("/api/v1/internal/credentials")
-        assertThat(github.filter).isNotSameAs(credentials.filter)
     }
 }

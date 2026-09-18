@@ -6,7 +6,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
-import com.jorisjonkers.personalstack.agents.infrastructure.k8s.RunnerCredentialSecretManager.CredentialSecret
 import io.fabric8.kubernetes.api.model.Container
 import io.fabric8.kubernetes.api.model.ContainerBuilder
 import io.fabric8.kubernetes.api.model.ContainerPortBuilder
@@ -31,8 +30,6 @@ import io.fabric8.kubernetes.api.model.VolumeMountBuilder
 import org.springframework.beans.factory.ObjectProvider
 
 private const val DOCKER_SOCKET_VOLUME = "docker-socket"
-private const val AGENT_CREDENTIALS_VOLUME = "agent-credentials"
-private const val AGENT_CREDENTIALS_MOUNT = "/var/run/secrets/agents/credentials"
 
 /**
  * Builds Kubernetes resource specs (Pod, PVC, Service) for a workspace runner.
@@ -75,7 +72,6 @@ internal class RunnerPodSpecBuilder(
         setup: RunnerSetupProvisioningSpec,
         runnerGeneration: Long,
         names: RunnerResourceNames,
-        credentialSecret: CredentialSecret?,
     ): Pod =
         PodBuilder()
             .withMetadata(podMetadata(workspace, setup, runnerGeneration, names))
@@ -92,8 +88,8 @@ internal class RunnerPodSpecBuilder(
             .withRestartPolicy("Always")
             .withSecurityContext(podSecurityContext(setup))
             .withInitContainers(agentStateInitContainer(setup))
-            .withContainers(agentRunnerContainer(workspace, setup, runnerGeneration, credentialSecret))
-            .withVolumes(volumes.podVolumes(names.pvc, credentialSecret, setup))
+            .withContainers(agentRunnerContainer(workspace, setup, runnerGeneration))
+            .withVolumes(volumes.podVolumes(names.pvc, setup))
             .endSpec()
             .build()
 
@@ -166,7 +162,6 @@ internal class RunnerPodSpecBuilder(
         workspace: Workspace,
         setup: RunnerSetupProvisioningSpec,
         runnerGeneration: Long,
-        credentialSecret: CredentialSecret?,
     ): Container =
         ContainerBuilder()
             .withName("agent-runner")
@@ -179,8 +174,8 @@ internal class RunnerPodSpecBuilder(
                     .withName("gateway")
                     .withContainerPort(setup.gatewayPort)
                     .build(),
-            ).withEnv(env.podEnv(workspace, setup, runnerGeneration, credentialSecret))
-            .withVolumeMounts(volumes.podVolumeMounts(setup, credentialSecret))
+            ).withEnv(env.podEnv(workspace, setup, runnerGeneration))
+            .withVolumeMounts(volumes.podVolumeMounts(setup))
             // Startup probe gates liveness + readiness until the gateway's
             // JVM has finished its cold start. Without it the liveness probe
             // (failureThreshold 3 x 10s ~= 30s, no initial delay) killed the
@@ -273,14 +268,12 @@ internal class RunnerContainerEnvBuilder(
         workspace: Workspace,
         setup: RunnerSetupProvisioningSpec,
         runnerGeneration: Long,
-        credentialSecret: CredentialSecret?,
     ) = buildList {
         addAll(baseEnv())
         addAll(setupEnv(setup, runnerGeneration))
         addAll(dockerEnv(setup))
         addAll(knowledgeEnv(setup))
         addAll(githubAppTokenEnv())
-        addAll(agentCredentialEnv(credentialSecret))
         addAll(repoEnv(workspace))
     }
 
@@ -426,59 +419,6 @@ internal class RunnerContainerEnvBuilder(
                 .endValueFrom()
                 .build(),
         )
-
-    private fun agentCredentialEnv(credentialSecret: CredentialSecret?) =
-        if (credentialSecret == null) {
-            emptyList()
-        } else {
-            buildList {
-                if (credentialSecret.hasClaudeCredentialsJson) {
-                    add(
-                        EnvVarBuilder()
-                            .withName("AGENT_CLAUDE_CREDENTIALS_FILE")
-                            .withValue("$AGENT_CREDENTIALS_MOUNT/claude_credentials_json")
-                            .build(),
-                    )
-                }
-                if (credentialSecret.hasClaudeAccountJson) {
-                    add(
-                        EnvVarBuilder()
-                            .withName("AGENT_CLAUDE_ACCOUNT_FILE")
-                            .withValue("$AGENT_CREDENTIALS_MOUNT/claude_account_json")
-                            .build(),
-                    )
-                }
-                if (credentialSecret.hasClaude && !credentialSecret.hasClaudeCredentialsJson) {
-                    add(
-                        EnvVarBuilder()
-                            .withName("CLAUDE_CODE_OAUTH_TOKEN")
-                            .withNewValueFrom()
-                            .withNewSecretKeyRef()
-                            .withName(credentialSecret.name)
-                            .withKey("claude_oauth_token")
-                            .endSecretKeyRef()
-                            .endValueFrom()
-                            .build(),
-                    )
-                }
-                if (credentialSecret.hasCodex) {
-                    add(
-                        EnvVarBuilder()
-                            .withName("AGENT_CODEX_AUTH_JSON_FILE")
-                            .withValue("$AGENT_CREDENTIALS_MOUNT/codex_auth_json")
-                            .build(),
-                    )
-                }
-                if (credentialSecret.hasCodexConfig) {
-                    add(
-                        EnvVarBuilder()
-                            .withName("AGENT_CODEX_CONFIG_TOML_FILE")
-                            .withValue("$AGENT_CREDENTIALS_MOUNT/codex_config_toml")
-                            .build(),
-                    )
-                }
-            }
-        }
 }
 
 /**
@@ -487,48 +427,35 @@ internal class RunnerContainerEnvBuilder(
  * TooManyFunctions threshold.
  */
 internal class RunnerVolumeSpecBuilder {
-    fun podVolumeMounts(
-        setup: RunnerSetupProvisioningSpec,
-        credentialSecret: CredentialSecret?,
-    ) = buildList {
-        add(VolumeMountBuilder().withName("workspace").withMountPath("/workspace").build())
-        addAll(agentStateVolumeMounts())
-        if (credentialSecret != null) {
+    fun podVolumeMounts(setup: RunnerSetupProvisioningSpec) =
+        buildList {
+            add(VolumeMountBuilder().withName("workspace").withMountPath("/workspace").build())
+            addAll(agentStateVolumeMounts())
+            if (setup.dockerSocketEnabled) {
+                add(
+                    VolumeMountBuilder()
+                        .withName(DOCKER_SOCKET_VOLUME)
+                        .withMountPath(setup.dockerSocketPath)
+                        .build(),
+                )
+            }
+            // Declarative MCP server set; the entrypoint seeds it into
+            // ~/.claude.json. Optional volume, so an absent ConfigMap
+            // leaves the runner with no managed MCP servers.
             add(
                 VolumeMountBuilder()
-                    .withName(AGENT_CREDENTIALS_VOLUME)
-                    .withMountPath(AGENT_CREDENTIALS_MOUNT)
+                    .withName("mcp-config")
+                    .withMountPath(setup.mcpDir)
                     .withReadOnly(true)
                     .build(),
             )
         }
-        if (setup.dockerSocketEnabled) {
-            add(
-                VolumeMountBuilder()
-                    .withName(DOCKER_SOCKET_VOLUME)
-                    .withMountPath(setup.dockerSocketPath)
-                    .build(),
-            )
-        }
-        // Declarative MCP server set; the entrypoint seeds it into
-        // ~/.claude.json. Optional volume, so an absent ConfigMap
-        // leaves the runner with no managed MCP servers.
-        add(
-            VolumeMountBuilder()
-                .withName("mcp-config")
-                .withMountPath(setup.mcpDir)
-                .withReadOnly(true)
-                .build(),
-        )
-    }
 
     fun podVolumes(
         workspacePvc: String,
-        credentialSecret: CredentialSecret?,
         setup: RunnerSetupProvisioningSpec,
     ) = buildList {
         add(pvcVolume("workspace", workspacePvc))
-        credentialSecret?.let { add(agentCredentialsVolume(it.name)) }
         dockerSocketVolume(setup)?.let(::add)
         add(mcpConfigVolume(setup))
     }
@@ -588,14 +515,6 @@ internal class RunnerVolumeSpecBuilder {
                 .endHostPath()
                 .build()
         }
-
-    private fun agentCredentialsVolume(credentialSecret: String): Volume =
-        VolumeBuilder()
-            .withName(AGENT_CREDENTIALS_VOLUME)
-            .withNewSecret()
-            .withSecretName(credentialSecret)
-            .endSecret()
-            .build()
 
     private fun mcpConfigVolume(setup: RunnerSetupProvisioningSpec): Volume =
         VolumeBuilder()

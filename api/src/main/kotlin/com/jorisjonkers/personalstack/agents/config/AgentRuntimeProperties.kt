@@ -99,10 +99,6 @@ data class AgentRuntimeProperties(
     // starting with the `gh` wrapper degrading to a no-op.
     val githubAppBearerSecret: String = "github-app",
     val githubAppBearerSecretKey: String = "token-bearer",
-    // Shared bearer for the internal credential-ingest callback. Kept
-    // separate from githubAppTokenBearer so the login worker cannot mint
-    // GitHub App tokens if one secret is exposed.
-    val credentialIngestBearer: String = "",
     val durableSessionRetentionSeconds: Long = 604_800,
     val durableSessionCleanupBatchSize: Int = 25,
     // Scratch Workspace directory root inside this container; a Workspace's
@@ -120,16 +116,11 @@ data class AgentRuntimeProperties(
     // Socket name for the single shared tmux server backing every in-container
     // Shell Agent Session — see infrastructure/shell/InContainerTmuxClient.
     val shellTmuxSocketName: String = "agents-api",
-    // In-cluster ClusterIP of the credential-worker that drives the
-    // Claude Code / Codex CLI `/login` flows and writes the resulting
-    // OAuth bundle to Vault. The worker is fronted by no edge route, so
-    // this address skips forward-auth entirely.
-    val credentialWorkerUrl: String = "http://agents-login-worker.agents-system.svc.cluster.local:8081",
-    // Shared internal token presented on every credential-worker call
-    // as the `x-internal-token` header. Sourced from the INTERNAL_TOKEN
-    // env var. Empty => the worker rejects every proxied request with a
-    // 401, so an unconfigured deployment never reaches the login flow.
-    val credentialWorkerToken: String = "",
+    // The `agent` user's home, where the Claude and Codex CLIs keep their own
+    // Agent Login (ADR 0002). Not the JVM's $HOME: the JVM runs as `api`, whose
+    // home is /app, while Agent Sessions run as `agent` through run-as-agent.
+    // A path that is not mounted means "not signed in yet", never a bad start.
+    val agentHome: String = "/home/agent",
     val setups: List<AgentSetupProperties> =
         listOf(
             AgentSetupProperties(

@@ -47,15 +47,13 @@ class InContainerAgentGatewayClient(
     private val log = LoggerFactory.getLogger(InContainerAgentGatewayClient::class.java)
 
     override fun spawnAgent(request: AgentGatewayClient.SpawnAgentRequest): AgentGatewayClient.GatewayAgent {
-        require(request.kind == WorkspaceAgentKind.SHELL) {
-            "the in-container gateway only runs Shell Agent Sessions; requested kind=${request.kind}"
-        }
+        val command = commandFor(request.kind)
         val workspace = request.workspace
         val cwd = request.workspacePath ?: directories.ensureCreated(workspace.id).toString()
         val id = UUID.randomUUID().toString().substring(0, ID_PREVIEW_CHARS)
         val tmuxSessionName = "agent-${workspace.id.short()}-$id"
         val logFile = sessionLogFile(cwd, id)
-        tmux.newSession(tmuxSessionName, SHELL_COMMAND, cwd)
+        tmux.newSession(tmuxSessionName, command, cwd)
         tmux.startPipeToFile(tmuxSessionName, logFile)
         registry.put(
             ShellSession(
@@ -67,8 +65,8 @@ class InContainerAgentGatewayClient(
                 createdAt = Instant.now(),
             ),
         )
-        log.info("spawned shell agent {} ({}) in {}", id, tmuxSessionName, cwd)
-        return AgentGatewayClient.GatewayAgent(id = id, kind = WorkspaceAgentKind.SHELL, cwd = cwd)
+        log.info("spawned {} agent {} ({}) in {}", request.kind, id, tmuxSessionName, cwd)
+        return AgentGatewayClient.GatewayAgent(id = id, kind = request.kind, cwd = cwd)
     }
 
     override fun stopAgent(
@@ -200,7 +198,6 @@ class InContainerAgentGatewayClient(
     private companion object {
         const val ID_PREVIEW_CHARS = 8
         const val SESSIONS_SUBDIR = ".agent-sessions"
-        val SHELL_COMMAND = listOf("/bin/bash", "-l")
 
         // A clone runs over the network, unlike every other command this
         // client shells out through; the 30s default in RunAsAgentCommandRunner
@@ -211,3 +208,18 @@ class InContainerAgentGatewayClient(
         const val CREDENTIAL_USE_HTTP_PATH_CONFIG = "credential.useHttpPath=true"
     }
 }
+
+// What tmux runs for each Agent Kind. Bare `claude` and `codex` are the
+// interactive TUIs: when the home volume holds no Agent Login yet, the CLI's
+// own sign-in prompt is what the user completes from this terminal, which is
+// the only way a login is ever created (ADR 0002). The headless forms --
+// `claude -p`, `codex exec` -- belong to #66.
+//
+// `when` over the enum rather than a map: a new Agent Kind then fails the
+// build here instead of failing a request at runtime.
+private fun commandFor(kind: WorkspaceAgentKind): List<String> =
+    when (kind) {
+        WorkspaceAgentKind.SHELL -> listOf("/bin/bash", "-l")
+        WorkspaceAgentKind.CLAUDE -> listOf("claude")
+        WorkspaceAgentKind.CODEX -> listOf("codex")
+    }
