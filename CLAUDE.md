@@ -76,3 +76,40 @@ One image runs agents-api and holds every tool an Agent Session needs
   `vault.hashicorp.com/agent-run-as-user: 10001`. The entrypoint tries the
   `chmod` and prints a `WARNING` when it cannot — read that line before
   believing the secrets are contained.
+
+### Retiring a published endpoint
+
+`API Contract` runs `oasdiff breaking` with `fail-on: WARN` against
+`origin/<base>`, and there is no waiver — not a flag, not an ignore file, not
+an input on `api-contract-checks`. A breaking change cannot be argued past it,
+only sequenced around it.
+
+**Deprecate in one PR, remove in the next.** `oasdiff` raises
+`api-path-removed-without-deprecation` when a path disappears, and raises
+nothing when a path the *base* already marks `deprecated: true` disappears. The
+workflow sets no `--deprecation-days-*`, so the grace period is zero — the two
+PRs can land minutes apart. It has to be two, because the base only gains the
+marker once the first one is on `main`.
+
+A plain Kotlin `@Deprecated` on the handler is enough; springdoc emits
+`deprecated: true` from it.
+
+**A path absent from the base is free.** Anything introduced at a path the base
+does not have produces no findings at all — required headers, nullable
+properties, narrower `maxLength`, any shape. So moving a model onto a path an
+older model occupies is three merges, not one: deprecate the old, remove it,
+then add the new. Retiring `/api/v1/conversations` this way took #81, #82 and
+#79, and went from 17 findings to zero without touching the gate.
+
+**A required header added to an existing endpoint is breaking**, even when the
+endpoint had no auth before and needs it now. Declare it
+`@RequestHeader(required = false)` and refuse on absence exactly as you refuse a
+wrong value — for an ownership check that means 404, no repository read, no
+dispatch. Test the absent case: an optional header is only safe while its
+absence still refuses.
+
+**Verify against the binary, not the docs.** `docker run --rm -v <dir>:/specs
+tufin/oasdiff breaking /specs/base.json /specs/rev.json --fail-on WARN` against
+two hand-written fixtures settles in seconds what the rules actually do. Every
+claim above was established that way after a reasoned-from-documentation answer
+concluded, wrongly, that no route existed.
