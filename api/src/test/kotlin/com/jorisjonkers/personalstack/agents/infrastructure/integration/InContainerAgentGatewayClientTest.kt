@@ -55,13 +55,63 @@ class InContainerAgentGatewayClientTest {
         }
     }
 
+    // #64: Claude and Codex run in this container too, as `agent`, so the CLI
+    // reads the Agent Login off the home volume. Bare `claude` / `codex` is the
+    // interactive TUI — the one the user can sign in from when there is no
+    // login yet. `claude -p` and `codex exec` are the headless forms (#66).
     @Test
-    fun `spawnAgent rejects a non-Shell kind`() {
-        assertThrows<IllegalArgumentException> {
+    fun `spawnAgent runs the Claude CLI in tmux for a Claude Agent Session`() {
+        every { directories.ensureCreated(workspaceId) } returns Path.of("/workspaces/$workspaceId")
+
+        val agent =
+            client.spawnAgent(
+                AgentGatewayClient.SpawnAgentRequest(workspace = workspace(), kind = WorkspaceAgentKind.CLAUDE),
+            )
+
+        assertThat(agent.kind).isEqualTo(WorkspaceAgentKind.CLAUDE)
+        verify {
+            tmux.newSession(
+                match { it.startsWith("agent-${workspaceId.short()}-") },
+                listOf("claude"),
+                "/workspaces/$workspaceId",
+            )
+        }
+    }
+
+    @Test
+    fun `spawnAgent runs the Codex CLI in tmux for a Codex Agent Session`() {
+        every { directories.ensureCreated(workspaceId) } returns Path.of("/workspaces/$workspaceId")
+
+        val agent =
             client.spawnAgent(
                 AgentGatewayClient.SpawnAgentRequest(workspace = workspace(), kind = WorkspaceAgentKind.CODEX),
             )
+
+        assertThat(agent.kind).isEqualTo(WorkspaceAgentKind.CODEX)
+        verify {
+            tmux.newSession(
+                match { it.startsWith("agent-${workspaceId.short()}-") },
+                listOf("codex"),
+                "/workspaces/$workspaceId",
+            )
         }
+    }
+
+    // A missing Agent Login must not stop the session: the CLI's own sign-in
+    // prompt is where the user signs in, and agents-ui only adds a hint
+    // alongside it. Refusing to spawn would remove the one place a login can
+    // be created (ADR 0002).
+    @Test
+    fun `spawnAgent starts a Claude Agent Session even with no Agent Login on the home volume`() {
+        every { directories.ensureCreated(workspaceId) } returns Path.of("/workspaces/$workspaceId")
+
+        val agent =
+            client.spawnAgent(
+                AgentGatewayClient.SpawnAgentRequest(workspace = workspace(), kind = WorkspaceAgentKind.CLAUDE),
+            )
+
+        assertThat(agent.id).isNotBlank()
+        verify { tmux.newSession(any(), listOf("claude"), any()) }
     }
 
     @Test

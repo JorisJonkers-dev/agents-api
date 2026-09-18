@@ -18,6 +18,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceAgentKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceId
+import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceKind
 import com.jorisjonkers.personalstack.agents.domain.model.WorkspaceStatus
 import com.jorisjonkers.personalstack.agents.domain.port.AgentGatewayClient
 import com.jorisjonkers.personalstack.agents.domain.port.AgentSessionRepository
@@ -53,6 +54,39 @@ class AttachPreconditionCheckerTest {
 
         assertThat(result).isNotNull
         assertThat(result?.gatewayAgentId).isEqualTo("gw-1")
+        assertThat(result?.gatewayEndpoint).isEqualTo("http://runner:8090")
+    }
+
+    // #64. A Scratch Workspace never provisions a Pod, so it has no gateway
+    // endpoint; the attach must be resolved as local instead of rejected with
+    // "workspace has no gateway endpoint". For Claude and Codex that rejection
+    // is fatal rather than cosmetic: the terminal is the only place an Agent
+    // Login can be created, so an unopenable one leaves no way to sign in at
+    // all. The gate used to require kind == SHELL and silently did exactly that.
+    @Test
+    fun `resolveAttach returns Ready and local for a Claude session in a Scratch Workspace`() {
+        every { sessions.findById(sessionId) } returns agentSession(gatewayAgentId = "gw-1")
+        every { workspaces.findById(workspaceId) } returns
+            workspace().copy(kind = WorkspaceKind.SCRATCH, gatewayEndpoint = null, podName = null)
+
+        val result = checker.resolveAttach(clientSession())
+
+        assertThat(result).isNotNull
+        assertThat(result?.local).isTrue()
+        assertThat(result?.gatewayEndpoint).isNull()
+    }
+
+    // A Scratch Workspace created before #62 can still hold a session bound to a
+    // runner Pod. Those attach through the Pod's gateway, not this container.
+    @Test
+    fun `resolveAttach stays remote for a Scratch Workspace that still has a runner Pod`() {
+        every { sessions.findById(sessionId) } returns agentSession(gatewayAgentId = "gw-1")
+        every { workspaces.findById(workspaceId) } returns
+            workspace().copy(kind = WorkspaceKind.SCRATCH, podName = "agent-runner-legacy")
+
+        val result = checker.resolveAttach(clientSession())
+
+        assertThat(result?.local).isFalse()
         assertThat(result?.gatewayEndpoint).isEqualTo("http://runner:8090")
     }
 

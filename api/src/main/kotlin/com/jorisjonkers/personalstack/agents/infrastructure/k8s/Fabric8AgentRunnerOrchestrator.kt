@@ -6,7 +6,6 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerSetupProvisioningSpec
 import com.jorisjonkers.personalstack.agents.domain.model.RunnerState
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
-import com.jorisjonkers.personalstack.agents.domain.port.AgentCredentialRepository
 import com.jorisjonkers.personalstack.agents.domain.port.AgentRunnerOrchestrator
 import com.jorisjonkers.personalstack.agents.domain.port.RepositoryRepository
 import com.jorisjonkers.personalstack.agents.domain.port.WorkspaceRepositoryRepository
@@ -32,20 +31,20 @@ import java.util.concurrent.TimeUnit
  * HTTPS via a git credential helper, so repository access stays
  * scoped to repos the App is installed on.
  *
- * Pod construction, credential management, and state-reading are delegated to
- * RunnerPodSpecBuilder, RunnerCredentialSecretManager, and RunnerStateReader.
+ * Pod construction and state-reading are delegated to RunnerPodSpecBuilder
+ * and RunnerStateReader. There is no credential management left: an Agent
+ * Login lives on the home volume (ADR 0002), so a runner Pod is never handed
+ * one.
  */
 @Component
 @Profile("!system-test")
 class Fabric8AgentRunnerOrchestrator(
     private val client: KubernetesClient,
     private val props: AgentRuntimeProperties,
-    credentialsProvider: ObjectProvider<AgentCredentialRepository>,
     workspaceRepos: ObjectProvider<WorkspaceRepositoryRepository>,
     repositories: ObjectProvider<RepositoryRepository>,
 ) : AgentRunnerOrchestrator {
     private val log = LoggerFactory.getLogger(Fabric8AgentRunnerOrchestrator::class.java)
-    private val credentials = RunnerCredentialSecretManager(client, props, credentialsProvider)
     private val podSpec = RunnerPodSpecBuilder(props, workspaceRepos, repositories, ::ownReleaseVersion)
     private val stateReader = RunnerStateReader()
 
@@ -64,8 +63,7 @@ class Fabric8AgentRunnerOrchestrator(
                 pvc = "workspace-$short",
                 service = "agent-runner-$short",
             )
-        val credentialSecret = credentials.ensureCredentialSecret(workspace, short)
-        applyResources(workspace, setup, runnerGeneration, names, credentialSecret)
+        applyResources(workspace, setup, runnerGeneration, names)
         val endpoint = "http://${names.service}.${props.namespace}.svc.cluster.local:${setup.gatewayPort}"
         log.info(
             "provisioned runner pod {} for workspace {} using setup {}@{} generation {}",
@@ -87,7 +85,6 @@ class Fabric8AgentRunnerOrchestrator(
         setup: RunnerSetupProvisioningSpec,
         runnerGeneration: Long,
         names: RunnerResourceNames,
-        credentialSecret: RunnerCredentialSecretManager.CredentialSecret?,
     ) {
         client
             .persistentVolumeClaims()
@@ -97,7 +94,7 @@ class Fabric8AgentRunnerOrchestrator(
         client
             .pods()
             .inNamespace(props.namespace)
-            .resource(podSpec.pod(workspace, setup, runnerGeneration, names, credentialSecret))
+            .resource(podSpec.pod(workspace, setup, runnerGeneration, names))
             .serverSideApply()
         client
             .services()
@@ -154,10 +151,15 @@ class Fabric8AgentRunnerOrchestrator(
             .inNamespace(props.namespace)
             .withName("workspace-$short")
             .delete()
+        // #64 stopped creating this Secret, but destroy() still deletes it: the
+        // ones an earlier release already wrote hold OAuth tokens, and nothing
+        // else reaps them. The name is inlined because the manager that owned
+        // it is gone; this is the last reader of that naming scheme, and it
+        // goes with the Pod path in #67.
         client
             .secrets()
             .inNamespace(props.namespace)
-            .withName(credentials.credentialSecretName(short))
+            .withName("agent-runner-credentials-$short")
             .delete()
         log.info("destroyed runner pod and PVC for workspace {}", workspace.id)
     }

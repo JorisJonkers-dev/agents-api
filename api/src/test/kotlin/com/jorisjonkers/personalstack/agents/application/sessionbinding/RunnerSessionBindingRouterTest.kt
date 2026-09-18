@@ -40,10 +40,54 @@ class RunnerSessionBindingRouterTest {
         verify(exactly = 0) { podBinding.start(any()) }
     }
 
+    // #64: Claude and Codex join Shell in-container, so the CLI reads its Agent
+    // Login off the home volume. Before this they went to a runner Pod, which
+    // got its login injected as a Secret -- the mechanism ADR 0002 replaces.
     @Test
-    fun `start for a Claude session in a Scratch workspace still goes to the pod binder`() {
+    fun `start for a Claude session in a Scratch workspace binds in-container`() {
         val workspaceId = WorkspaceId.random()
         every { workspaces.findById(workspaceId) } returns workspace(workspaceId, WorkspaceKind.SCRATCH)
+        val request =
+            StartRunnerSessionBindingInput(
+                workspaceId = workspaceId,
+                sessionId = AgentSessionId.random(),
+                kind = WorkspaceAgentKind.CLAUDE,
+            )
+
+        router.start(request)
+
+        verify { inContainerBinding.start(request) }
+        verify(exactly = 0) { podBinding.start(any()) }
+    }
+
+    @Test
+    fun `start for a Codex session in a Scratch workspace binds in-container`() {
+        val workspaceId = WorkspaceId.random()
+        every { workspaces.findById(workspaceId) } returns workspace(workspaceId, WorkspaceKind.SCRATCH)
+        val request =
+            StartRunnerSessionBindingInput(
+                workspaceId = workspaceId,
+                sessionId = AgentSessionId.random(),
+                kind = WorkspaceAgentKind.CODEX,
+            )
+
+        router.start(request)
+
+        verify { inContainerBinding.start(request) }
+        verify(exactly = 0) { podBinding.start(any()) }
+    }
+
+    // A Repo-backed Workspace keeps going to the Pod binder, for every Agent
+    // Kind. The in-container binder does not clone a repo -- that is the Pod
+    // entrypoint's job until #67 moves the whole path across -- so routing one
+    // here would start an Agent Session in an empty directory. The cost is that
+    // a Claude session in a Repo-backed Workspace has no Agent Login during the
+    // transition, because #64 removes the Secret injection that used to supply
+    // one. #67 closes it.
+    @Test
+    fun `start for a Claude session in a repo-backed workspace still goes to the pod binder`() {
+        val workspaceId = WorkspaceId.random()
+        every { workspaces.findById(workspaceId) } returns workspace(workspaceId, WorkspaceKind.REPO_BACKED)
         val request =
             StartRunnerSessionBindingInput(
                 workspaceId = workspaceId,
@@ -66,6 +110,29 @@ class RunnerSessionBindingRouterTest {
                 workspaceId = workspaceId,
                 sessionId = AgentSessionId.random(),
                 kind = WorkspaceAgentKind.SHELL,
+            )
+
+        router.start(request)
+
+        verify { podBinding.start(request) }
+        verify(exactly = 0) { inContainerBinding.start(any()) }
+    }
+
+    // A Scratch Workspace created before #62 can still hold a Claude or Codex
+    // session bound to a runner Pod, and those rows survive this deploy. Sending
+    // one to the in-container binder strands it: restart() throws
+    // UnsupportedOperationException, and ensureBound() answers with this
+    // container's workspace directory instead of the Pod's /workspace.
+    @Test
+    fun `start for a Scratch workspace that still has a runner Pod goes to the pod binder`() {
+        val workspaceId = WorkspaceId.random()
+        every { workspaces.findById(workspaceId) } returns
+            workspace(workspaceId, WorkspaceKind.SCRATCH).copy(podName = "agent-runner-legacy")
+        val request =
+            StartRunnerSessionBindingInput(
+                workspaceId = workspaceId,
+                sessionId = AgentSessionId.random(),
+                kind = WorkspaceAgentKind.CLAUDE,
             )
 
         router.start(request)

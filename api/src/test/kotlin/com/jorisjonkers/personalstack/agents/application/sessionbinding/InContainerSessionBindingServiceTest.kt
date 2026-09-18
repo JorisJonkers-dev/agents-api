@@ -58,9 +58,38 @@ class InContainerSessionBindingServiceTest {
         verify { sessionStatus.publishStatus(saved.captured) }
     }
 
+    // #64: Claude and Codex bind here too. The kind is carried straight through
+    // to the gateway, which picks the CLI to run; the binder itself is
+    // kind-agnostic, so a wrong kind reaching the gateway is the gateway's
+    // error to raise, not a second guard here.
     @Test
-    fun `start rejects a non-Shell kind`() {
+    fun `start binds a Claude Agent Session and passes the kind to the gateway`() {
         every { workspaces.findById(workspaceId) } returns workspace
+        every { gateway.spawnAgent(any()) } returns
+            AgentGatewayClient.GatewayAgent(id = "abc12345", kind = WorkspaceAgentKind.CLAUDE, cwd = "/workspaces/x")
+        val saved = slot<AgentSession>()
+        every { sessions.save(capture(saved)) } answers { saved.captured }
+
+        val result =
+            service.start(
+                StartRunnerSessionBindingInput(
+                    workspaceId = workspaceId,
+                    sessionId = sessionId,
+                    kind = WorkspaceAgentKind.CLAUDE,
+                ),
+            )
+
+        assertThat(result).isInstanceOf(RunnerSessionBindingResult.Bound::class.java)
+        assertThat(saved.captured.kind).isEqualTo(WorkspaceAgentKind.CLAUDE)
+        verify {
+            gateway.spawnAgent(match { it.kind == WorkspaceAgentKind.CLAUDE })
+        }
+    }
+
+    @Test
+    fun `start still refuses a Repo-backed Workspace`() {
+        every { workspaces.findById(workspaceId) } returns
+            workspace.copy(kind = WorkspaceKind.REPO_BACKED)
 
         org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             service.start(

@@ -588,110 +588,6 @@
         "deprecated" : true
       }
     },
-    "/api/v1/credentials/sessions" : {
-      "post" : {
-        "tags" : [ "credential-controller" ],
-        "summary" : "Start a CLI re-authentication session for Claude or Codex",
-        "operationId" : "start_1",
-        "parameters" : [ {
-          "name" : "X-User-Id",
-          "in" : "header",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/StartCredentialSessionRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object"
-                }
-              }
-            }
-          }
-        },
-        "deprecated" : true
-      }
-    },
-    "/api/v1/credentials/sessions/{id}/redirect" : {
-      "post" : {
-        "tags" : [ "credential-controller" ],
-        "summary" : "Submit the Claude post-approval redirect URL back to a session",
-        "operationId" : "redirect",
-        "parameters" : [ {
-          "name" : "id",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/SubmitRedirectUrlRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object"
-                }
-              }
-            }
-          }
-        },
-        "deprecated" : true
-      }
-    },
-    "/api/v1/credentials/sessions/{id}/cancel" : {
-      "post" : {
-        "tags" : [ "credential-controller" ],
-        "summary" : "Cancel an in-flight re-authentication session",
-        "operationId" : "cancel",
-        "parameters" : [ {
-          "name" : "id",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object"
-                }
-              }
-            }
-          }
-        },
-        "deprecated" : true
-      }
-    },
     "/api/v1/conversations" : {
       "get" : {
         "tags" : [ "conversation-controller" ],
@@ -1376,62 +1272,6 @@
         }
       }
     },
-    "/api/v1/credentials/status" : {
-      "get" : {
-        "tags" : [ "credential-controller" ],
-        "summary" : "Report what credentials are currently stored for each provider",
-        "operationId" : "storedStatus",
-        "parameters" : [ {
-          "name" : "X-User-Id",
-          "in" : "header",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/StoredCredentialStatusResponse"
-                }
-              }
-            }
-          }
-        },
-        "deprecated" : true
-      }
-    },
-    "/api/v1/credentials/sessions/{id}" : {
-      "get" : {
-        "tags" : [ "credential-controller" ],
-        "summary" : "Get the current status of a re-authentication session",
-        "operationId" : "status",
-        "parameters" : [ {
-          "name" : "id",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object"
-                }
-              }
-            }
-          }
-        },
-        "deprecated" : true
-      }
-    },
     "/api/v1/conversations/{id}" : {
       "get" : {
         "tags" : [ "conversation-controller" ],
@@ -1602,6 +1442,25 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/AgentSetupDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-logins" : {
+      "get" : {
+        "tags" : [ "agent-login-controller" ],
+        "summary" : "Report which providers have an Agent Login on the home volume",
+        "operationId" : "status",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AgentLoginStatusResponse"
                 }
               }
             }
@@ -2297,27 +2156,6 @@
           }
         },
         "required" : [ "createdAt", "defaultBranch", "id", "name", "projectId", "repoUrl", "updatedAt" ]
-      },
-      "StartCredentialSessionRequest" : {
-        "type" : "object",
-        "properties" : {
-          "provider" : {
-            "type" : "string",
-            "minLength" : 1,
-            "pattern" : "claude|codex"
-          }
-        },
-        "required" : [ "provider" ]
-      },
-      "SubmitRedirectUrlRequest" : {
-        "type" : "object",
-        "properties" : {
-          "url" : {
-            "type" : "string",
-            "minLength" : 1
-          }
-        },
-        "required" : [ "url" ]
       },
       "StartConversationRequest" : {
         "type" : "object",
@@ -3040,41 +2878,6 @@
         },
         "required" : [ "checkedAt", "state" ]
       },
-      "StoredCredentialStatusResponse" : {
-        "type" : "object",
-        "properties" : {
-          "claude" : {
-            "$ref" : "#/components/schemas/StoredProviderCredentialStatus"
-          },
-          "codex" : {
-            "$ref" : "#/components/schemas/StoredProviderCredentialStatus"
-          }
-        },
-        "required" : [ "claude", "codex" ]
-      },
-      "StoredProviderCredentialStatus" : {
-        "type" : "object",
-        "properties" : {
-          "exists" : {
-            "type" : "boolean"
-          },
-          "state" : {
-            "type" : "string"
-          },
-          "valid" : {
-            "type" : [ "boolean", "null" ]
-          },
-          "validatedAt" : {
-            "type" : [ "string", "null" ],
-            "format" : "date-time"
-          },
-          "updatedAt" : {
-            "type" : [ "string", "null" ],
-            "format" : "date-time"
-          }
-        },
-        "required" : [ "exists", "state" ]
-      },
       "ConversationDetailResponse" : {
         "type" : "object",
         "properties" : {
@@ -3238,6 +3041,30 @@
           }
         },
         "required" : [ "claudeCredentialsPvc", "cliTools", "codexCredentialsPvc", "connectorConfig", "createdAt", "defaultMcpProfile", "defaultSelectable", "displayName", "dockerSocketEnabled", "dockerSocketPath", "dockerSocketSupplementalGroups", "gatewayPort", "githubDeployKeySecret", "image", "imagePullPolicy", "knowledgeBaseUrl", "knowledgeBearerSecret", "knowledgeBearerSecretKey", "mcpServersConfigMap", "namespace", "nodeSelector", "selectable", "serviceAccount", "setup", "toolAllowlist", "toolProfiles", "updatedAt" ]
+      },
+      "AgentLoginResponse" : {
+        "type" : "object",
+        "properties" : {
+          "kind" : {
+            "type" : "string"
+          },
+          "present" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "kind", "present" ]
+      },
+      "AgentLoginStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "logins" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AgentLoginResponse"
+            }
+          }
+        },
+        "required" : [ "logins" ]
       }
     },
     "securitySchemes" : {
