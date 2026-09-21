@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   repository-hygiene:
-    uses: 'JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@cc3d3af91778b169ee6ad9cbe2f51653bf5c2f0a' # v0.17.0
+    uses: 'JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@1efce81af819868fb2f5fd99ee7b04a1275845d8' # v0.18.0
