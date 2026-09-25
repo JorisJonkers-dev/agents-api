@@ -17,7 +17,7 @@ ARG CRAC_JDK_SHA256_ARM64=d89f3835ea86c95090892cebc6e7169dd567f740b6bd6ffe8cb9ce
 # The Gradle build produces an architecture-independent jar, so it runs on the
 # builder's native platform. Without this the whole Kotlin build would run under
 # QEMU for the arm64 image, taking far longer for a byte-identical artifact.
-FROM --platform=$BUILDPLATFORM gradle:9.5.1-jdk21-alpine AS build
+FROM --platform=$BUILDPLATFORM gradle:9.7.1-jdk21-alpine AS build
 WORKDIR /app
 
 # Layer 1: Copy only build scripts for dependency caching
@@ -70,7 +70,7 @@ RUN gcc -O2 -Wall -Wextra -Werror -o /run-as-agent /run-as-agent.c -lcap
 # JVM checkpoint to /opt/crac/checkpoint. Used only by the crac-train CI
 # workflow, which never needs the Agent Session tooling, so it stays on the
 # upstream CRaC image rather than paying for the full runtime stage.
-FROM bellsoft/liberica-runtime-container:jdk-21-crac-slim-glibc AS train
+FROM bellsoft/liberica-runtime-container:jdk-21.0.12_11-crac-slim-glibc AS train
 WORKDIR /app
 COPY --from=build /app/api/build/libs/*.jar app.jar
 COPY --from=otel /otel-javaagent.jar otel-javaagent.jar
