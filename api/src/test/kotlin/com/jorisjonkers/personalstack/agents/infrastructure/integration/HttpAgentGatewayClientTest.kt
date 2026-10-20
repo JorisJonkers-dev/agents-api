@@ -246,21 +246,21 @@ class HttpAgentGatewayClientTest {
     }
 
     @Test
-    fun `startHeadlessJob forwards enableKbHooks and partialMessages to gateway`() {
+    fun `startHeadlessJob forwards partialMessages and sends no enableKbHooks`() {
         val builder = RestClient.builder()
         val server = MockRestServiceServer.bindTo(builder).build()
         val client = HttpAgentGatewayClient(builder.build())
         val ws = workspace()
-        val prompt = "run with kb hooks"
+        val prompt = "run with partial messages"
 
         server
             .expect(requestTo("http://runner:8090/agents/headless"))
             .andExpect(method(HttpMethod.POST))
-            .andExpect(jsonPath("$.enableKbHooks").value(true))
+            .andExpect(jsonPath("$.enableKbHooks").doesNotExist())
             .andExpect(jsonPath("$.partialMessages").value(true))
             .andRespond(
                 withSuccess(
-                    """{"id":"job-kbhooks-1","status":"RUNNING","exitCode":null,"output":null}""",
+                    """{"id":"job-partial-1","status":"RUNNING","exitCode":null,"output":null}""",
                     MediaType.APPLICATION_JSON,
                 ),
             )
@@ -271,12 +271,11 @@ class HttpAgentGatewayClientTest {
                     workspace = ws,
                     kind = WorkspaceAgentKind.CLAUDE,
                     prompt = prompt,
-                    enableKbHooks = true,
                     partialMessages = true,
                 ),
             )
 
-        assertThat(job.id).isEqualTo("job-kbhooks-1")
+        assertThat(job.id).isEqualTo("job-partial-1")
         server.verify()
     }
 

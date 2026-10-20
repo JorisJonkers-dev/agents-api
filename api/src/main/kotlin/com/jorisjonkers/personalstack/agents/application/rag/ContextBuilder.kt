@@ -76,10 +76,9 @@ class ContextBuilder(
      * Hook for the coexistence ranking rule (FR-005 / data-model.md).
      *
      * Current behaviour: passthrough — preserves the existing score-descending
-     * sort so the default two-source ordering (LightRAG blob at 1.0 first, then
-     * KB snippets) is unchanged. Feature 016+ should replace this with per-source
-     * caps so a fixed-score-1.0 source cannot crowd out genuinely-scored snippets
-     * when both sources are active.
+     * sort. Feature 016+ should replace this with per-source caps so a
+     * fixed-score-1.0 source cannot crowd out genuinely-scored snippets when
+     * more than one source is active.
      *
      * Note: leaving the implementation as a passthrough is an explicit decision
      * recorded in data-model.md. Do not remove without implementing the cap logic.

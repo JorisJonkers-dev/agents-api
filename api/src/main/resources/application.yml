@@ -127,9 +127,6 @@ agent-runtime:
   claude-credentials-pvc: ${AGENT_RUNTIME_CLAUDE_PVC:claude-credentials}
   codex-credentials-pvc: ${AGENT_RUNTIME_CODEX_PVC:codex-credentials}
   github-deploy-key-secret: ${AGENT_RUNTIME_GH_KEY_SECRET:agents-github-deploy-key}
-  knowledge-base-url: ${AGENT_RUNTIME_KB_URL:http://knowledge-api.knowledge-system.svc.cluster.local:8080}
-  knowledge-bearer-secret: ${AGENT_RUNTIME_KB_BEARER_SECRET:agents-kb-bearer}
-  knowledge-bearer-secret-key: ${AGENT_RUNTIME_KB_BEARER_SECRET_KEY:bearer}
   # Runner MCP profile. Keep default tool count low; wider profiles are
   # opt-ins via AGENT_RUNTIME_DEFAULT_MCP_PROFILE.
   default-mcp-profile: ${AGENT_RUNTIME_DEFAULT_MCP_PROFILE:minimal}
@@ -227,17 +224,13 @@ agent-runtime:
   # that is not mounted means "not signed in yet", never a failed start.
   agent-home: ${AGENT_RUNTIME_AGENT_HOME:/home/agent}
 
-# RAG retrieval / capture configuration.
-# rag.enabled is a deprecated master toggle (false disables both retrieval and
-# capture); use the fine-grained flags below for independent control.
+# RAG retrieval configuration.
+# rag.enabled is a deprecated master toggle (false disables retrieval); use
+# rag.retrieval.enabled instead.
 rag:
   enabled: true                     # deprecated master toggle — remove next release
   retrieval:
     enabled: true                   # rag.retrieval.enabled — gates ContextBuilder
-  capture:
-    enabled: true                   # rag.capture.enabled — gates LessonAutoCapture
   sources:
-    knowledge:
-      enabled: true                 # rag.sources.knowledge.enabled — KB recall source
     lightrag:
       enabled: true                 # rag.sources.lightrag.enabled — LightRAG source

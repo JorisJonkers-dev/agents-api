@@ -272,7 +272,6 @@ internal class RunnerContainerEnvBuilder(
         addAll(baseEnv())
         addAll(setupEnv(setup, runnerGeneration))
         addAll(dockerEnv(setup))
-        addAll(knowledgeEnv(setup))
         addAll(githubAppTokenEnv())
         addAll(repoEnv(workspace))
     }
@@ -385,23 +384,6 @@ internal class RunnerContainerEnvBuilder(
                     .build(),
             )
         }
-
-    // KB_URL + KB_BEARER_TOKEN are the exact names the knowledge-system
-    // install.sh hooks read; without the bearer every hook short-circuits
-    // to a no-op and the knowledge.* MCP tools are unreachable.
-    private fun knowledgeEnv(setup: RunnerSetupProvisioningSpec) =
-        listOf(
-            EnvVarBuilder().withName("KB_URL").withValue(setup.knowledgeBaseUrl).build(),
-            EnvVarBuilder()
-                .withName("KB_BEARER_TOKEN")
-                .withNewValueFrom()
-                .withNewSecretKeyRef()
-                .withName(setup.knowledgeBearerSecret)
-                .withKey(setup.knowledgeBearerSecretKey)
-                .endSecretKeyRef()
-                .endValueFrom()
-                .build(),
-        )
 
     // The bearer is an optional Secret ref: an absent github-app Secret
     // keeps the Pod starting and the `gh` wrapper degrades to a no-op.

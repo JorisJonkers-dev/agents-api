@@ -6,7 +6,6 @@ import com.jorisjonkers.personalstack.agents.application.observability.ModeLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
@@ -28,7 +27,6 @@ class StopAgentSessionDependencies(
     val workspaces: WorkspaceRepository,
     val sessions: AgentSessionRepository,
     val gateway: AgentGatewayClient,
-    val autoCapture: LessonAutoCapture,
     val sessionStatus: SessionStatusPublisher,
     val telemetry: AgentsApiTelemetry = AgentsApiTelemetry.NOOP,
 )
@@ -42,7 +40,6 @@ class StopAgentSessionCommandHandler(
     private val workspaces = dependencies.workspaces
     private val sessions = dependencies.sessions
     private val gateway = dependencies.gateway
-    private val autoCapture = dependencies.autoCapture
     private val sessionStatus = dependencies.sessionStatus
     private val telemetry = dependencies.telemetry
     private val log = LoggerFactory.getLogger(StopAgentSessionCommandHandler::class.java)
@@ -72,10 +69,6 @@ class StopAgentSessionCommandHandler(
                     error("workspace ${session.workspaceId} missing for session ${session.id}")
                 }
         stopActiveSession(session, workspace)
-        // The stop command is a definitive "this session is done"
-        // signal — flush a final auto-capture pass against the
-        // full transcript on the way out.
-        runCatching { autoCapture.capture(session.id) }
     }
 
     // Drops a retained terminal row and notifies clients to remove the tab.

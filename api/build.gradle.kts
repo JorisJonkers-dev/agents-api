@@ -89,10 +89,10 @@ dependencies {
 // unit-testable by registering the IO-bound shells with the shared
 // `jacocoExclusionPatterns` extension from the testing convention.
 //
-// `VaultDeployKeyStore`, `KnowledgeMcpClient`, `LightRagClient` are
+// `VaultDeployKeyStore` and `LightRagClient` are
 // `@ConditionalOnProperty` adapters that only wire when their
 // upstream is available; unit tests can't reach them and the
-// integration tier doesn't yet stand up a Vault / knowledge-api
+// integration tier doesn't yet stand up a Vault / LightRAG
 // fixture for the agents-api integration test suite (the
 // Fabric8 orchestrator integration test covers the k8s side). They
 // follow the same IO-bound exclusion treatment as
@@ -106,7 +106,6 @@ dependencies {
     "**/infrastructure/k8s/**",
     "**/infrastructure/integration/HttpAgentGatewayClient*.class",
     "**/infrastructure/integration/VaultDeployKeyStore*.class",
-    "**/infrastructure/integration/KnowledgeMcpClient*.class",
     "**/infrastructure/integration/LightRagClient*.class",
     "**/infrastructure/ws/**",
 )

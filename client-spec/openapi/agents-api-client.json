@@ -2971,13 +2971,19 @@
             }
           },
           "knowledgeBaseUrl" : {
-            "type" : "string"
+            "type" : "string",
+            "deprecated" : true,
+            "description" : "Retired; always empty."
           },
           "knowledgeBearerSecret" : {
-            "type" : "string"
+            "type" : "string",
+            "deprecated" : true,
+            "description" : "Retired; always empty."
           },
           "knowledgeBearerSecretKey" : {
-            "type" : "string"
+            "type" : "string",
+            "deprecated" : true,
+            "description" : "Retired; always empty."
           },
           "mcpServersConfigMap" : {
             "type" : "string"

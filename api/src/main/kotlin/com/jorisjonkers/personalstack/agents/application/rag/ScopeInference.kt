@@ -3,8 +3,7 @@ package com.jorisjonkers.personalstack.agents.application.rag
 import com.jorisjonkers.personalstack.agents.domain.model.Workspace
 
 /**
- * Picks the knowledge-base scope for an auto-capture from a
- * workspace. Matches the convention recorded in the centralized KB:
+ * Picks the retrieval scope for a workspace:
  *
  *   project:<github-repo-name>  — last path segment of the remote URL
  *                                 minus a trailing `.git`

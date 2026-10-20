@@ -12,6 +12,7 @@ import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupValidationRe
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSetupVersion
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEvent
 import com.jorisjonkers.personalstack.agents.domain.model.SetupRestartEventStatus
+import io.swagger.v3.oas.annotations.media.Schema
 import java.time.Instant
 import java.util.UUID
 
@@ -78,9 +79,15 @@ data class AgentSetupDetailResponse(
     val codexCredentialsPvc: String,
     val githubDeployKeySecret: String,
     val cliTools: Map<String, String>,
-    val knowledgeBaseUrl: String,
-    val knowledgeBearerSecret: String,
-    val knowledgeBearerSecretKey: String,
+    // knowledge-api is retired, so these are always empty. They stay because the
+    // contract gate refuses removing a required response property; they go with
+    // the next move of this endpoint (CLAUDE.md, "Retiring a published endpoint").
+    @get:Schema(deprecated = true, description = "Retired; always empty.")
+    val knowledgeBaseUrl: String = "",
+    @get:Schema(deprecated = true, description = "Retired; always empty.")
+    val knowledgeBearerSecret: String = "",
+    @get:Schema(deprecated = true, description = "Retired; always empty.")
+    val knowledgeBearerSecretKey: String = "",
     val mcpServersConfigMap: String,
     val defaultMcpProfile: String,
     val connectorConfig: Map<String, String>,
@@ -113,9 +120,6 @@ data class AgentSetupDetailResponse(
                 codexCredentialsPvc = definition.codexCredentialsPvc,
                 githubDeployKeySecret = definition.githubDeployKeySecret,
                 cliTools = definition.cliTools,
-                knowledgeBaseUrl = definition.knowledgeBaseUrl,
-                knowledgeBearerSecret = definition.knowledgeBearerSecret,
-                knowledgeBearerSecretKey = definition.knowledgeBearerSecretKey,
                 mcpServersConfigMap = definition.mcpServersConfigMap,
                 defaultMcpProfile = definition.defaultMcpProfile,
                 connectorConfig = definition.connectorConfig.redacted(),

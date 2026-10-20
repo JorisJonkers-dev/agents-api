@@ -187,9 +187,6 @@ open class Fabric8AgentRunnerOrchestratorIntegrationSupport {
             claudeCredentialsPvc = "custom-claude-credentials",
             codexCredentialsPvc = "custom-codex-credentials",
             githubDeployKeySecret = "unused-custom-secret",
-            knowledgeBaseUrl = "http://knowledge.custom.svc.cluster.local:8080",
-            knowledgeBearerSecret = "custom-kb-bearer",
-            knowledgeBearerSecretKey = "custom-bearer",
             mcpServersConfigMap = "custom-mcp-servers",
             mcpProfile = "frontend",
             mcpDir = "/etc/custom-mcp",
@@ -315,8 +312,8 @@ class Fabric8AgentRunnerOrchestratorProvisioningIntegrationTest : Fabric8AgentRu
     }
 
     @Test
-    @DisplayName("provisioned Pod carries KB_URL + KB_BEARER_TOKEN so the knowledge hooks can authenticate")
-    fun provisionedPodCarriesKnowledgeMcpEnv() {
+    @DisplayName("provisioned Pod carries the default runner environment, mounts and isolation")
+    fun provisionedPodCarriesDefaultRunnerEnv() {
         K3sTestSupport.applyProductionRbac(admin)
         saScoped = K3sTestSupport.createServiceAccountScopedClient(k3s)
         val orchestrator = orchestrator(saScoped)
@@ -336,14 +333,6 @@ class Fabric8AgentRunnerOrchestratorProvisioningIntegrationTest : Fabric8AgentRu
             pod.spec.containers
                 .single()
                 .env
-        val kbUrl = env.single { it.name == "KB_URL" }
-        assertThat(kbUrl.value).isEqualTo("http://knowledge-api.knowledge-system.svc.cluster.local:8080")
-        val bearer = env.single { it.name == "KB_BEARER_TOKEN" }
-        // Sourced from the Secret, never hard-coded as a literal value.
-        assertThat(bearer.value).isNull()
-        assertThat(bearer.valueFrom.secretKeyRef.name).isEqualTo("agents-kb-bearer")
-        assertThat(bearer.valueFrom.secretKeyRef.key).isEqualTo("bearer")
-
         // IS_SANDBOX tells Claude Code it is sandboxed so it skips the
         // bypass-permissions warning/acceptance.
         assertThat(env.single { it.name == "IS_SANDBOX" }.value).isEqualTo("1")
@@ -488,9 +477,6 @@ class Fabric8AgentRunnerOrchestratorProvisioningIntegrationTest : Fabric8AgentRu
         assertThat(env["AGENT_GATEWAY_RUNNER_SETUP_VERSION"]?.value).isEqualTo("2")
         assertThat(env["AGENT_GATEWAY_RUNNER_SETUP_HASH"]?.value).isEqualTo("setup-hash-123")
         assertThat(env["AGENT_GATEWAY_RUNNER_GENERATION"]?.value).isEqualTo("7")
-        assertThat(env["KB_URL"]?.value).isEqualTo("http://knowledge.custom.svc.cluster.local:8080")
-        assertThat(env["KB_BEARER_TOKEN"]?.valueFrom?.secretKeyRef?.name).isEqualTo("custom-kb-bearer")
-        assertThat(env["KB_BEARER_TOKEN"]?.valueFrom?.secretKeyRef?.key).isEqualTo("custom-bearer")
         assertThat(env["DOCKER_HOST"]?.value).isEqualTo("unix:///var/run/custom-docker.sock")
         assertThat(env["TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE"]?.value).isEqualTo("/var/run/custom-docker.sock")
     }
