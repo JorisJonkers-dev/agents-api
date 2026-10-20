@@ -33,7 +33,6 @@ internal class HeadlessJobGateway(
         val epoch: Long? = null,
         val continuation: ContinuationBody? = null,
         val timeoutSeconds: Long? = null,
-        val enableKbHooks: Boolean = false,
         val partialMessages: Boolean = false,
     )
 
@@ -58,7 +57,6 @@ internal class HeadlessJobGateway(
                         epoch = request.epoch,
                         continuation = request.continuation?.toBody(),
                         timeoutSeconds = request.timeoutSeconds,
-                        enableKbHooks = request.enableKbHooks,
                         partialMessages = request.partialMessages,
                     ),
                 ).retrieve()

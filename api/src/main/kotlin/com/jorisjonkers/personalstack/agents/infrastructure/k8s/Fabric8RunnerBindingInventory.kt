@@ -50,11 +50,6 @@ class Fabric8RunnerBindingInventory(
             secrets =
                 listOf(
                     secretPresence(namespace, definition.githubDeployKeySecret),
-                    secretPresence(
-                        namespace = namespace,
-                        name = definition.knowledgeBearerSecret,
-                        requiredKeys = listOf(definition.knowledgeBearerSecretKey),
-                    ),
                 ),
             configMaps =
                 listOf(
@@ -211,22 +206,6 @@ class StubRunnerBindingInventory : RunnerBindingInventory {
                     SecretBindingPresence(
                         ref("Secret", definition.namespace, definition.githubDeployKeySecret),
                         true,
-                    ),
-                    SecretBindingPresence(
-                        ref = ref("Secret", definition.namespace, definition.knowledgeBearerSecret),
-                        exists = true,
-                        requiredKeys =
-                            listOf(
-                                SecretKeyPresence(
-                                    ref(
-                                        "Secret",
-                                        definition.namespace,
-                                        definition.knowledgeBearerSecret,
-                                        definition.knowledgeBearerSecretKey,
-                                    ),
-                                    true,
-                                ),
-                            ),
                     ),
                 ),
             configMaps =

@@ -37,15 +37,6 @@ data class AgentRuntimeProperties(
     val claudeCredentialsPvc: String,
     val codexCredentialsPvc: String,
     val githubDeployKeySecret: String,
-    // Base URL of the knowledge-api MCP server the installed Claude
-    // Code hooks read from `KB_URL` (they append `/mcp` themselves).
-    // The in-cluster address skips edge + forward-auth, which a CLI
-    // can't satisfy.
-    val knowledgeBaseUrl: String = "http://knowledge-api.knowledge-system.svc.cluster.local:8080",
-    // Secret the hooks' `KB_BEARER_TOKEN` is sourced from; projected
-    // from Vault by the agents-kb-bearer VaultStaticSecret.
-    val knowledgeBearerSecret: String = "agents-kb-bearer",
-    val knowledgeBearerSecretKey: String = "bearer",
     // ConfigMap (mounted at /etc/agent-mcp) whose claude-mcp-servers.json
     // the entrypoint seeds into Claude Code's mcpServers. Optional mount,
     // so an absent ConfigMap just means no managed MCP servers.
@@ -220,9 +211,6 @@ data class AgentRuntimeProperties(
             codexCredentialsPvc = resolved.codexCredentialsPvc,
             githubDeployKeySecret = resolved.githubDeployKeySecret,
             cliTools = resolved.cliTools,
-            knowledgeBaseUrl = resolved.knowledgeBaseUrl,
-            knowledgeBearerSecret = resolved.knowledgeBearerSecret,
-            knowledgeBearerSecretKey = resolved.knowledgeBearerSecretKey,
             mcpServersConfigMap = resolved.mcpServersConfigMap,
             defaultMcpProfile = resolved.defaultMcpProfile,
             connectorConfig = connectorConfig.orEmpty(),
@@ -284,9 +272,6 @@ data class AgentSetupProperties(
     val codexCredentialsPvc: String? = null,
     val githubDeployKeySecret: String? = null,
     val cliTools: Map<String, String>? = null,
-    val knowledgeBaseUrl: String? = null,
-    val knowledgeBearerSecret: String? = null,
-    val knowledgeBearerSecretKey: String? = null,
     val mcpServersConfigMap: String? = null,
     val defaultMcpProfile: String? = null,
     val connectorConfig: Map<String, String>? = null,
@@ -314,9 +299,6 @@ private class AgentSetupResolution(
     val codexCredentialsPvc: String = setup.codexCredentialsPvc ?: defaults.codexCredentialsPvc
     val githubDeployKeySecret: String = setup.githubDeployKeySecret ?: defaults.githubDeployKeySecret
     val cliTools: Map<String, String> = setup.cliTools ?: AgentRuntimeProperties.DEFAULT_CLI_TOOLS
-    val knowledgeBaseUrl: String = setup.knowledgeBaseUrl ?: defaults.knowledgeBaseUrl
-    val knowledgeBearerSecret: String = setup.knowledgeBearerSecret ?: defaults.knowledgeBearerSecret
-    val knowledgeBearerSecretKey: String = setup.knowledgeBearerSecretKey ?: defaults.knowledgeBearerSecretKey
     val mcpServersConfigMap: String = setup.mcpServersConfigMap ?: defaults.mcpServersConfigMap
     val defaultMcpProfile: String = setup.defaultMcpProfile ?: defaults.defaultMcpProfile
     val toolProfiles: List<String> = setup.toolProfiles ?: listOf(defaultMcpProfile)

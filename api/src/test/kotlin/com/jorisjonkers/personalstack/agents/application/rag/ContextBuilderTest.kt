@@ -12,11 +12,9 @@ class ContextBuilderTest {
     private class RagOptions {
         var enabled: Boolean = true
         var retrievalEnabled: Boolean = true
-        var captureEnabled: Boolean = true
         var maxSnippets: Int = 5
         var maxContextChars: Int = 4_000
         var minScore: Double = 0.0
-        var recallMode: String = "deep"
     }
 
     private fun props(configure: RagOptions.() -> Unit = {}): RagProperties {
@@ -24,14 +22,10 @@ class ContextBuilderTest {
         return RagProperties(
             enabled = options.enabled,
             retrieval = RagProperties.RetrievalFlags(enabled = options.retrievalEnabled),
-            capture = RagProperties.CaptureFlags(enabled = options.captureEnabled),
-            knowledgeMcpUrl = "http://kb:8080",
-            knowledgeMcpToken = "",
             lightragUrl = "http://lightrag:9621",
             maxSnippets = options.maxSnippets,
             maxContextChars = options.maxContextChars,
             minScore = options.minScore,
-            recallMode = options.recallMode,
         )
     }
 
@@ -183,18 +177,10 @@ class ContextBuilderTest {
     // --- new tests for flag-split and per-source conditional ---
 
     @Test
-    fun `augment returns plain prompt when retrieval flag is off regardless of capture flag`() {
+    fun `augment returns plain prompt when retrieval flag is off`() {
         val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "should not appear", 0.9)))
         val builder = ContextBuilder(listOf(source), props { retrievalEnabled = false }, registry)
         assertThat(builder.augment("q")).isEqualTo("q")
-    }
-
-    @Test
-    fun `augment injects context when retrieval is on even if capture flag is off`() {
-        val source = FakeSource(listOf(RetrievalPort.Snippet("kb:a", "snippet text", 0.9)))
-        val builder = ContextBuilder(listOf(source), props { captureEnabled = false }, registry)
-        val out = builder.augment("q")
-        assertThat(out).contains("snippet text")
     }
 
     @Test

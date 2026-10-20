@@ -147,7 +147,6 @@ class RunnerPodChatGeneratorTest {
                 backend = "runner-pod",
                 runnerPodWorkspaceId = wsId,
                 runnerPodAgentKind = WorkspaceAgentKind.CODEX,
-                runnerPodEnableKbHooks = false,
             )
         val workspace = stubWorkspace(wsId, "http://gateway:8080")
         val workspaceRepo = mockk<WorkspaceRepository>()
@@ -168,38 +167,10 @@ class RunnerPodChatGeneratorTest {
         assertThat(capturedRequest.captured.kind).isEqualTo(WorkspaceAgentKind.CODEX)
         // prompt is forwarded
         assertThat(capturedRequest.captured.prompt).isEqualTo("my prompt")
-        // kb hooks default off
-        assertThat(capturedRequest.captured.enableKbHooks).isFalse()
         // partial-messages always on for SSE streaming
         assertThat(capturedRequest.captured.partialMessages).isTrue()
         // workspace object is the resolved one
         assertThat(capturedRequest.captured.workspace).isSameAs(workspace)
-    }
-
-    @Test
-    fun `startHeadlessJob forwards enableKbHooks=true when configured`() {
-        val wsId = "33333333-3333-4333-8333-333333333333"
-        val props =
-            ChatGenerationProperties(
-                backend = "runner-pod",
-                runnerPodWorkspaceId = wsId,
-                runnerPodAgentKind = WorkspaceAgentKind.CLAUDE,
-                runnerPodEnableKbHooks = true,
-            )
-        val workspace = stubWorkspace(wsId, "http://gateway:8080")
-        val workspaceRepo = mockk<WorkspaceRepository>()
-        every { workspaceRepo.findById(WorkspaceId.parse(wsId)) } returns workspace
-
-        val capturedRequest = slot<AgentGatewayClient.HeadlessJobRequest>()
-        val gateway = mockk<AgentGatewayClient>()
-        every { gateway.startHeadlessJob(capture(capturedRequest)) } throws RuntimeException("stream not needed")
-
-        val restClient = mockk<RestClient>()
-        val generator = RunnerPodChatGenerator(gateway, restClient, workspaceRepo, props)
-
-        generator.generate("kb prompt") {}
-
-        assertThat(capturedRequest.captured.enableKbHooks).isTrue()
     }
 
     @Test

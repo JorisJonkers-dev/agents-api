@@ -39,9 +39,6 @@ class JooqAgentSetupRepository(
             .set(CODEX_CREDENTIALS_PVC, definition.codexCredentialsPvc)
             .set(GITHUB_DEPLOY_KEY_SECRET, definition.githubDeployKeySecret)
             .set(CLI_TOOLS, writeJson(definition.cliTools))
-            .set(KNOWLEDGE_BASE_URL, definition.knowledgeBaseUrl)
-            .set(KNOWLEDGE_BEARER_SECRET, definition.knowledgeBearerSecret)
-            .set(KNOWLEDGE_BEARER_SECRET_KEY, definition.knowledgeBearerSecretKey)
             .set(MCP_SERVERS_CONFIG_MAP, definition.mcpServersConfigMap)
             .set(DEFAULT_MCP_PROFILE, definition.defaultMcpProfile)
             .set(CONNECTOR_CONFIG, writeJson(definition.connectorConfig))
@@ -66,9 +63,6 @@ class JooqAgentSetupRepository(
             .set(CODEX_CREDENTIALS_PVC, definition.codexCredentialsPvc)
             .set(GITHUB_DEPLOY_KEY_SECRET, definition.githubDeployKeySecret)
             .set(CLI_TOOLS, writeJson(definition.cliTools))
-            .set(KNOWLEDGE_BASE_URL, definition.knowledgeBaseUrl)
-            .set(KNOWLEDGE_BEARER_SECRET, definition.knowledgeBearerSecret)
-            .set(KNOWLEDGE_BEARER_SECRET_KEY, definition.knowledgeBearerSecretKey)
             .set(MCP_SERVERS_CONFIG_MAP, definition.mcpServersConfigMap)
             .set(DEFAULT_MCP_PROFILE, definition.defaultMcpProfile)
             .set(CONNECTOR_CONFIG, writeJson(definition.connectorConfig))
@@ -191,9 +185,6 @@ class JooqAgentSetupRepository(
             codexCredentialsPvc = this[field(prefix, "codex_credentials_pvc", String::class.java)],
             githubDeployKeySecret = this[field(prefix, "github_deploy_key_secret", String::class.java)],
             cliTools = readMap(this[field(prefix, "cli_tools", String::class.java)]),
-            knowledgeBaseUrl = this[field(prefix, "knowledge_base_url", String::class.java)],
-            knowledgeBearerSecret = this[field(prefix, "knowledge_bearer_secret", String::class.java)],
-            knowledgeBearerSecretKey = this[field(prefix, "knowledge_bearer_secret_key", String::class.java)],
             mcpServersConfigMap = this[field(prefix, "mcp_servers_config_map", String::class.java)],
             defaultMcpProfile = this[field(prefix, "default_mcp_profile", String::class.java)],
             connectorConfig = readMap(this[field(prefix, "connector_config", String::class.java)]),
@@ -273,12 +264,6 @@ class JooqAgentSetupRepository(
         @JvmStatic val GITHUB_DEPLOY_KEY_SECRET = DSL.field("github_deploy_key_secret", String::class.java)
 
         @JvmStatic val CLI_TOOLS = DSL.field("cli_tools", String::class.java)
-
-        @JvmStatic val KNOWLEDGE_BASE_URL = DSL.field("knowledge_base_url", String::class.java)
-
-        @JvmStatic val KNOWLEDGE_BEARER_SECRET = DSL.field("knowledge_bearer_secret", String::class.java)
-
-        @JvmStatic val KNOWLEDGE_BEARER_SECRET_KEY = DSL.field("knowledge_bearer_secret_key", String::class.java)
 
         @JvmStatic val MCP_SERVERS_CONFIG_MAP = DSL.field("mcp_servers_config_map", String::class.java)
 

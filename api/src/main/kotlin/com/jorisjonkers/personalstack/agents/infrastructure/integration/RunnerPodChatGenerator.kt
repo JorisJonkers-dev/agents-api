@@ -29,8 +29,8 @@ import java.util.UUID
  *
  * Using the shared gateway client (step 2) ensures the job is submitted through
  * the same typed request path as [StartHeadlessJobCommandHandler], so
- * [AgentGatewayClient.HeadlessJobRequest.enableKbHooks] and any future
- * request-level fields are honoured uniformly.
+ * request-level fields such as
+ * [AgentGatewayClient.HeadlessJobRequest.partialMessages] are honoured uniformly.
  *
  * Active only when `chat.generation.backend=runner-pod`.
  */
@@ -100,7 +100,6 @@ class RunnerPodChatGenerator(
                         workspace = workspace,
                         kind = props.runnerPodAgentKind,
                         prompt = prompt,
-                        enableKbHooks = props.runnerPodEnableKbHooks,
                         // Token-level streaming is always enabled for chat-generation runs so
                         // the SseChatAccumulator receives incremental deltas rather than waiting
                         // for the full assistant turn before delivering any output.

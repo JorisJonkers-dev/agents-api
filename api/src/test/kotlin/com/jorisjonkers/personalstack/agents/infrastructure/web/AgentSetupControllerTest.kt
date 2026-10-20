@@ -95,6 +95,20 @@ class AgentSetupControllerTest {
     }
 
     @Test
+    fun `GET agent setup detail keeps the retired knowledge fields present and empty`() {
+        val entry = entry()
+        every { setups.findDefinition(entry.definition.id, entry.definition.version) } returns entry.definition
+        every { setups.findAvailability(entry.definition.id, entry.definition.version) } returns entry.availability
+
+        mockMvc
+            .perform(get("/api/v1/agent-setups/standard/versions/1"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.knowledgeBaseUrl").value(""))
+            .andExpect(jsonPath("$.knowledgeBearerSecret").value(""))
+            .andExpect(jsonPath("$.knowledgeBearerSecretKey").value(""))
+    }
+
+    @Test
     fun `GET session setup returns current pending and latest failed setup`() {
         val session =
             session().copy(
@@ -263,9 +277,6 @@ class AgentSetupControllerTest {
         codexCredentialsPvc = "codex-creds",
         githubDeployKeySecret = "deploy-key",
         cliTools = emptyMap(),
-        knowledgeBaseUrl = "http://kb",
-        knowledgeBearerSecret = "kb-secret",
-        knowledgeBearerSecretKey = "token",
         mcpServersConfigMap = "mcp",
         defaultMcpProfile = "minimal",
         connectorConfig = connectorConfig,

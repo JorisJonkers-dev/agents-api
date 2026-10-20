@@ -151,9 +151,6 @@ class RunnerSetupTargetResolverTest {
         every { def.codexCredentialsPvc } returns "creds"
         every { def.githubDeployKeySecret } returns "key"
         every { def.cliTools } returns mapOf("claude" to "default")
-        every { def.knowledgeBaseUrl } returns "http://kb"
-        every { def.knowledgeBearerSecret } returns "sec"
-        every { def.knowledgeBearerSecretKey } returns "bearer"
         every { def.mcpServersConfigMap } returns "cm"
         every { def.defaultMcpProfile } returns "minimal"
         every { def.connectorConfig } returns emptyMap()

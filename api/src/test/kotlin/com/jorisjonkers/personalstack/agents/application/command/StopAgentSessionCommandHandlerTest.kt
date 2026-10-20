@@ -4,7 +4,6 @@ import com.jorisjonkers.personalstack.agents.application.observability.AgentsApi
 import com.jorisjonkers.personalstack.agents.application.observability.FailureReasonLabel
 import com.jorisjonkers.personalstack.agents.application.observability.OperationTelemetry
 import com.jorisjonkers.personalstack.agents.application.observability.OutcomeLabel
-import com.jorisjonkers.personalstack.agents.application.rag.LessonAutoCapture
 import com.jorisjonkers.personalstack.agents.application.sessionstatus.SessionStatusPublisher
 import com.jorisjonkers.personalstack.agents.config.AgentRuntimeProperties
 import com.jorisjonkers.personalstack.agents.domain.model.AgentSession
@@ -39,7 +38,6 @@ class StopAgentSessionCommandHandlerTest {
     private val workspaces = mockk<WorkspaceRepository>()
     private val sessions = mockk<AgentSessionRepository>()
     private val gateway = mockk<AgentGatewayClient>(relaxed = true)
-    private val autoCapture = mockk<LessonAutoCapture>(relaxed = true)
     private val runtime = runtimeProperties()
     private val sessionStatus = mockk<SessionStatusPublisher>(relaxed = true)
     private val telemetry = RecordingTelemetry()
@@ -50,7 +48,6 @@ class StopAgentSessionCommandHandlerTest {
                     workspaces = workspaces,
                     sessions = sessions,
                     gateway = gateway,
-                    autoCapture = autoCapture,
                     sessionStatus = sessionStatus,
                     telemetry = telemetry,
                 ),
@@ -92,7 +89,6 @@ class StopAgentSessionCommandHandlerTest {
                 ),
             )
         }
-        verify { autoCapture.capture(session.id) }
         verify {
             sessionStatus.publishStatus(
                 match { it.id == session.id && it.status == AgentSessionStatus.STOPPED },
