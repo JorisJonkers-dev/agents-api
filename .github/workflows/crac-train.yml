@@ -10,7 +10,7 @@ permissions:
 jobs:
   crac-train:
     name: CRaC Train
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/crac-train.yml@583993e5865cd5b8761fe52db5843130fb107c51 # v0.34.2
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/crac-train.yml@618d5851b22d2c46d4234deaa07e0f1950e2b65d # v0.34.3
     with:
       service-matrix: >-
         [
