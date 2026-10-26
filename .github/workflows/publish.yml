@@ -23,7 +23,7 @@ permissions: {}
 jobs:
   # -- 1. Build and push the container image --------------------------------
   publish-image:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/container-publish.yml@618d5851b22d2c46d4234deaa07e0f1950e2b65d # v0.34.3
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/container-publish.yml@f2180a482b63756affde537233881fa12e65df70 # v0.35.0
     with:
       platforms: linux/amd64,linux/arm64
       image-name: agents-api/agents-api
@@ -99,7 +99,7 @@ jobs:
   # -- 3. Render and publish the deploy artifact ----------------------------
   publish-deploy-artifact:
     needs: [resolve-image-lock]
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-artifact.yml@618d5851b22d2c46d4234deaa07e0f1950e2b65d # v0.34.3
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-artifact.yml@f2180a482b63756affde537233881fa12e65df70 # v0.35.0
     with:
       ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
       artifact-name: agents-api
