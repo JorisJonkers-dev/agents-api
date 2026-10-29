@@ -51,10 +51,10 @@ dependencies {
     // ApplicationTracingAspect in kotlin-commons-observability to take effect.
     // Spring Boot 4 doesn't ship a starter-aop shortcut.
     implementation("org.springframework:spring-aop")
-    implementation("org.aspectj:aspectjweaver:1.9.25.1")
+    implementation("org.aspectj:aspectjweaver:1.9.26")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-amqp")
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.springframework.boot:spring-boot-starter-jooq")
@@ -78,7 +78,7 @@ dependencies {
     // lifecycle. Server-side apply, no informer cache (one-shot CRUD
     // is enough), pulled in with the kubernetes-client-bom to keep
     // model + httpclient versions aligned.
-    implementation(platform("io.fabric8:kubernetes-client-bom:7.7.0"))
+    implementation(platform("io.fabric8:kubernetes-client-bom:7.9.0"))
     implementation("io.fabric8:kubernetes-client")
     testImplementation("io.fabric8:kubernetes-server-mock")
 }
